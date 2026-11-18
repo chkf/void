@@ -65,9 +65,16 @@ struct ProjectSourceReader {
         do { return try kind(url,key) }
         catch let issue as DirectoryIssue where issue.kind == .missing { return nil }
     }
-    func list(_ directory: URL, _ key: String) throws -> [URL] {
+    func list(_ directory: URL, _ key: String, trace: DirectoryTrace? = nil, io: DirectoryIO? = nil) throws -> [URL] {
         do {
-            let parent = Self.canonical(directory), urls = try children(directory)
+            let parent = Self.canonical(directory)
+            var urls = try children(directory)
+            if urls.isEmpty {
+                // File Provider can briefly return an empty first listing while materializing a directory.
+                try io?.check()
+                trace?.event("scan.retryEmpty")
+                urls = try children(directory)
+            }
             return try urls.compactMap { url in
                 let name = url.lastPathComponent
                 guard !name.hasPrefix(".") else { return nil }
@@ -76,7 +83,8 @@ struct ProjectSourceReader {
                 }
                 return directory.appendingPathComponent(name)
             }
-        } catch { throw DirectoryIssue.reading(error,item:key) }
+        } catch is CancellationError { throw CancellationError() }
+        catch { throw DirectoryIssue.reading(error,item:key) }
     }
     private func read(_ url: URL, _ key: String, root: URL) throws -> Data {
         guard try kind(url,key) == .file else { throw DirectoryIssue(kind:.wrongType,item:key) }
@@ -143,7 +151,7 @@ struct ProjectSourceReader {
         func walk(_ dir: URL, _ prefix: String) throws {
             try io?.check()
             guard Self.canonical(dir).starts(with:boundary) else { throw DirectoryIssue(kind:.outside,item:prefix) }
-            for url in try list(dir,prefix) {
+            for url in try list(dir,prefix,trace:trace,io:io) {
                 try io?.check()
                 let key = prefix + "/" + url.lastPathComponent
                 if key == manifest || key == entry, files[key] != nil { listedRequired.insert(key); continue }

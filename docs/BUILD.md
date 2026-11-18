@@ -8,7 +8,7 @@ GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.
 | void-simulator | 解压内层 ZIP 后可用 `xcrun simctl install booted VoidHost.app` 安装到兼容的 iPhone 模拟器。 |
 | void-tests | 解压后用 Xcode 打开 xcresult，查看各用例、失败截图及运行设备。 |
 
-向仓库推送 `v` 开头的版本标签会触发发布。arm64 包校验和 iPhone 模拟器测试全部通过后，发布任务核对 GitHub 返回的 SHA-256 并公开下载。含连字符的标签会发布为预发布版本。[版本下载](https://github.com/chkf/void/releases)
+向仓库推送 `v` 开头的版本标签会触发发布。发布任务核对 arm64 安装包和 GitHub 附件的 SHA-256。稳定版还需通过模拟器测试。`-dev.` 开发包在发布页注明同一提交的模拟器结果，便于原位验证真机问题。[版本下载](https://github.com/chkf/void/releases)
 
 原位更新请沿用旧版的签名团队、实际 Bundle ID 和已有应用标识配置，覆盖安装，保留其数据容器。安装后直接打开原来的最近项目，也可在项目「管理」中点「重新扫描并预览」。同名副本和其他签名身份会得到不同的访问条件。
 

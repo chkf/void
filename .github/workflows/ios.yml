@@ -85,7 +85,9 @@ jobs:
 
   release:
     name: 发布 iPhone 安装包
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.iphone.result == 'success' &&
+          (needs.simulator.result == 'success' || contains(github.ref_name, '-dev.')) }}
     needs: [iphone, simulator]
     runs-on: ubuntu-latest
     permissions:
@@ -100,6 +102,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          SIMULATOR_RESULT: ${{ needs.simulator.result }}
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
@@ -107,11 +110,17 @@ jobs:
           digest="sha256:$(sha256sum "$ipa" | cut -d' ' -f1)"
           prerelease=()
           if [[ "$tag" == *-* ]]; then prerelease=(--prerelease); fi
+          simulator_note='同一提交的 iPhone 模拟器测试已通过。'
+          if [[ "$SIMULATOR_RESULT" != success ]]; then
+            simulator_note='同一提交的模拟器测试尚未全部通过，具体执行结果见下方测试记录。'
+          fi
           notes="$RUNNER_TEMP/void-release.md"
           cat > "$notes" <<EOF
           下载下方的 **void-unsigned.ipa**。适用于 iOS 17 及以上的 iPhone，安装前需要使用自己的 Apple 签名。
 
-          本版修复原生目录扫描与系统文件选择流程，包含本机项目扫描和目录诊断。请使用原安装的签名团队和相同 App ID 原位更新。保留原项目目录、登记和数据库，打开原最近项目即可预览。
+          本版直接读取项目清单和入口，并分别记录文件选择、授权和扫描结果。请沿用旧版的签名团队和实际 Bundle ID 覆盖安装，从最近项目打开原目录，或在「管理」点「重新扫描并预览」。
+
+          $simulator_note 原 iPhone 上的系统 Open、原「健身记录」预览和训练保存仍待真机验证。
 
           [SDK 接口与权限](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/SDK_REFERENCE.md) · [真机签名说明](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/BUILD.md)
 

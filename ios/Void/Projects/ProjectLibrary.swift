@@ -163,7 +163,7 @@ actor ProjectLibrary {
             }
             if !localRoot, try hasProject(root) { return [grant] }
             var found: [FolderGrant] = []
-            for child in try reader.list(root,"项目列表").sorted(by:{$0.lastPathComponent < $1.lastPathComponent}) {
+            for child in try reader.list(root,"项目列表",trace:trace,io:io).sorted(by:{$0.lastPathComponent < $1.lastPathComponent}) {
                 try io.check()
                 guard !["data","logs"].contains(child.lastPathComponent) else { continue }
                 let type: ProjectSourceReader.Kind?
@@ -198,7 +198,7 @@ actor ProjectLibrary {
         let local = FolderGrant(bookmark:nil,child:"")
         let match: FolderGrant? = try local.coordinated(io:io,trace:trace) { root in
             let reader = ProjectSourceReader()
-            for url in try reader.list(root,"本机项目") {
+            for url in try reader.list(root,"本机项目",trace:trace,io:io) {
                 try io.check()
                 guard (try? directoryKey(url)) == record.directoryKey else { continue }
                 return FolderGrant(bookmark:nil,child:url.lastPathComponent)

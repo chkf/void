@@ -88,6 +88,22 @@ final class DirectoryTests: XCTestCase {
         }
     }
 
+    func testFirstEmptyProviderListingRetriesOnceAndKeepsRelativeImports() throws {
+        let ordinary = ProjectSourceReader(), trace = DirectoryTrace("scan-test")
+        var reader = ordinary
+        var counts = [String:Int]()
+        reader.children = { directory in
+            let name = directory.lastPathComponent
+            counts[name,default:0] += 1
+            if counts[name] == 1 { return [] }
+            return try ordinary.children(directory)
+        }
+        let snapshot = try reader.snapshot(root,allowMissingEntry:false,trace:trace,io:nil)
+        XCTAssertEqual(counts,["app":2,"src":2])
+        XCTAssertEqual(snapshot.files["app/src/detail.ts"],Data("export const title = '首次预览';".utf8))
+        XCTAssertEqual(DirectoryJournal.shared.recent().filter { $0.request == trace.id && $0.stage == "scan.retryEmpty" }.count,2)
+    }
+
     func testRequiredFileDiagnosticsAndRegistrationAreNonDestructive() async throws {
         let url = root.appendingPathComponent("app/manifest.json"), library = ProjectLibrary(base:store)
         try fm.removeItem(at:url)
