@@ -24,28 +24,48 @@ print(name, "iOS " + ".".join(map(str, version)), file=sys.stderr)
 print(udid)' "$(xcrun --sdk iphonesimulator --show-sdk-version)" "${VOID_IOS_SDK:-}"
 }
 
-# This second, simulator-only Files container exercises an external security-scoped
-# selection. Its real Documents root contains the checked-in TSX regression fixture.
+# Seed a user folder in the dedicated simulator's local Files provider. The host
+# app still needs a real pick and security scope to read any of these files.
 install_picker_fixture() {
-  local device="$1" staging fixture_app fixture_id data
-  fixture_id=app.chkf.void.pickerfixture
-  staging=$(mktemp -d "$out/files-fixture.XXXXXX")
-  fixture_app="$staging/VoidFilesQA.app"
-  ditto "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$fixture_app"
-  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $fixture_id" "$fixture_app/Info.plist"
-  /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Void Files QA' "$fixture_app/Info.plist"
-  /usr/libexec/PlistBuddy -c 'Set :CFBundleName VoidFilesQA' "$fixture_app/Info.plist"
-  codesign --force --sign - --timestamp=none "$fixture_app"
-  xcrun simctl install "$device" "$fixture_app"
-  data=$(xcrun simctl get_app_container "$device" "$fixture_id" data)
-  if [[ ! -e "$data/Documents/runtime.json" && ! -e "$data/Documents/app" ]]; then
-    ditto ios/TSXProject/app "$data/Documents/app"
-    cp ios/TSXProject/runtime.json "$data/Documents/runtime.json"
-  fi
-  cmp ios/TSXProject/runtime.json "$data/Documents/runtime.json"
-  cmp ios/TSXProject/app/manifest.json "$data/Documents/app/manifest.json"
-  xcrun simctl launch "$device" "$fixture_id"
-  xcrun simctl terminate "$device" "$fixture_id"
+  local device="$1" files_data
+  xcrun simctl launch "$device" com.apple.DocumentsApp
+  files_data=$(xcrun simctl get_app_container "$device" com.apple.DocumentsApp data)
+  python3 - "$files_data" "$device" <<'PY'
+import pathlib, plistlib, shutil, sys, time, uuid
+
+app_data = pathlib.Path(sys.argv[1]).resolve()
+device_id = uuid.UUID(sys.argv[2])
+containers = next(p for p in app_data.parents if p.name == "Containers")
+if containers.parent.name != "data" or uuid.UUID(containers.parent.parent.name) != device_id:
+    raise SystemExit("无法核实测试模拟器的文稿容器")
+root = None
+for attempt in range(30):
+    for group in (containers / "Shared" / "AppGroup").iterdir():
+        try:
+            with (group / ".com.apple.mobile_container_manager.metadata.plist").open("rb") as stream:
+                identifier = plistlib.load(stream)["MCMMetadataIdentifier"]
+        except (OSError, ValueError, KeyError):
+            continue
+        if identifier.lower() != "group.com.apple.fileprovider.localstorage":
+            continue
+        candidate = group / "File Provider Storage"
+        if not candidate.is_symlink() and candidate.is_dir():
+            root = candidate
+            break
+    if root:
+        break
+    time.sleep(1)
+if not root:
+    raise SystemExit("独立测试模拟器未提供本地 Files 文稿位置")
+target = root / "Void Files QA"
+template = pathlib.Path("ios/TSXProject")
+if not target.exists():
+    shutil.copytree(template, target)
+if target.is_symlink() or (target / "runtime.json").read_bytes() != (template / "runtime.json").read_bytes():
+    raise SystemExit("独立 Files 测试目录的身份不符")
+print("已在模拟器本地 File Provider 准备外部 TSX 测试目录")
+PY
+  xcrun simctl terminate "$device" com.apple.DocumentsApp
 }
 
 case "${1:-device}" in

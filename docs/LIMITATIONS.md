@@ -1,5 +1,23 @@
 # 验证范围
 
+## v0.1.0-dev.4 原生目录打开
+
+已从公开 Release 下载并校验构建号 4 的 arm64 IPA。文件大小为 5,998,639 字节，SHA-256 为 `2813fed0e3953bc3102999a5fa9781fbdd5a651485709a2078382f6df4e0e238`。包内标识 `app.chkf.void` 与 dev.3 一致，最低 iOS 17.0，使用 Xcode 27.2（27B52）及 iOS 27.2 SDK 构建。原位更新需沿用旧版的实际签名和应用标识。[发布附件](https://github.com/chkf/void/releases/tag/v0.1.0-dev.4) · [源码提交](https://github.com/chkf/void/commit/c3aef51cd5dfd05822a5eea10451ce4f49905832)
+
+标签提交通过 29 项原生单元与运行时测试、6 项离线工具链测试，以及本机文稿扫描导入 TSX、手动重新扫描和 SwiftUI 冷启动界面测试。该轮另有两项界面失败。一次 XCTest 点击系统取消超时，另一次 Files 实际返回 Documents 上级目录，宿主发现 3 个项目，测试预期的单项目断言失败。[标签模拟器与 Xcode 报告](https://github.com/chkf/void/actions/runs/44372208847/job/135041747351) · [工具链与 iPhone 构建](https://github.com/chkf/void/actions/runs/44372208847/job/135041746964)
+
+本版直接检查同一授权目录里的 `app/manifest.json` 和实际入口。模拟器上的真实目录复现了一个 dev.3 缺陷。把带隐藏属性的点号临时文件原子替换为正常文件名后，旧枚举漏掉了清单。新版同时读到了清单、TSX 入口和相对依赖。只读、读取拒绝、缺失、JSON 损坏、符号链接和路径别名分别有回归。提供商漏列条目、未给出文件类型、尚未下载和暂时不可用通过可控输入验证。[目录测试源码](../ios/VoidTests/DirectoryTests.swift)
+
+模拟器验证了原登记 UUID、runtime ID、权限选择、构建文件和原 SQLite 数值在目录重新登记后均可读回。真实文件协调器被另一项协调操作占用时，取消或超时会结束当前请求，延迟回调不能提交过期结果。[目录身份测试](../ios/VoidTests/DirectoryTests.swift) · [取消与协调测试](../ios/VoidTests/FolderRequestTests.swift)
+
+本次没有可访问的已配对 iPhone。原「健身记录」上的 Open 停点、原项目预览和训练保存仍待真机验证。安装后可直接点原最近项目，或在「管理」点「重新扫描并预览」。需要定位时从「目录诊断」查看同一请求的选择、关闭、授权、扫描和结果。[目录诊断说明](FILESYSTEM.md)
+
+在 iPhone 模拟器的系统 Files 中实际按下 Open，从列表导入尚未登记的目录。选择回调只出现一次，136 毫秒后记录到关闭，随后读到 TSX 首屏。「管理」重新选择同一目录时也只回调一次，58 毫秒后记录到关闭，原项目身份核验成功。同一次运行中，另一个取消用例在 XCTest 读取系统界面时超时。[系统 Open、回调与 TSX 首屏实测](https://github.com/chkf/void/actions/runs/44371016095/job/135037483162)
+
+同一套宿主代码在后续模拟器回归中通过列表取消、管理取消以及在选择器显示期间结束进程再启动的测试，两条取消路径均留下各自的请求结果。该轮外部文稿测试实际选到了系统服务商的根目录，宿主关闭选择器并给出“此目录没有可识别的项目”。另一次本机目录已经扫描成功，随后等待 TSX 页面启动超时。[取消、外部授权与中断恢复记录](https://github.com/chkf/void/actions/runs/44373037031/job/135044703003)
+
+## 较早版本
+
 已重新下载并校验 `v0.1.0-dev.3` 的未签名 arm64 IPA。附件为 5,857,892 字节，SHA-256 为 `7dcbf919cea7ede902814f9b3b3f21073242ff3aa20db62b2787d742ab45b3f3`。包内记录为 Xcode 27.2（27B52）、iOS 27.2 SDK、最低 iOS 17.0、构建号 3。归档内包含 SwiftUI 和 TSX 模板、18 组 156 个注册方法、类型定义及离线开发手册。[Release 附件](https://github.com/chkf/void/releases/tag/v0.1.0-dev.3) · [发布构建](https://github.com/chkf/void/actions/runs/44338862849)
 
 `v0.1.0-dev.3` 的同一提交在 iPhone 17、iOS 27.2 模拟器通过 15 项单元与运行时测试及 1 项界面测试。测试从 TSX 写入中文文件，关闭项目后读回原值，并检查文件隔离、权限拒绝、SQLite 事务回滚、Keychain 存取、加密解密和 HTTP 下载。测试在临时模拟器上增删改了联系人、日历事件和提醒，保存并回读照片，还取得了预设的位置。音视频和图像测试使用生成的媒体文件。界面测试覆盖新建后手动预览、重启和滑动移除最近记录。[模拟器测试记录](https://github.com/chkf/void/actions/runs/44335111783/job/134909575787)

@@ -29,7 +29,15 @@ final class FolderPickerTests: XCTestCase {
             }
             XCTAssertTrue(container.waitForExistence(timeout:45),app.debugDescription)
             container.tap()
+            if !manifestFolder.waitForExistence(timeout:8), container.exists && container.isHittable {
+                container.doubleTap()
+            }
+            XCTAssertTrue(manifestFolder.waitForExistence(timeout:30),app.debugDescription)
         }
+        pressSystemOpen()
+    }
+
+    private func pressSystemOpen() {
         let selectable = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == true AND enabled == true"),object:openButton)
         XCTAssertEqual(XCTWaiter.wait(for:[selectable],timeout:30),.completed,app.debugDescription)
         openButton.tap()
@@ -48,18 +56,18 @@ final class FolderPickerTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for:[gone],timeout:15),.completed,app.debugDescription)
     }
     private func cancelPicker() {
-        XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
-        let cancel = named(["Cancel","取消","Close","关闭"],in:navigation.buttons)
-        if cancel.exists && cancel.isHittable { cancel.tap() }
-        else {
-            // Compact Files exposes Open and the history controls. Drag its actual sheet handle.
-            let handle = named(["Sheet Grabber","表单抓取按钮"],in:app.buttons)
-            let top = handle.exists ? handle.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)) :
-                navigation.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0))
-            let bottom = app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.9))
-            top.press(forDuration:0.12,thenDragTo:bottom)
-        }
-        awaitDismissal()
+        // Drag the actual UIKit grabber. Files exposes an out-of-process Cancel element
+        // whose accessibility action has itself timed out on the CI simulator.
+        let handle = named(["Sheet Grabber","表单抓取按钮"],in:app.buttons)
+        XCTAssertTrue(handle.waitForExistence(timeout:60),app.debugDescription)
+        let frame = handle.frame
+        XCTAssertFalse(frame.isEmpty)
+        let origin = app.coordinate(withNormalizedOffset:.zero)
+        let top = origin.withOffset(CGVector(dx:frame.midX,dy:frame.midY))
+        let bottom = app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.95))
+        top.press(forDuration:0.15,thenDragTo:bottom)
+        let gone = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:handle)
+        XCTAssertEqual(XCTWaiter.wait(for:[gone],timeout:25),.completed,app.debugDescription)
         let done = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@","已取消目录操作"),object:app.staticTexts["folder.status"])
         XCTAssertEqual(XCTWaiter.wait(for:[done],timeout:12),.completed,app.debugDescription)
         app.buttons["folder.clear"].tap()
@@ -87,6 +95,10 @@ final class FolderPickerTests: XCTestCase {
 
     private func scanDocumentsAndPreview() {
         app.buttons["host.local"].tap()
+        previewDiscoveredFixture()
+    }
+
+    private func previewDiscoveredFixture() {
         let status = app.staticTexts["folder.status"]
         let found = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label BEGINSWITH %@", "已找到"),object:status)
         XCTAssertEqual(XCTWaiter.wait(for:[found],timeout:45),.completed,app.debugDescription)
@@ -104,6 +116,15 @@ final class FolderPickerTests: XCTestCase {
         app.buttons["host.manage"].tap()
         app.buttons["host.rescan"].tap()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:30),app.debugDescription)
+    }
+
+    func testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory() {
+        openLibrary()
+        app.buttons["host.import"].tap()
+        pressSystemOpen()
+        // Files may start at the parent of directoryURL. A parent import must expose
+        // this previously unregistered project's row before it can be opened.
+        previewDiscoveredFixture()
     }
 
     func testSystemOpenImportsPreviewsAndReconnectsOriginal() {
