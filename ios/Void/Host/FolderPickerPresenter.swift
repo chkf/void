@@ -3,17 +3,15 @@ import UniformTypeIdentifiers
 
 struct FolderPickerPresenter: UIViewControllerRepresentable {
     @ObservedObject var flow: FolderRequests
-    var initialDirectory: URL?
     func makeUIViewController(context: Context) -> Anchor { Anchor() }
     func updateUIViewController(_ anchor: Anchor, context: Context) {
-        anchor.flow = flow; anchor.initialDirectory = initialDirectory
+        anchor.flow = flow
         anchor.update()
     }
 
     @MainActor
     final class Anchor: UIViewController, UIDocumentPickerDelegate, UIAdaptivePresentationControllerDelegate {
         weak var flow: FolderRequests?
-        var initialDirectory: URL?
         private var picker: UIDocumentPickerViewController?
         private var active: FolderRequest?
         private var closing = false
@@ -42,7 +40,6 @@ struct FolderPickerPresenter: UIViewControllerRepresentable {
             let picker = UIDocumentPickerViewController(forOpeningContentTypes:[.folder],asCopy:false)
             picker.allowsMultipleSelection = false
             picker.sheetPresentationController?.prefersGrabberVisible = true
-            picker.directoryURL = initialDirectory
             picker.delegate = self
             self.picker = picker; active = request; closing = false; didPresent = false
             request.trace.event("picker.willPresent")

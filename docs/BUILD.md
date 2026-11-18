@@ -12,7 +12,7 @@ GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.
 
 原位更新请沿用旧版的签名团队、实际 Bundle ID 和已有应用标识配置，覆盖安装，保留其数据容器。安装后直接打开原来的最近项目，也可在项目「管理」中点「重新扫描并预览」。同名副本和其他签名身份会得到不同的访问条件。
 
-在装有对应 Xcode 的 Mac 上，为测试准备一个独立的 iPhone 模拟器。测试脚本会把一个 TSX 测试目录放入该模拟器的「我的 iPhone → void」，由界面测试在系统选择器里实际选中并预览。从仓库根目录执行以下命令可复现工作流。
+在装有对应 Xcode 的 Mac 上，为测试准备一个独立的 iPhone 模拟器。界面测试在模拟器的「我的 iPhone → void」创建随机命名、尚未登记的 TSX 测试目录，再通过系统 Files 实际导入并预览。从仓库根目录执行以下命令可复现工作流。
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode_27.2.app/Contents/Developer

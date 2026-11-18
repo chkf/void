@@ -2,7 +2,8 @@ import XCTest
 
 final class FolderPickerTests: XCTestCase {
     private let app = XCUIApplication()
-    private let fixture = "Void Picker Test"
+    private let token = UUID().uuidString
+    private var fixture: String { "Void Picker " + String(token.prefix(8)) }
 
     private func named(_ labels: [String], in elements: XCUIElementQuery) -> XCUIElement {
         elements.matching(NSPredicate(format:"label IN %@ OR identifier IN %@",labels,labels)).firstMatch
@@ -10,24 +11,35 @@ final class FolderPickerTests: XCTestCase {
     private var browser: XCUIElement { app.otherElements["Browse View (Picker)"].firstMatch }
     private var openButton: XCUIElement { app.buttons["DOCPicker.actionButton"].firstMatch }
     private func folder(_ title: String) -> XCUIElement {
-        app.collectionViews["File View"].cells.matching(NSPredicate(format:"label == %@ OR label BEGINSWITH %@",title,title + ",")).firstMatch
+        app.cells.matching(NSPredicate(format:"label == %@ OR label BEGINSWITH %@ OR identifier BEGINSWITH %@",title,title + ",",title + ",")).firstMatch
+    }
+    private func showBrowser() {
+        if !browser.waitForExistence(timeout:3) {
+            let browse = named(["Browse","浏览"],in:app.tabBars.buttons)
+            if browse.waitForExistence(timeout:5) { browse.tap() }
+        }
+        XCTAssertTrue(browser.waitForExistence(timeout:15),app.debugDescription)
     }
     private func selectDirectory() {
-        XCTAssertTrue(browser.waitForExistence(timeout:20),app.debugDescription)
-        let alreadyInside = browser.descendants(matching:.any).matching(NSPredicate(format:"identifier BEGINSWITH 'DOC.browsingRoot' AND identifier ENDSWITH %@",fixture)).firstMatch
-        if !alreadyInside.exists {
+        showBrowser()
+        let title = app.navigationBars.buttons.matching(NSPredicate(format:"label BEGINSWITH %@",fixture + ",")).firstMatch
+        if !title.exists {
             let project = folder(fixture)
-            if !project.waitForExistence(timeout:2) {
+            if !project.waitForExistence(timeout:3) {
                 let container = folder("void")
-                if !container.waitForExistence(timeout:2) {
-                    let browse = named(["Browse","浏览"],in:browser.buttons)
-                    if browse.exists { browse.tap() }
-                    let local = named(["On My iPhone","我的 iPhone","在我的 iPhone 上"],in:browser.descendants(matching:.any))
-                    if local.waitForExistence(timeout:5) { local.tap() }
+                if !container.exists {
+                    let back = app.buttons["DOC.navBarButton.backInHistory"]
+                    if back.exists && back.isHittable { back.tap() }
+                }
+                if !container.waitForExistence(timeout:3) {
+                    let browse = named(["Browse","浏览"],in:app.tabBars.buttons)
+                    if browse.exists && browse.isHittable { browse.tap() }
+                    let local = named(["On My iPhone","我的 iPhone","在我的 iPhone 上"],in:app.descendants(matching:.any))
+                    if local.exists && local.isHittable { local.tap() }
                 }
                 if container.waitForExistence(timeout:5) { container.tap() }
             }
-            XCTAssertTrue(project.waitForExistence(timeout:12),app.debugDescription)
+            XCTAssertTrue(project.waitForExistence(timeout:15),app.debugDescription)
             project.tap()
         }
         XCTAssertTrue(openButton.waitForExistence(timeout:10),app.debugDescription)
@@ -46,7 +58,7 @@ final class FolderPickerTests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for:[gone],timeout:15),.completed,app.debugDescription)
     }
     private func cancelPicker() {
-        XCTAssertTrue(browser.waitForExistence(timeout:20),app.debugDescription)
+        showBrowser()
         let cancel = named(["Cancel","取消","Close","关闭"],in:browser.buttons)
         if cancel.exists && cancel.isHittable { cancel.tap() }
         else {
@@ -63,10 +75,12 @@ final class FolderPickerTests: XCTestCase {
 
     private func openLibrary() {
         continueAfterFailure = false
+        app.launchEnvironment["VOID_PICKER_TEST_PROJECT"] = token
         app.launch()
         if !app.buttons["host.import"].waitForExistence(timeout:3) {
             app.buttons["host.manage"].tap(); app.buttons["host.switch"].tap()
         }
+        XCTAssertFalse(app.buttons["recent." + fixture].exists)
     }
     private func importAndPreview() {
         app.buttons["host.import"].tap(); selectDirectory()
@@ -92,7 +106,7 @@ final class FolderPickerTests: XCTestCase {
         reconnect(); cancelPicker()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.exists,app.debugDescription)
         reconnect()
-        XCTAssertTrue(browser.waitForExistence(timeout:20),app.debugDescription)
+        showBrowser()
         app.terminate(); app.launch()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:60),app.debugDescription)
     }

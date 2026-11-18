@@ -132,7 +132,7 @@ struct HostView: View {
                 }
             }
         }
-        .background { FolderPickerPresenter(flow:folders,initialDirectory:FolderGrant.documents).frame(width:0,height:0) }
+        .background { FolderPickerPresenter(flow:folders).frame(width:0,height:0) }
         .safeAreaInset(edge:.bottom) {
             if folders.phase != .idle {
                 HStack {

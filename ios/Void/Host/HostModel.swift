@@ -58,6 +58,9 @@ final class HostModel: ObservableObject {
         guard !loaded else { return }
         loaded = true
         do {
+            #if DEBUG && targetEnvironment(simulator)
+            try await SimulatorPickerFixture.prepareIfRequested()
+            #endif
             let catalog = try await list()
             if let id = catalog.last, let record = records.first(where: { $0.id == id }) { await open(record) }
         } catch { notice = error.localizedDescription }

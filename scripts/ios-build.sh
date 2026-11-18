@@ -64,18 +64,9 @@ case "${1:-device}" in
   run-tests)
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
-    xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
-    container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
-    fixture="$container/Documents/Void Picker Test"
-    if [[ ! -e "$fixture" ]]; then
-      mkdir -p "$container/Documents"
-      cp -R ios/TSXProject "$fixture"
-    elif ! cmp -s ios/TSXProject/app/manifest.json "$fixture/app/manifest.json" ||
-         ! cmp -s ios/TSXProject/app/src/main.tsx "$fixture/app/src/main.tsx"; then
-      echo "本次测试需要独立模拟器，当前设备已有不同的 Void Picker Test 目录。" >&2
-      exit 1
-    fi
     if [[ "${VOID_SIMULATOR_FIXTURES:-}" == 1 ]]; then
+      xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
+      container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
       for service in contacts calendar reminders photos photos-add location; do
         xcrun simctl privacy "$device" grant "$service" app.chkf.void
       done
