@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 struct DirectoryIssue: LocalizedError, CustomNSError {
-    enum Kind: Int { case missing = 1, unreadable, pendingDownload, invalidJSON, wrongType, link, outside, provider, timeout, identity, emptySelection, noProjects }
+    enum Kind: Int { case missing = 1, unreadable, pendingDownload, invalidJSON, wrongType, link, outside, provider, timeout, identity, emptySelection, noProjects, pickerUnavailable }
     let kind: Kind
     let item: String
     var underlying: NSError? = nil
@@ -28,6 +28,7 @@ struct DirectoryIssue: LocalizedError, CustomNSError {
         case .identity: message = "目录或 runtime.json 身份与原登记不符，已保留原记录"
         case .emptySelection: message = "系统文件选择器未返回目录"
         case .noProjects: message = "此目录没有可识别的项目"
+        case .pickerUnavailable: message = "系统未能显示文件选择器"
         }
         let native = underlying.map { " (\($0.domain) \($0.code))" } ?? ""
         return [item, message + native].filter { !$0.isEmpty }.joined(separator:" · ")
@@ -101,6 +102,13 @@ struct DirectoryTrace: Sendable {
         let native = (error as? DirectoryIssue)?.underlying ?? error.map { $0 as NSError }
         DirectoryJournal.shared.append(DirectoryEvent(id:UUID(),request:id,purpose:purpose,stage:stage,
             milliseconds:Int((ProcessInfo.processInfo.systemUptime - began)*1000),detail:detail,domain:native?.domain,code:native?.code))
+    }
+    static func measuring<T>(_ trace: Self?, _ stage: String, _ detail: String, _ body: () throws -> T) throws -> T {
+        trace?.event(stage + ".begin",detail)
+        do {
+            let value = try body()
+            trace?.event(stage + ".end",detail + " OK"); return value
+        } catch { trace?.event(stage + ".end",detail + " 失败",error:error); throw error }
     }
     static func leaf(_ url: URL) -> String {
         String(url.lastPathComponent.components(separatedBy:.controlCharacters).joined(separator:" ").prefix(100))

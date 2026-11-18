@@ -44,6 +44,7 @@ struct FolderPickerPresenter: UIViewControllerRepresentable {
             picker.directoryURL = initialDirectory
             picker.delegate = self
             self.picker = picker; active = request; closing = false; didPresent = false
+            request.trace.event("picker.willPresent")
             host.present(picker,animated:true) { [weak self,weak picker] in
                 guard let self,let picker,self.picker === picker else { return }
                 self.didPresent = true
@@ -52,6 +53,12 @@ struct FolderPickerPresenter: UIViewControllerRepresentable {
                 self.update()
             }
             picker.presentationController?.delegate = self
+            DispatchQueue.main.asyncAfter(deadline:.now()+5) { [weak self,weak picker] in
+                guard let self, let picker, self.picker === picker, !self.didPresent,
+                      picker.presentingViewController == nil, picker.viewIfLoaded?.window == nil else { return }
+                self.flow?.presentationFailed(request.id)
+                self.completed(picker)
+            }
         }
         private func observeDismissal(_ picker: UIDocumentPickerViewController) {
             DispatchQueue.main.asyncAfter(deadline:.now()+0.35) { [weak self,weak picker] in
@@ -104,6 +111,12 @@ struct DirectoryDiagnosticView: View {
                 }
             }.padding().textSelection(.enabled)
         }.navigationTitle("目录诊断")
+            .toolbar {
+                if let id = rows.last(where:{ $0.stage == "picker.request" })?.request ?? rows.last?.request {
+                    let lines = rows.filter { $0.request == id }.map(\.line).joined(separator:"\n")
+                    ShareLink(item:lines) { Label("分享这次目录诊断",systemImage:"square.and.arrow.up") }
+                }
+            }
             .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in rows = DirectoryJournal.shared.recent() }
     }
 }

@@ -12,7 +12,7 @@ GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.
 
 原位更新请沿用旧版的签名团队、实际 Bundle ID 和已有应用标识配置，覆盖安装，保留其数据容器。安装后直接打开原来的最近项目，也可在项目「管理」中点「重新扫描并预览」。同名副本和其他签名身份会得到不同的访问条件。
 
-在装有对应 Xcode 和 iOS Simulator 的 Mac 上，从仓库根目录执行以下命令可复现工作流。
+在装有对应 Xcode 的 Mac 上，为测试准备一个独立的 iPhone 模拟器。测试脚本会把一个 TSX 测试目录放入该模拟器的「我的 iPhone → void」，由界面测试在系统选择器里实际选中并预览。从仓库根目录执行以下命令可复现工作流。
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode_27.2.app/Contents/Developer
@@ -21,7 +21,7 @@ npm ci
 npm run openspec -- validate --all --strict
 npm test
 bash scripts/ios-build.sh device
-bash scripts/ios-build.sh test
+VOID_SIMULATOR_FIXTURES=1 bash scripts/ios-build.sh test
 ```
 
 Xcode 将 `ios/StarterProject/app/SwiftUI/` 下的 Swift 文件直接编译进 VoidHost，并将同一份模板源码复制进安装包，供创建和核对项目。可在该目录添加其他 Swift 文件。保留入口 `ProjectContentView(projectName:)` 即可。开发时运行 `npm run prepare:ios` 生成工具链，在 Xcode 中打开 `ios/Void.xcodeproj` 并选择 **Void**。构建脚本将产物写入 `.build/ios`。

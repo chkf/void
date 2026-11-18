@@ -16,7 +16,7 @@ struct HostView: View {
     @State private var template = ProjectTemplate.swiftUI
 
     var body: some View {
-        Group {
+        ZStack {
             if let record = model.current {
                 ZStack {
                     switch model.screen {
@@ -140,6 +140,7 @@ struct HostView: View {
                 }.padding(.horizontal).padding(.vertical,6).background(.bar)
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in folders.updateProgress() }
         .task { await model.load() }
         .task(id: (model.current?.id.uuidString ?? "") + (phase == .active ? "/active" : "/inactive") + (model.workspaceTemplate == nil ? "" : "/workspace")) {
             if phase == .active { await model.monitor() }

@@ -186,6 +186,16 @@ final class DirectoryTests: XCTestCase {
         let real = URL(fileURLWithPath:"/private/var/tmp/",isDirectory:true)
         try XCTSkipUnless(fm.fileExists(atPath:real.path) && fm.fileExists(atPath:varURL.path),"平台未提供 Darwin /var 别名")
         XCTAssertEqual(ProjectSourceReader.canonical(varURL),ProjectSourceReader.canonical(real))
+        let name = "Void 目录 " + UUID().uuidString
+        let scratch = varURL.appendingPathComponent(name)
+        do { try fm.copyItem(at:root,to:scratch) }
+        catch { throw XCTSkip("此测试进程不能写入系统 /var/tmp：" + (error as NSError).domain) }
+        defer { try? fm.removeItem(at:scratch) }
+        let alias = real.appendingPathComponent(name)
+        XCTAssertEqual(try ProjectLibrary.directoryKey(scratch),try ProjectLibrary.directoryKey(alias))
+        let snapshot = try ProjectFiles.snapshot(at:scratch)
+        XCTAssertEqual(snapshot.files["app/src/main.tsx"],Data(main.utf8))
+        XCTAssertEqual(snapshot.revision,try ProjectFiles.snapshot(at:alias).revision)
     }
 
     @MainActor

@@ -99,9 +99,9 @@ final class HostModel: ObservableObject {
             found = try await library.catalog().recent.filter { $0.id == id }
             message = "已核验原项目目录"
         }
-        try checkRequest()
+        try Task.checkCancellation()
         try await list()
-        try checkRequest()
+        guard folders.request?.id == r.id, current?.id == r.origin else { return message }
         if found.count == 1 {
             if current?.id == found[0].id {
                 current = found[0]
@@ -178,6 +178,7 @@ final class HostModel: ObservableObject {
     }
 
     func removeRecent(_ id: UUID) async {
+        if current?.id == id { folders.changeProject(to:nil) }
         do {
             try await library.removeRecent(id)
             if current?.id == id { clear(); current = nil }
@@ -248,8 +249,10 @@ final class HostModel: ObservableObject {
                     }
                 }
             }
+            var scanned = false
             do {
                 let snapshot = try await library.open(record.id,remember:remember,trace:trace)
+                scanned = true
                 try check(token)
                 waitingEntry = nil
                 mode = snapshot.info.mode
@@ -289,11 +292,11 @@ final class HostModel: ObservableObject {
                     product = cached
                 } else {
                     product = try await BuildEngine.build(snapshot)
-                    let latest = try await library.open(record.id, remember: false)
+                    let latest = try await library.open(record.id,remember:false,trace:trace)
                     try check(token)
                     guard latest.revision == snapshot.revision else { needsScan = true; return }
                 }
-                try await activate(product, record:verifiedRecord, token:token, expected:previous ? nil : snapshot.revision)
+                try await activate(product,record:verifiedRecord,token:token,expected:previous ? nil : snapshot.revision,trace:trace)
                 trace?.event("preview.result","OK")
             } catch {
                 guard generation == token, !Task.isCancelled else { return }
@@ -303,7 +306,7 @@ final class HostModel: ObservableObject {
                     mode = missing.mode
                     inspected = nil
                 }
-                let scanError = error is DirectoryIssue || error is FolderAccessIssue || missing != nil || scanStatus == "正在扫描项目目录"
+                let scanError = !scanned || error is DirectoryIssue || error is FolderAccessIssue || missing != nil
                 let detail = (scanError ? "目录扫描 · " : "") + DirectoryIssue.safeMessage(error)
                 if trace != nil || problem != detail {
                     let failureTrace = trace ?? DirectoryTrace("preview")
@@ -312,6 +315,11 @@ final class HostModel: ObservableObject {
                 }
                 problem = detail
                 if scanError { inspected = nil }
+                if let issue = error as? DirectoryIssue, [.provider,.timeout,.unreadable,.identity].contains(issue.kind) {
+                    userStoppedScanning = true
+                    needsScan = false
+                    scanStatus = "目录检查已结束"
+                }
                 if let issue = error as? DirectoryIssue, [.unreadable,.identity,.outside,.link].contains(issue.kind) {
                     page?.sdk.close()
                     permissions = []
@@ -337,7 +345,7 @@ final class HostModel: ObservableObject {
         current = records.first { $0.id == record.id }
     }
 
-    private func activate(_ product: Product, record: ProjectRecord, token: UUID, expected: String?) async throws {
+    private func activate(_ product: Product, record: ProjectRecord, token: UUID, expected: String?, trace: DirectoryTrace? = nil) async throws {
         try check(token)
         let next = try ProjectPage(product: product, record: record, storage: storage, permissions: permissions, networkHosts: networkHosts)
         candidate = next
@@ -360,7 +368,7 @@ final class HostModel: ObservableObject {
         }
         try check(token)
         if let expected {
-            let latest = try await library.open(record.id, remember: false)
+            let latest = try await library.open(record.id,remember:false,trace:trace)
             try check(token)
             guard latest.revision == expected else { needsScan = true; return }
         }

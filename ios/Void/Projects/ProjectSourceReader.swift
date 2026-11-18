@@ -1,9 +1,10 @@
+import Darwin
 import Foundation
 
 struct ProjectSourceReader {
     enum Kind { case directory, file }
     var children: (URL) throws -> [URL] = { try FileManager.default.contentsOfDirectory(at:$0,includingPropertiesForKeys:nil) }
-    var bytes: (URL) throws -> Data = { try Data(contentsOf:$0) }
+    var bytes: ((URL) throws -> Data)?
     struct Traits {
         var directory: Bool?
         var file: Bool?
@@ -68,10 +69,31 @@ struct ProjectSourceReader {
             }
         } catch { throw DirectoryIssue.reading(error,item:key) }
     }
-    func read(_ url: URL, _ key: String) throws -> Data {
+    private func read(_ url: URL, _ key: String, root: URL) throws -> Data {
         guard try kind(url,key) == .file else { throw DirectoryIssue(kind:.wrongType,item:key) }
-        do { return try bytes(url) }
-        catch { throw DirectoryIssue.reading(error,item:key) }
+        do {
+            if let bytes { return try bytes(url) }
+            // Pin each parent to its descriptor. An editor rename between metadata lookup and
+            // the read must not redirect the snapshot through a newly installed symlink.
+            var descriptor = Darwin.open(root.path,O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+            guard descriptor >= 0 else { throw NSError(domain:NSPOSIXErrorDomain,code:Int(errno)) }
+            defer { Darwin.close(descriptor) }
+            let parts = key.components(separatedBy:"/")
+            for (offset,part) in parts.enumerated() {
+                let flags = O_RDONLY | O_NOFOLLOW | O_CLOEXEC | (offset == parts.count - 1 ? O_NONBLOCK : O_DIRECTORY)
+                let next = VoidOpenReadChild(descriptor,part,flags)
+                guard next >= 0 else {
+                    let code = errno
+                    if code == ELOOP { throw DirectoryIssue(kind:.link,item:key) }
+                    throw NSError(domain:NSPOSIXErrorDomain,code:Int(code))
+                }
+                Darwin.close(descriptor); descriptor = next
+            }
+            var item = stat()
+            guard fstat(descriptor,&item) == 0 else { throw NSError(domain:NSPOSIXErrorDomain,code:Int(errno)) }
+            guard (item.st_mode & mode_t(S_IFMT)) == mode_t(S_IFREG) else { throw DirectoryIssue(kind:.wrongType,item:key) }
+            return try FileHandle(fileDescriptor:descriptor,closeOnDealloc:false).readToEnd() ?? Data()
+        } catch { throw DirectoryIssue.reading(error,item:key) }
     }
     // Check each component before following the next, including for a directly opened entry.
     func required(_ key: String, at root: URL) throws -> Data {
@@ -83,17 +105,23 @@ struct ProjectSourceReader {
             let relative = path.joined(separator:"/")
             guard try kind(url,relative) == .directory else { throw DirectoryIssue(kind:.wrongType,item:relative) }
         }
-        return try read(url.appendingPathComponent(parts.last!),key)
+        return try read(url.appendingPathComponent(parts.last!),key,root:root)
     }
 
-    func snapshot(_ root: URL, allowMissingEntry: Bool, trace: DirectoryTrace?, io: DirectoryIO?) throws -> SourceSnapshot {
-        try io?.check()
+    func configuration(_ root: URL) throws -> (ProjectInfo,[String:Data]) {
         guard try kind(root,"项目目录") == .directory else { throw DirectoryIssue(kind:.wrongType,item:"项目目录") }
         let manifest = "app/manifest.json"
         var files = [manifest:try required(manifest,at:root)]
         let config = root.appendingPathComponent("runtime.json")
-        if try optionalKind(config,"runtime.json") != nil { files["runtime.json"] = try read(config,"runtime.json") }
-        let info = try ProjectFiles.metadata(files,folderName:root.lastPathComponent)
+        if try optionalKind(config,"runtime.json") != nil { files["runtime.json"] = try read(config,"runtime.json",root:root) }
+        return (try ProjectFiles.metadata(files,folderName:root.lastPathComponent),files)
+    }
+
+    func snapshot(_ root: URL, allowMissingEntry: Bool, trace: DirectoryTrace?, io: DirectoryIO?) throws -> SourceSnapshot {
+        try io?.check()
+        let manifest = "app/manifest.json"
+        let (info,config) = try configuration(root)
+        var files = config
         let entry = "app/" + info.entry
         do { files[entry] = try required(entry,at:root) }
         catch let issue as DirectoryIssue where issue.kind == .missing {
@@ -101,16 +129,18 @@ struct ProjectSourceReader {
             trace?.event("scan.entryMissing")
         }
 
+        let boundary = Self.canonical(root)
         var listedRequired = Set<String>()
         func walk(_ dir: URL, _ prefix: String) throws {
             try io?.check()
+            guard Self.canonical(dir).starts(with:boundary) else { throw DirectoryIssue(kind:.outside,item:prefix) }
             for url in try list(dir,prefix) {
                 try io?.check()
                 let key = prefix + "/" + url.lastPathComponent
                 if key == manifest || key == entry, files[key] != nil { listedRequired.insert(key); continue }
                 switch try kind(url,key) {
                 case .directory: try walk(url,key)
-                case .file: files[key] = try read(url,key)
+                case .file: files[key] = try read(url,key,root:root)
                 }
             }
         }

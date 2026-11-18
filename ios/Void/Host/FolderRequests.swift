@@ -49,6 +49,12 @@ final class FolderRequests: ObservableObject {
         presented = true; r.trace.event("picker.present")
         message = "等待系统文件选择器返回目录"
     }
+    func presentationFailed(_ id: UUID) {
+        guard let r = request, r.id == id, phase == .presenting else { return }
+        let error = DirectoryIssue(kind:.pickerUnavailable,item:"")
+        r.trace.event("picker.presentationFailed",error:error)
+        finish(r,.failed,error.localizedDescription,error:error)
+    }
     func picked(_ id: UUID, _ urls: [URL]) {
         guard let r = request, r.id == id, phase == .presenting else { return }
         r.trace.event("picker.didPick","count=\(urls.count)" + (urls.first.map { " " + DirectoryTrace.leaf($0) } ?? ""))
@@ -66,17 +72,13 @@ final class FolderRequests: ObservableObject {
     }
     func cancel(_ id: UUID) {
         guard let r = request, r.id == id, active else { return }
-        guard r.commit.cancel() else { return }
+        guard r.commit.cancel() else { message = "正在保存已确认的目录操作"; return }
         if phase == .presenting || phase == .selected { r.trace.event("picker.cancel") }
         task?.cancel()
         finish(r,.cancelled,"已取消目录操作",error:CancellationError())
     }
     func changeProject(to id: UUID?) {
-        if let r = request, active, r.origin != id {
-            if phase == .processing && !r.commit.cancel() {
-                finish(r,.succeeded,"目录操作已保存")
-            } else { cancel(r.id) }
-        }
+        if let r = request, active, r.origin != id { cancel(r.id) }
     }
     private func start(_ r: FolderRequest, url: URL) {
         phase = .processing; message = "正在检查目录授权和项目文件"
@@ -99,6 +101,17 @@ final class FolderRequests: ObservableObject {
     private func finish(_ r: FolderRequest, _ state: Phase, _ text: String, error: Error? = nil) {
         ready = false; selection = nil; phase = state; message = text; task = nil
         r.trace.event(r.purpose.name + ".result",state == .succeeded ? "OK" : (state == .cancelled ? "取消" : "失败"),error:error)
+    }
+    func updateProgress() {
+        guard phase == .processing, let request,
+              let stage = DirectoryJournal.shared.recent().last(where:{ $0.request == request.id })?.stage else { return }
+        let status: String
+        switch stage {
+        case "grant.begin","grant.resolve": status = "正在等待目录授权或文件协调"
+        case "grant.accessor","scan.begin": status = "正在读取项目清单和源码"
+        default: return
+        }
+        if message != status { message = status }
     }
     func clearResult() { if !active { phase = .idle; message = ""; request = nil } }
 }

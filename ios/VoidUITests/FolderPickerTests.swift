@@ -51,6 +51,9 @@ final class FolderPickerTests: XCTestCase {
         expectation(for:NSPredicate(format:"label == %@", "已核验原项目目录"),evaluatedWith:app.staticTexts["folder.status"])
         waitForExpectations(timeout:25)
         XCTAssertTrue(native.waitForExistence(timeout:30),app.debugDescription)
+        app.buttons["host.manage"].tap(); app.buttons["host.reconnect"].tap()
+        let chooser = named(["Cancel","取消","Close","关闭"],in:app.navigationBars.buttons)
+        XCTAssertTrue(chooser.waitForExistence(timeout:15),app.debugDescription)
         app.terminate(); app.launch()
         XCTAssertTrue(native.waitForExistence(timeout:60),app.debugDescription)
     }

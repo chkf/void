@@ -64,24 +64,34 @@ case "${1:-device}" in
   run-tests)
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
+    xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
+    container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
+    fixture="$container/Documents/Void Picker Test"
+    if [[ ! -e "$fixture" ]]; then
+      mkdir -p "$container/Documents"
+      cp -R ios/TSXProject "$fixture"
+    elif ! cmp -s ios/TSXProject/app/manifest.json "$fixture/app/manifest.json" ||
+         ! cmp -s ios/TSXProject/app/src/main.tsx "$fixture/app/src/main.tsx"; then
+      echo "本次测试需要独立模拟器，当前设备已有不同的 Void Picker Test 目录。" >&2
+      exit 1
+    fi
     if [[ "${VOID_SIMULATOR_FIXTURES:-}" == 1 ]]; then
-      xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
       for service in contacts calendar reminders photos photos-add location; do
         xcrun simctl privacy "$device" grant "$service" app.chkf.void
       done
       xcrun simctl location "$device" set 37.3349,-122.0090
-      container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
       touch "$container/tmp/void-sdk-fixtures"
-      fixture="$container/Documents/Void Picker Test"
-      if [[ ! -e "$fixture" ]]; then
-        mkdir -p "$container/Documents"
-        cp -R ios/TSXProject "$fixture"
-      fi
     fi
     result="$out/tests-$(date +%s).xcresult"
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
-      -resultBundlePath "$result" test-without-building
+      -resultBundlePath "$result" test-without-building || {
+        if [[ "${CI:-}" == true ]]; then
+          xcrun simctl spawn "$device" log show --style compact --last 15m --info \
+            --predicate 'subsystem == "app.chkf.void" AND category == "directory"' || true
+        fi
+        exit 1
+      }
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
   *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests" >&2; exit 2 ;;

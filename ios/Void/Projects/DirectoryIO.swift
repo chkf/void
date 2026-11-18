@@ -54,16 +54,22 @@ final class DirectoryIO: @unchecked Sendable {
         let finish = cancellation, active = coordinator
         cancellation = nil
         lock.unlock()
-        active?.cancel()
         finish?(error)
+        if let active { DispatchQueue.global(qos:.userInitiated).async { active.cancel() } }
     }
-    static func run<T>(timeout: TimeInterval = 20, _ body: @escaping (DirectoryIO) throws -> T) async throws -> T {
+    static func run<T>(timeout: TimeInterval = 20, trace: DirectoryTrace? = nil, _ body: @escaping (DirectoryIO) throws -> T) async throws -> T {
         let job = DirectoryIO()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T,Error>) in
-                job.start(continuation, timeout:timeout, body)
-            }
-        } onCancel: { job.cancel(CancellationError()) }
+        do {
+            return try await withTaskCancellationHandler {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T,Error>) in
+                    job.start(continuation,timeout:timeout,body)
+                }
+            } onCancel: { job.cancel(CancellationError()) }
+        } catch {
+            if error is CancellationError { trace?.event("directory.cancel","已停止等待",error:error) }
+            if (error as? DirectoryIssue)?.kind == .timeout { trace?.event("directory.timeout","已停止等待",error:error) }
+            throw error
+        }
     }
     private func start<T>(_ continuation: CheckedContinuation<T,Error>, timeout: TimeInterval, _ body: @escaping (DirectoryIO) throws -> T) {
         lock.lock()

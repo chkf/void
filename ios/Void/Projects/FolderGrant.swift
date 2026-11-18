@@ -21,7 +21,10 @@ struct FolderGrant: Codable, Equatable {
     private var localComponents: [String] {
         [localFolder ?? "",child].filter { !$0.isEmpty }.flatMap { $0.components(separatedBy:"/") }
     }
-    static func selected(_ url: URL, child: String = "") throws -> Self {
+    static func selected(_ url: URL, child: String = "", trace: DirectoryTrace? = nil) throws -> Self {
+        try DirectoryTrace.measuring(trace,"grant","核验所选目录") { try selection(url,child:child) }
+    }
+    private static func selection(_ url: URL, child: String) throws -> Self {
         guard url.isFileURL else { throw DirectoryIssue(kind:.wrongType,item:"所选目录") }
         let base = ProjectSourceReader.canonical(documents)
         var cursor = url, names: [String] = []
