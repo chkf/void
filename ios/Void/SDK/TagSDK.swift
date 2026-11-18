@@ -22,6 +22,7 @@ final class TagSDK: NSObject, SDKModule, NFCNDEFReaderSessionDelegate {
         if method == "available" { return NFCNDEFReaderSession.readingAvailable }
         guard NFCNDEFReaderSession.readingAvailable else { throw SDKFailure.unavailable("需要支持 NFC 的 iPhone 及含标签读取能力的签名") }
         guard reader == nil else { throw SDKFailure("BUSY","已有 NFC 会话") }
+        let message = try a.string("message","请将 iPhone 靠近 NFC 标签")
         if method == "write" {
             guard let entries = a.values["records"] as? [[String:Any]], !entries.isEmpty else { throw SDKFailure.invalid("records") }
             writing = NFCNDEFMessage(records:try entries.map { entry in
@@ -36,17 +37,29 @@ final class TagSDK: NSObject, SDKModule, NFCNDEFReaderSessionDelegate {
         events = s.events
         let reader = NFCNDEFReaderSession(delegate:self,queue:.main,invalidateAfterFirstRead:false)
         self.reader = reader; result = wait
-        reader.alertMessage = try a.string("message","请将 iPhone 靠近 NFC 标签")
+        reader.alertMessage = message
         reader.begin()
-        defer { reader.invalidate(); result = nil; self.reader = nil; writing = nil }
+        defer {
+            reader.invalidate()
+            if self.reader === reader { result = nil; self.reader = nil; writing = nil }
+            events?.deliver?("nfc","nfc.state","ended")
+        }
         return try await wait.value()
     }
     func readerSessionDidBecomeActive(_ session: NFCNDEFReaderSession) { events?.deliver?("nfc","nfc.state","active") }
     func readerSession(_ session: NFCNDEFReaderSession, didInvalidateWithError error: Error) {
         guard session === reader else { return }
         let e = error as NSError
-        let value = e.code == NFCReaderError.Code.readerSessionInvalidationErrorUserCanceled.rawValue ? SDKFailure("CANCELLED","已取消 NFC 会话") : SDKFailure("NFC_ERROR",e.localizedDescription)
-        result?.finish(.failure(value)); events?.deliver?("nfc","nfc.state","ended")
+        let failure: SDKFailure
+        switch NFCReaderError.Code(rawValue:e.code) {
+        case .readerSessionInvalidationErrorUserCanceled: failure = SDKFailure("CANCELLED","已取消 NFC 会话")
+        case .readerSessionInvalidationErrorSessionTimeout: failure = SDKFailure("TIMEOUT","NFC 会话已超时")
+        case .readerSessionInvalidationErrorSystemIsBusy: failure = SDKFailure("BUSY","系统正在使用 NFC")
+        case .readerErrorUnsupportedFeature: failure = .unavailable(e.localizedDescription)
+        case .readerErrorSecurityViolation: failure = SDKFailure("PERMISSION_DENIED","系统拒绝了 NFC 操作，请检查签名中的 NFC 标签读取能力。 " + e.localizedDescription)
+        default: failure = SDKFailure("NFC_ERROR",e.localizedDescription)
+        }
+        result?.finish(.failure(failure))
     }
     func readerSession(_ session: NFCNDEFReaderSession, didDetectNDEFs messages: [NFCNDEFMessage]) {
         if session === reader, writing == nil, let message = messages.first { result?.finish(.success(["records":records(message)])) }
