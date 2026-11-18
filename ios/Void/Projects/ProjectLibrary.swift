@@ -275,6 +275,7 @@ actor ProjectLibrary {
     func selectWorkspace(_ id: UUID) async throws -> [String] {
         guard let record = try catalog().recent.first(where:{$0.id == id}) else { throw RuntimeIssue("项目已从最近记录移除") }
         let trace = DirectoryTrace("workspace")
+        trace.event("workspace.begin")
         let observed = try await Self.readRegistered(record,trace:trace,metadataOnly:true)
         try updateRecord(observed,record:record,updateLast:true)
         return observed.snapshot.info.permissions
