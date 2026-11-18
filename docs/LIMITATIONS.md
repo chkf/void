@@ -8,9 +8,15 @@
 
 用相同的真实浏览器先后运行 dev.5 IPA 内的编译器和新版编译器。两次均能取消后重开，并编译带中文及空格相对导入的 TSX。对于同一个 3 MiB 原样媒体资源，dev.5 从本地服务读取了 1 次，新版读取了 0 次，并返回了正确的资源键。自动化也校验了 CSS 真正引用的二进制文件仍能打包。[编译器回归](../tests/compiler.test.mjs)
 
+标签提交单独以 Release 配置通过了三项 iPhone 模拟器回归。目录里即使有不能读取的源码链接，本机扫描仍能返回原登记并停在列表，点旧记录可打开项目页，主动预览会给出链接错误。分块校验产生的修订与完整快照一致。在真实 SwiftUI 窗口内，另一项测试从旧记录启动 TSX，通过原生桥接读回已有 SQLite 行，检查了首屏、WebKit 挂载窗口、宿主 UUID 和原 runtime.json 字节。[Release 模式回归记录](https://github.com/chkf/void/actions/runs/44388657465/job/135100024522)
+
+已从 GitHub Release 重新下载构建号 6 的 IPA，大小为 6,063,098 字节，SHA-256 为 `398c1c0e17fa8895893d7f6c7ade41f34e590500b23679d71a3185f0af809dd3`。归档及 arm64 二进制均已校验，应用标识为 `app.chkf.void`，最低 iOS 17.0，SDK 为 27.2。[下载 IPA](https://github.com/chkf/void/releases/download/v0.1.0-dev.6/void-unsigned.ipa) · [源码](https://github.com/chkf/void/tree/v0.1.0-dev.6)
+
+标签上的 36 项原生回归与 8 项离线工具链测试通过。6 项界面用例中有 5 项通过，包括本机扫描后打开原记录、等首屏时强制结束再恢复、外部 Files 目录实际 Open 并预览、管理重授权、系统取消以及 SwiftUI 冷启动。剩余一项本机 Files 打开用例在自动化等待 Open 可操作时超时。该请求已记录 `picker.present`，测试尚未按下 Open。另一项外部 Files 用例中实际收到一次选择回调，从登记和原书签分别成功预览。原 iPhone 的退出原因、原项目首屏和训练保存仍待真机验证。[完整界面测试记录](https://github.com/chkf/void/actions/runs/44388657465/job/135100025701) · [离线工具链及 arm64 构建](https://github.com/chkf/void/actions/runs/44388657465/job/135100025250)
+
 ## v0.1.0-dev.5 预览卡住与中断恢复
 
-公开 arm64 IPA 共 6,043,439 字节，SHA-256 为 `a40f49f11772fa2eccada0b664cbe3aafc9e8966caa581ff1ab0d9d014868d8a`。首轮通过 32 项原生测试和 5 项界面测试，包括真正的 Files Open 和预览时结束进程再重开。另一项界面测试在 XCTest 读取系统选择器抓手时超时。[模拟器记录](https://github.com/chkf/void/actions/runs/44381000775/job/135072887562)
+公开 arm64 IPA 共 6,043,439 字节，SHA-256 为 `a40f49f11772fa2eccada0b664cbe3aafc9e8966caa581ff1ab0d9d014868d8a`。首轮通过 32 项原生测试和 5 项界面测试，包括真正的 Files Open 和预览时结束进程再重开。另一项界面测试在 XCTest 读取系统选择器抓手时超时。[模拟器记录](https://github.com/chkf/void/actions/runs/44381000775/job/135072887562) 同一标签的第二轮完整模拟器测试通过，包括系统选择器下拉取消和中断后恢复。原 iPhone 上仍有用户报告闪退。[第二轮测试](https://github.com/chkf/void/actions/runs/44381000775/job/135086197753)
 
 dev.4 在模拟器上曾完成目录扫描，随后在等待 TSX 首屏时超时。另可在源码确认，旧版编译时在主界面线程将整份快照编码为 Base64，等待编译器的 WebKit 回调时没有截止时间。原 iPhone 只观察到「准备预览」后卡住或退出，尚无系统崩溃报告可供归因。[dev.4 首屏超时记录](https://github.com/chkf/void/actions/runs/44373037031/job/135044703003)
 

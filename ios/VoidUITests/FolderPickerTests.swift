@@ -10,6 +10,9 @@ final class FolderPickerTests: XCTestCase {
     }
     private var navigation: XCUIElement { app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].firstMatch }
     private var openButton: XCUIElement { app.buttons["DOCPicker.actionButton"].firstMatch }
+    private func documentFolder(_ name: String) -> XCUIElement {
+        app.cells.matching(NSPredicate(format:"label BEGINSWITH[c] %@ OR identifier BEGINSWITH[c] %@",name + ",",name + ",")).firstMatch
+    }
     private func selectExternalDirectory() {
         XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
         let title = "Void Files QA"
@@ -38,8 +41,9 @@ final class FolderPickerTests: XCTestCase {
     }
 
     private func pressSystemOpen() {
+        XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
         let selectable = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == true AND enabled == true"),object:openButton)
-        XCTAssertEqual(XCTWaiter.wait(for:[selectable],timeout:30),.completed,app.debugDescription)
+        XCTAssertEqual(XCTWaiter.wait(for:[selectable],timeout:60),.completed,app.debugDescription)
         openButton.tap()
         if app.alerts.firstMatch.waitForExistence(timeout:2) {
             let allow = named(["Allow","允许","Open","打开"],in:app.alerts.buttons)
@@ -93,11 +97,6 @@ final class FolderPickerTests: XCTestCase {
         app.buttons["host.manage"].tap(); app.buttons["host.reconnect"].tap()
     }
 
-    private func scanDocumentsAndPreview() {
-        app.buttons["host.local"].tap()
-        previewDiscoveredFixture(localScan:true)
-    }
-
     private func openFixtureOverview() {
         let row = app.buttons["recent." + fixture]
         XCTAssertTrue(row.waitForExistence(timeout:12),app.debugDescription)
@@ -108,11 +107,12 @@ final class FolderPickerTests: XCTestCase {
         preview.tap()
     }
 
-    private func previewDiscoveredFixture(localScan: Bool = false) {
+    private func scanDocumentsAndPreview() {
+        app.buttons["host.local"].tap()
         let status = app.staticTexts["folder.status"]
         let found = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label BEGINSWITH %@", "已找到"),object:status)
         XCTAssertEqual(XCTWaiter.wait(for:[found],timeout:45),.completed,app.debugDescription)
-        if localScan || status.label != "已找到「" + fixture + "」" { openFixtureOverview() }
+        openFixtureOverview()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
     }
 
@@ -127,10 +127,26 @@ final class FolderPickerTests: XCTestCase {
     func testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory() {
         openLibrary()
         app.buttons["host.import"].tap()
+        XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
+        // Wait for Files to finish listing the actual directory. The action and the
+        // containing sheet can appear before its remote directory view responds.
+        let manifestDirectory = documentFolder("app")
+        if !manifestDirectory.waitForExistence(timeout:10) {
+            let target = documentFolder(fixture)
+            if !target.waitForExistence(timeout:5) {
+                let documents = documentFolder("void")
+                XCTAssertTrue(documents.waitForExistence(timeout:30),app.debugDescription)
+                documents.tap()
+            }
+            XCTAssertTrue(target.waitForExistence(timeout:30),app.debugDescription)
+            target.tap()
+        }
+        XCTAssertTrue(manifestDirectory.waitForExistence(timeout:45),app.debugDescription)
         pressSystemOpen()
-        // Files may start at the parent of directoryURL. A parent import must expose
-        // this previously unregistered project's row before it can be opened.
-        previewDiscoveredFixture()
+        let selected = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@","已找到「" + fixture + "」"),
+                                                  object:app.staticTexts["folder.status"])
+        XCTAssertEqual(XCTWaiter.wait(for:[selected],timeout:35),.completed,app.debugDescription)
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:85),app.debugDescription)
     }
 
     func testSystemOpenImportsPreviewsAndReconnectsOriginal() {

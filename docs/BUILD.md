@@ -10,7 +10,7 @@ GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.
 
 向仓库推送 `v` 开头的版本标签会触发发布。发布任务核对 arm64 安装包和 GitHub 附件的 SHA-256。稳定版还需通过模拟器测试。`-dev.` 开发包在发布页注明同一提交的模拟器结果，便于原位验证真机问题。[版本下载](https://github.com/chkf/void/releases)
 
-原位更新请沿用旧版的签名团队、实际 Bundle ID 和已有应用标识配置，覆盖安装，保留其数据容器。安装后直接打开原来的最近项目，也可在项目「管理」中点「重新扫描并预览」。同名副本和其他签名身份会得到不同的访问条件。
+原位更新请沿用旧版的签名团队、实际 Bundle ID 和已有应用标识配置，覆盖安装以保留原有数据容器。安装后点最近项目中的原记录，再点「预览项目」。若先使用「扫描本机项目」，扫描完成后从列表选原记录即可。
 
 在装有对应 Xcode 的 Mac 上，为测试准备一个独立的 iPhone 模拟器。本机扫描测试在 Void 文稿中准备随机命名的未登记 TSX 项目。系统选择器测试在这个模拟器的「我的 iPhone」中准备 Void Files QA 文件夹，里面是仓库已有的 TSX 模板。通过 Files 选择该外部目录并按 Open，测试检查返回的项目名、TSX 首屏和更新原授权的结果。可从仓库根目录执行以下命令复现工作流。
 
@@ -21,6 +21,7 @@ npm ci
 npm run openspec -- validate --all --strict
 npm test
 bash scripts/ios-build.sh device
+bash scripts/ios-build.sh release-preview
 VOID_SIMULATOR_FIXTURES=1 bash scripts/ios-build.sh test
 ```
 
