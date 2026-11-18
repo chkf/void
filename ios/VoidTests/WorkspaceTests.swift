@@ -46,6 +46,41 @@ final class WorkspaceTests: XCTestCase {
         XCTAssertNil(ResourceServer.byteRange("bytes=8-", count: 5))
     }
 
+    func testDiscoverRenameConflictsAndRepair() async throws {
+        let fm = FileManager.default
+        let parent = FolderGrant.documents.appendingPathComponent(UUID().uuidString)
+        let registry = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try fm.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: parent); try? fm.removeItem(at: registry) }
+        let library = ProjectLibrary(base: registry)
+        let a = try await library.create(name: "原生", parent: parent)
+        let html = parent.appendingPathComponent("旧项目/app")
+        try fm.createDirectory(at: html, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: html.appendingPathComponent("manifest.json"))
+        try Data("<main>项目</main>".utf8).write(to: html.appendingPathComponent("index.html"))
+        let discovered = try await library.discover(parent)
+        XCTAssertEqual(discovered.count, 2)
+        let b = try XCTUnwrap(discovered.first { $0.id != a.id })
+        let old = try await library.open(b.id, remember: true)
+        XCTAssertEqual(old.info.mode, .web)
+        try await library.rename(a, name: "新名称")
+        let reopened = try await library.open(a.id, remember: true)
+        XCTAssertEqual(reopened.info.name, "新名称")
+        let restored = try await ProjectLibrary(base: registry).catalog()
+        XCTAssertEqual(restored.last, a.id)
+        let clone = parent.appendingPathComponent("副本")
+        try fm.copyItem(at: parent.appendingPathComponent("原生"), to: clone)
+        do { _ = try await library.discover(clone); XCTFail("应拒绝副本的身份冲突") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("相同")) }
+        let manifest = html.appendingPathComponent("manifest.json")
+        try Data("{".utf8).write(to: manifest, options: .atomic)
+        do { _ = try await library.open(b.id, remember: true); XCTFail("应报告损坏的清单") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("app/manifest.json")) }
+        try Data("{}".utf8).write(to: manifest, options: .atomic)
+        let repaired = try await library.open(b.id, remember: true)
+        XCTAssertEqual(repaired.revision, old.revision)
+    }
+
     func testRejectsInvalidNativeTree() throws {
         let data = Data(#"{"revision":1,"eventSequence":0,"nodes":[{"type":"Toggle","id":"a","props":{"label":"显示","value":"yes"},"children":[]}]}"#.utf8)
         XCTAssertThrowsError(try JSONDecoder().decode(NativeCommit.self, from: data).validate())

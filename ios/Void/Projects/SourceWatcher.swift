@@ -4,6 +4,7 @@ final class SourceWatcher: NSObject, NSFilePresenter {
     let presentedItemURL: URL?
     let presentedItemOperationQueue = OperationQueue()
     let changed: () -> Void
+    private var observing = true
 
     init(root: URL, changed: @escaping () -> Void) {
         presentedItemURL = root
@@ -13,7 +14,11 @@ final class SourceWatcher: NSObject, NSFilePresenter {
         NSFileCoordinator.addFilePresenter(self)
     }
 
-    func stop() { NSFileCoordinator.removeFilePresenter(self) }
+    func stop() {
+        guard observing else { return }
+        observing = false
+        NSFileCoordinator.removeFilePresenter(self)
+    }
     func presentedItemDidChange() { changed() }
     func presentedSubitemDidAppear(at url: URL) { notify(url) }
     func presentedSubitemDidChange(at url: URL) { notify(url) }

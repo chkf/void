@@ -7,13 +7,23 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: ios-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  build:
-    runs-on: macos-15
+  native:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: iPhone Release
+            target: device
+            runner: macos-15-intel
+          - name: iPhone 模拟器测试
+            target: test
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    concurrency:
+      group: ios-${{ github.ref }}-${{ matrix.target }}
+      cancel-in-progress: true
     timeout-minutes: 35
     env:
       DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
@@ -25,34 +35,41 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run openspec -- validate --all --strict
+        if: matrix.target == 'device'
       - name: 生成离线工具链并测试 TSX 模板
+        if: matrix.target == 'device'
         run: npm test
-      - name: 编译 iPhone Release
+      - name: 为模拟器准备离线资源
+        if: matrix.target == 'test'
+        run: npm run prepare:ios
+      - name: 运行 Xcode
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
         run: |
           xcodebuild -version
-          bash scripts/ios-build.sh device
+          bash scripts/ios-build.sh "$BUILD_TARGET"
       - name: 保存未签名的 iPhone 包
+        if: matrix.target == 'device'
         uses: actions/upload-artifact@v4
         with:
           name: void-unsigned-iphone
           path: .build/ios/void-unsigned.ipa
           if-no-files-found: error
-      - name: 模拟器冷启动及原生控件测试
-        run: bash scripts/ios-build.sh test
       - name: 保存模拟器应用
+        if: matrix.target == 'test'
         uses: actions/upload-artifact@v4
         with:
           name: void-simulator
           path: .build/ios/void-simulator.zip
       - name: 保存 Xcode 测试报告
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.target == 'test' }}
         shell: bash
         run: |
           for result in .build/ios/*.xcresult; do
             if [[ -d "$result" ]]; then ditto -c -k --keepParent "$result" .build/ios/void-tests.zip; fi
           done
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.target == 'test' }}
         with:
           name: void-tests
           path: .build/ios/void-tests.zip

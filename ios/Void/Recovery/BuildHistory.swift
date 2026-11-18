@@ -10,6 +10,11 @@ actor ProductStore {
     init(base: URL) { self.base = base }
 
     private func directory(_ id: UUID) -> URL { base.appendingPathComponent(id.uuidString) }
+    private func buildKey(_ revision: String) throws -> String {
+        let key = revision + "-" + String(decoding: try Toolchain.read("build-id.txt"), as: UTF8.self)
+        guard ProjectFiles.component(key) else { throw RuntimeIssue("构建标识无效") }
+        return key
+    }
     private func history(_ id: UUID) throws -> BuildHistory {
         let url = directory(id).appendingPathComponent("history.json")
         if !FileManager.default.fileExists(atPath: url.path) { return BuildHistory() }
@@ -24,13 +29,16 @@ actor ProductStore {
         return try JSONDecoder().decode(Product.self, from: Data(contentsOf: url))
     }
 
+    func matching(_ revision: String, project id: UUID) throws -> Product? {
+        guard try history(id).current == buildKey(revision) else { return nil }
+        return try accepted(id)
+    }
+
     func confirm(_ product: Product, project id: UUID) throws {
         let folder = directory(id)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         var pointer = try history(id)
-        let buildID = try Toolchain.read("build-id.txt")
-        let key = product.revision + "-" + String(decoding: buildID, as: UTF8.self)
-        guard ProjectFiles.component(key) else { throw RuntimeIssue("构建标识无效") }
+        let key = try buildKey(product.revision)
         let url = folder.appendingPathComponent(key + ".json")
         if !FileManager.default.fileExists(atPath: url.path) { try JSONEncoder().encode(product).write(to: url, options: .atomic) }
         if pointer.current != key {

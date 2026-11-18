@@ -20,9 +20,11 @@ final class HostModel: ObservableObject {
     private var work: Task<Void, Never>?
     private var watch: SourceWatcher?
     private var needsScan = false
+    private var requestedRestart = false
+    private var requestedPrevious = false
 
-    init() {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("void")
+    init(storage: URL? = nil) {
+        let base = storage ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("void")
         library = ProjectLibrary(base: base)
         products = ProductStore(base: base.appendingPathComponent("Builds"))
     }
@@ -88,6 +90,8 @@ final class HostModel: ObservableObject {
         page = nil
         inspected = nil
         needsScan = false
+        requestedRestart = false
+        requestedPrevious = false
         busy = false
         permissions = []
         problem = nil
@@ -117,7 +121,7 @@ final class HostModel: ObservableObject {
             }
         }
         watch = observer
-        defer { if let observer, observer === watch { observer.stop(); watch = nil } }
+        defer { observer?.stop(); if observer === watch { watch = nil } }
         while !Task.isCancelled && current?.id == record.id {
             refresh()
             do { try await Task.sleep(for: .seconds(4)) } catch { break }
@@ -126,14 +130,24 @@ final class HostModel: ObservableObject {
 
     func refresh(force: Bool = false, remember: Bool = false, previous: Bool = false) {
         guard let record = current else { return }
-        if work != nil { needsScan = true; return }
+        if work != nil {
+            needsScan = true
+            if force { requestedRestart = true; requestedPrevious = previous }
+            return
+        }
         let token = generation
         work = Task {
             defer {
                 if generation == token {
                     work = nil
                     busy = false
-                    if needsScan { needsScan = false; refresh() }
+                    if needsScan {
+                        let restart = requestedRestart, rollback = requestedPrevious
+                        needsScan = false
+                        requestedRestart = false
+                        requestedPrevious = false
+                        refresh(force: restart, previous: rollback)
+                    }
                 }
             }
             do {
@@ -153,6 +167,8 @@ final class HostModel: ObservableObject {
                 if previous {
                     guard let saved = try await products.accepted(record.id, previous: true) else { throw RuntimeIssue("还没有可恢复的上一版本") }
                     product = saved
+                } else if remember, let cached = try? await products.matching(snapshot.revision, project: record.id) {
+                    product = cached
                 } else {
                     product = try await BuildEngine.build(snapshot)
                     let latest = try await library.open(record.id, remember: false)
@@ -165,6 +181,14 @@ final class HostModel: ObservableObject {
                 let detail = error.localizedDescription
                 if problem != detail { log.append(detail) }
                 problem = detail
+                let code = (error as NSError)
+                if error is FolderAccessIssue || (code.domain == NSCocoaErrorDomain && code.code == NSFileReadNoPermissionError) {
+                    page?.stop()
+                    page = nil
+                    inspected = nil
+                    permissions = []
+                    return
+                }
                 if page == nil, let accepted = try? await products.accepted(record.id) {
                     do { try await activate(accepted, record: record, token: token, expected: nil); problem = detail }
                     catch { if generation == token { problem = detail + "\n" + error.localizedDescription } }

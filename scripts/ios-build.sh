@@ -7,10 +7,15 @@ args=(-project ios/Void.xcodeproj -scheme Void -derivedDataPath "$out/DerivedDat
 case "${1:-device}" in
   device)
     xcodebuild "${args[@]}" -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+    app="$out/DerivedData/Build/Products/Release-iphoneos/VoidHost.app"
+    xcrun lipo -verify_arch arm64 "$app/VoidHost"
+    test -s "$app/Toolchain/esbuild.wasm"
+    test -s "$app/StarterProject/app/src/main.tsx"
+    test "$(plutil -extract MinimumOSVersion raw "$app/Info.plist")" = 17.0
     staging=$(mktemp -d "$out/package.XXXXXX")
     mkdir -p "$staging/Payload"
-    ditto "$out/DerivedData/Build/Products/Release-iphoneos/VoidHost.app" "$staging/Payload/VoidHost.app"
-    ditto -c -k --keepParent "$staging/Payload" "$out/void-unsigned.ipa"
+    ditto "$app" "$staging/Payload/VoidHost.app"
+    ditto -c -k --norsrc --keepParent "$staging/Payload" "$out/void-unsigned.ipa"
     unzip -tq "$out/void-unsigned.ipa"
     ;;
   test)
@@ -24,10 +29,12 @@ for runtime, devices in json.load(sys.stdin)["devices"].items():
         continue
     version = tuple(map(int, runtime.split(".iOS-")[-1].split("-")))
     if (17, 0) <= version[:2] <= sdk:
-        choices.extend((version, d["name"], d["udid"]) for d in devices if d["name"].startswith("iPhone") and d["isAvailable"])
+        choices.extend((version, d["name"] == "iPhone 16", d["name"], d["udid"]) for d in devices if d["name"].startswith("iPhone") and d["isAvailable"])
 if not choices:
     sys.exit("缺少与 Xcode 匹配的 iPhone 模拟器")
-print(max(choices)[2])' "$sdk")
+version, _, name, udid = max(choices)
+print(name, "iOS " + ".".join(map(str, version)), file=sys.stderr)
+print(udid)' "$sdk")
     xcrun simctl bootstatus "$device" -b
     result="$out/tests-$(date +%s).xcresult"
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \

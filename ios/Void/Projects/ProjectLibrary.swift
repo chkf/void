@@ -56,7 +56,11 @@ actor ProjectLibrary {
                 .map(\.lastPathComponent).sorted()
         }
         guard !children.isEmpty else { throw RuntimeIssue("未找到项目，请选择包含 app/manifest.json 的目录或它的上一级") }
-        return try register(children.map { FolderGrant(bookmark: grant.bookmark, child: $0) })
+        return try register(children.map { child in
+            var item = grant
+            item.child = child
+            return item
+        })
     }
 
     private func register(_ grants: [FolderGrant]) throws -> [ProjectRecord] {
@@ -92,13 +96,13 @@ actor ProjectLibrary {
         guard let index = catalog.records.firstIndex(where: { $0.id == id }) else { throw RuntimeIssue("项目尚未登记") }
         let record = catalog.records[index]
         let snapshot = try record.grant.coordinated { root in
-            guard try key(root) == record.directoryKey else { throw RuntimeIssue("目录已被替换，请重新选择项目") }
+            guard try key(root) == record.directoryKey else { throw FolderAccessIssue("目录已被替换，请重新选择项目") }
             return try ProjectFiles.snapshot(at: root)
         }
         let declared = snapshot.info.declaredID
-        if let expected = record.declaredID, declared != expected { throw RuntimeIssue("runtime.json · 项目标识与登记记录不符") }
+        if let expected = record.declaredID, declared != expected { throw FolderAccessIssue("runtime.json · 项目标识与登记记录不符") }
         if let declared, catalog.records.contains(where: { $0.id != id && $0.declaredID == declared }) {
-            throw RuntimeIssue("runtime.json · 项目标识与另一个目录冲突")
+            throw FolderAccessIssue("runtime.json · 项目标识与另一个目录冲突")
         }
         if remember || record.name != snapshot.info.name || record.version != snapshot.info.version || record.declaredID != declared {
             catalog.records[index].declaredID = declared
