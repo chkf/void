@@ -1,5 +1,24 @@
 import Foundation
 
+// Cancellation and the first durable change have one ordering. Once a change starts,
+// a late Cancel must not report that a completed creation or grant update was discarded.
+final class DirectoryCommit: @unchecked Sendable {
+    private let lock = NSLock()
+    private var cancelled = false
+    private var committing = false
+    func begin() throws {
+        lock.lock(); defer { lock.unlock() }
+        if cancelled { throw CancellationError() }
+        committing = true
+    }
+    func cancel() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard !committing else { return false }
+        cancelled = true
+        return true
+    }
+}
+
 // The provider can keep executing an accessor after cancel(). Keep the scope on the worker,
 // detach the waiter immediately, and prevent an abandoned scan from publishing its result.
 final class DirectoryIO: @unchecked Sendable {

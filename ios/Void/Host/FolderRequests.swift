@@ -13,6 +13,7 @@ struct FolderRequest: Identifiable {
     var id: UUID { trace.id }
     let purpose: FolderPurpose
     let origin: UUID?
+    let commit = DirectoryCommit()
 }
 
 @MainActor
@@ -35,6 +36,7 @@ final class FolderRequests: ObservableObject {
         let r = FolderRequest(trace:DirectoryTrace(purpose.name),purpose:purpose,origin:origin)
         request = r; selection = nil; pickerClosed = false; presented = false; ready = !afterSheet
         phase = .presenting; message = "正在打开文件选择器"
+        r.trace.event(purpose == .local ? "local.request" : "picker.request")
         if purpose == .local {
             ready = false; pickerClosed = true
             start(r,url:FolderGrant.documents)
@@ -58,18 +60,23 @@ final class FolderRequests: ObservableObject {
     }
     func dismissed(_ id: UUID) {
         guard let r = request, r.id == id, !pickerClosed else { return }
-        pickerClosed = true; r.trace.event("picker.dismiss")
+        pickerClosed = true; r.trace.event("picker.dismiss",phase == .presenting ? "未收到选择回调" : "")
         if phase == .presenting { cancel(id); return }
         if phase == .selected, let lease = selection { start(r,url:lease.url) }
     }
     func cancel(_ id: UUID) {
         guard let r = request, r.id == id, active else { return }
+        guard r.commit.cancel() else { return }
         if phase == .presenting || phase == .selected { r.trace.event("picker.cancel") }
         task?.cancel()
         finish(r,.cancelled,"已取消目录操作",error:CancellationError())
     }
     func changeProject(to id: UUID?) {
-        if let r = request, active, r.origin != id { cancel(r.id) }
+        if let r = request, active, r.origin != id {
+            if phase == .processing && !r.commit.cancel() {
+                finish(r,.succeeded,"目录操作已保存")
+            } else { cancel(r.id) }
+        }
     }
     private func start(_ r: FolderRequest, url: URL) {
         phase = .processing; message = "正在检查目录授权和项目文件"

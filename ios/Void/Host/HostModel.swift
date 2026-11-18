@@ -88,14 +88,14 @@ final class HostModel: ObservableObject {
         let message: String
         switch r.purpose {
         case .create(let name,let template):
-            found = [try await library.create(name:name,parent:url,template:template,trace:r.trace)]
+            found = [try await library.create(name:name,parent:url,template:template,trace:r.trace,commit:r.commit)]
             message = "已创建「" + name + "」"
         case .importFolder,.local:
-            found = try await library.discover(url,localRoot:r.purpose == .local,trace:r.trace)
+            found = try await library.discover(url,localRoot:r.purpose == .local,trace:r.trace,commit:r.commit)
             message = found.count == 1 ? "已找到「" + found[0].name + "」" : "已找到 \(found.count) 个项目"
         case .reconnect(let id):
             guard id == r.origin else { throw CancellationError() }
-            try await library.reconnect(id,url:url,trace:r.trace)
+            try await library.reconnect(id,url:url,trace:r.trace,commit:r.commit)
             found = try await library.catalog().recent.filter { $0.id == id }
             message = "已核验原项目目录"
         }
@@ -311,7 +311,7 @@ final class HostModel: ObservableObject {
                     log.append(detail)
                 }
                 problem = detail
-                inspected = nil
+                if scanError { inspected = nil }
                 if let issue = error as? DirectoryIssue, [.unreadable,.identity,.outside,.link].contains(issue.kind) {
                     page?.sdk.close()
                     permissions = []

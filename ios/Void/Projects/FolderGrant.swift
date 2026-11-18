@@ -23,13 +23,22 @@ struct FolderGrant: Codable, Equatable {
     }
     static func selected(_ url: URL, child: String = "") throws -> Self {
         guard url.isFileURL else { throw DirectoryIssue(kind:.wrongType,item:"所选目录") }
-        let parts = ProjectSourceReader.canonical(url), base = ProjectSourceReader.canonical(documents)
-        if parts.starts(with:base) {
-            let local = parts.dropFirst(base.count).joined(separator:"/")
-            return Self(bookmark:nil,child:child,localFolder:local)
+        let base = ProjectSourceReader.canonical(documents)
+        var cursor = url, names: [String] = []
+        while !cursor.lastPathComponent.isEmpty && cursor.lastPathComponent != "/" {
+            if ProjectSourceReader.canonical(cursor) == base {
+                guard try ProjectSourceReader().kind(cursor,"所选目录") == .directory else { throw DirectoryIssue(kind:.wrongType,item:"所选目录") }
+                let local = Self(bookmark:nil,child:child,localFolder:names.reversed().joined(separator:"/"))
+                try local.withRoot { _ in }
+                return local
+            }
+            let name = cursor.lastPathComponent
+            guard ProjectFiles.component(name) else { throw DirectoryIssue(kind:.outside,item:"所选目录") }
+            names.append(name); cursor.deleteLastPathComponent()
         }
         return try scoped(url) {
-            Self(bookmark:try url.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil),child:child)
+            guard try ProjectSourceReader().kind(url,"所选目录") == .directory else { throw DirectoryIssue(kind:.wrongType,item:"所选目录") }
+            return Self(bookmark:try url.bookmarkData(options:.minimalBookmark,includingResourceValuesForKeys:nil,relativeTo:nil),child:child)
         }
     }
     private static func scoped<T>(_ url: URL, body: () throws -> T) throws -> T {

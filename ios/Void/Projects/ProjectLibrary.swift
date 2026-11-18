@@ -37,6 +37,7 @@ actor ProjectLibrary {
     static func directoryKey(_ url: URL) throws -> String {
         try ProjectFiles.checkLink(url)
         let attrs = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard attrs[.type] as? FileAttributeType == .typeDirectory else { throw DirectoryIssue(kind:.wrongType,item:"登记目录") }
         guard let device = attrs[.systemNumber] as? NSNumber, let inode = attrs[.systemFileNumber] as? NSNumber,
               inode.uint64Value != 0 else { throw RuntimeIssue("文件服务商未提供可验证的目录标识") }
         return device.stringValue + "/" + inode.stringValue
@@ -78,7 +79,7 @@ actor ProjectLibrary {
         }
     }
 
-    private func register(_ observations: [Observation], template: ProjectTemplate? = nil) throws -> [ProjectRecord] {
+    private func register(_ observations: [Observation], template: ProjectTemplate? = nil, commit: DirectoryCommit? = nil) throws -> [ProjectRecord] {
         try Task.checkCancellation()
         var catalog = try catalog()
         var found: [ProjectRecord] = []
@@ -104,19 +105,32 @@ actor ProjectLibrary {
             found.append(record)
         }
         try Task.checkCancellation()
+        try commit?.begin()
         try save(catalog)
         return found
     }
 
-    func create(name: String, parent: URL?, template: ProjectTemplate = .swiftUI, trace: DirectoryTrace? = nil) async throws -> ProjectRecord {
-        let known = try catalog().records
-        let observed = try await DirectoryIO.run { io in
-            var grant = try parent.map { try FolderGrant.selected($0) } ?? FolderGrant(bookmark:nil,child:"")
-            _ = try grant.coordinated(write:true,io:io,trace:trace) { try ProjectFiles.create(name,in:$0,template:template,io:io) }
-            grant.child = name
-            return try Self.inspect(grant,known:known,incomplete:false,trace:trace,io:io)
+    func create(name: String, parent: URL?, template: ProjectTemplate = .swiftUI, trace: DirectoryTrace? = nil, commit: DirectoryCommit? = nil) async throws -> ProjectRecord {
+        let observed = try await DirectoryIO.run { io -> Observation in
+            let parent = try parent.map { try FolderGrant.selected($0) } ?? FolderGrant(bookmark:nil,child:"")
+            var child = parent; child.child = name
+            return try parent.coordinated(write:true,io:io,trace:trace) { root in
+                var prepared: Observation?
+                _ = try ProjectFiles.create(name,in:root,template:template,io:io) { staging in
+                    trace?.event("scan.begin")
+                    do {
+                        let snapshot = try ProjectFiles.snapshot(at:staging,trace:trace,io:io)
+                        prepared = Observation(grant:child,key:try Self.directoryKey(staging),snapshot:snapshot,sameLocations:[])
+                        trace?.event("scan.end","OK")
+                    } catch { trace?.event("scan.end","失败",error:error); throw error }
+                    try io.check()
+                    try commit?.begin()
+                }
+                guard let prepared else { throw DirectoryIssue(kind:.provider,item:"创建项目") }
+                return prepared
+            }
         }
-        return try register([observed],template:template)[0]
+        return try register([observed],template:template,commit:commit)[0]
     }
 
     private static func children(of grant: FolderGrant, localRoot: Bool, trace: DirectoryTrace?, io: DirectoryIO) throws -> [FolderGrant] {
@@ -142,7 +156,7 @@ actor ProjectLibrary {
         }
     }
 
-    func discover(_ url: URL, localRoot: Bool = false, trace: DirectoryTrace? = nil) async throws -> [ProjectRecord] {
+    func discover(_ url: URL, localRoot: Bool = false, trace: DirectoryTrace? = nil, commit: DirectoryCommit? = nil) async throws -> [ProjectRecord] {
         let known = try catalog().records
         let observations = try await DirectoryIO.run { io in
             let grant = try FolderGrant.selected(url)
@@ -153,7 +167,7 @@ actor ProjectLibrary {
                 try Self.inspect($0,known:known,incomplete:true,trace:trace,io:io)
             }
         }
-        return try register(observations)
+        return try register(observations,commit:commit)
     }
 
     private static func locateLocal(_ record: ProjectRecord, trace: DirectoryTrace?, io: DirectoryIO) throws -> Observation? {
@@ -199,7 +213,7 @@ actor ProjectLibrary {
         return observed.snapshot
     }
 
-    func reconnect(_ id: UUID, url: URL, trace: DirectoryTrace? = nil) async throws {
+    func reconnect(_ id: UUID, url: URL, trace: DirectoryTrace? = nil, commit: DirectoryCommit? = nil) async throws {
         guard let record = try catalog().records.first(where:{ $0.id == id }) else { throw RuntimeIssue("项目尚未登记") }
         let observed = try await DirectoryIO.run { io in
             try Self.inspect(FolderGrant.selected(url),known:[record],incomplete:true,trace:trace,io:io)
@@ -207,7 +221,7 @@ actor ProjectLibrary {
         try Task.checkCancellation()
         try Self.matched(observed,record)
         guard try catalog().records.contains(where:{ $0.id == id && $0.opened != nil && $0.grant == record.grant }) else { throw CancellationError() }
-        _ = try register([observed])
+        _ = try register([observed],commit:commit)
     }
 
     func rename(_ record: ProjectRecord, name: String) async throws {

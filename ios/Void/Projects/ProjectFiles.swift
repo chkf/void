@@ -89,7 +89,7 @@ enum ProjectFiles {
         default: defaultEntry = "index.html"
         }
         let entry = (manifest["entry"] as? String) ?? defaultEntry
-        guard safePath(entry) else { throw RuntimeIssue("app/manifest.json · 入口路径无效 " + entry) }
+        guard safePath(entry) else { throw DirectoryIssue(kind:.outside,item:"app/manifest.json 中的入口") }
         let mode = try modeForManifest(manifest, entry: entry)
         let permissions = manifest["permissions"] as? [String] ?? []
         if manifest["permissions"] != nil && !(manifest["permissions"] is [String]) {
@@ -117,8 +117,10 @@ enum ProjectFiles {
     }
 
     static func checkLink(_ url: URL) throws {
-        if try url.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink == true {
-            throw RuntimeIssue("项目源码不能通过符号链接读取 · " + url.lastPathComponent)
+        let link = try url.resourceValues(forKeys:[.isSymbolicLinkKey]).isSymbolicLink
+        if link == true { throw DirectoryIssue(kind:.link,item:"项目路径") }
+        if link == nil, try manager.attributesOfItem(atPath:url.path)[.type] as? FileAttributeType == .typeSymbolicLink {
+            throw DirectoryIssue(kind:.link,item:"项目路径")
         }
     }
 
@@ -146,7 +148,8 @@ enum ProjectFiles {
         try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: manifest, options: .atomic)
     }
 
-    static func create(_ name: String, in parent: URL, template: ProjectTemplate = .swiftUI, io: DirectoryIO? = nil) throws -> URL {
+    static func create(_ name: String, in parent: URL, template: ProjectTemplate = .swiftUI, io: DirectoryIO? = nil,
+                       beforePublish: (URL) throws -> Void = { _ in }) throws -> URL {
         guard component(name), !name.hasPrefix(".") else { throw RuntimeIssue("请输入有效的项目文件夹名称") }
         let target = parent.appendingPathComponent(name, isDirectory: true)
         guard !manager.fileExists(atPath: target.path) else { throw RuntimeIssue("此位置已有同名文件或目录") }
@@ -170,6 +173,7 @@ enum ProjectFiles {
             try manager.createDirectory(at: staging.appendingPathComponent(path), withIntermediateDirectories: true)
         }
         try io?.check()
+        try beforePublish(staging)
         try manager.moveItem(at: staging, to: target)
         return target
     }

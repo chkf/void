@@ -4,24 +4,32 @@ struct ProjectSourceReader {
     enum Kind { case directory, file }
     var children: (URL) throws -> [URL] = { try FileManager.default.contentsOfDirectory(at:$0,includingPropertiesForKeys:nil) }
     var bytes: (URL) throws -> Data = { try Data(contentsOf:$0) }
-    var metadata: (URL) throws -> URLResourceValues = {
-        try $0.resourceValues(forKeys:[.isDirectoryKey,.isRegularFileKey,.isSymbolicLinkKey,.ubiquitousItemDownloadingStatusKey])
+    struct Traits {
+        var directory: Bool?
+        var file: Bool?
+        var link: Bool?
+        var pendingDownload = false
+    }
+    var metadata: (URL) throws -> Traits = {
+        let value = try $0.resourceValues(forKeys:[.isDirectoryKey,.isRegularFileKey,.isSymbolicLinkKey,.ubiquitousItemDownloadingStatusKey])
+        return Traits(directory:value.isDirectory,file:value.isRegularFile,link:value.isSymbolicLink,
+                     pendingDownload:value.ubiquitousItemDownloadingStatus == .notDownloaded)
     }
 
     static func canonical(_ url: URL) -> [String] {
-        url.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL.pathComponents
+        url.standardizedFileURL.resolvingSymlinksInPath().standardizedFileURL.path.split(separator:"/").map(String.init)
     }
     func kind(_ url: URL, _ key: String) throws -> Kind {
         do {
             let values = try metadata(url)
-            if values.isSymbolicLink == true { throw DirectoryIssue(kind:.link,item:key) }
-            if values.ubiquitousItemDownloadingStatus == .notDownloaded {
+            if values.link == true { throw DirectoryIssue(kind:.link,item:key) }
+            if values.pendingDownload {
                 try? FileManager.default.startDownloadingUbiquitousItem(at:url)
                 throw DirectoryIssue(kind:.pendingDownload,item:key)
             }
-            if values.isSymbolicLink == false {
-                if values.isDirectory == true { return .directory }
-                if values.isRegularFile == true { return .file }
+            if values.link == false {
+                if values.directory == true { return .directory }
+                if values.file == true { return .file }
             }
             // Some providers omit URL resource type flags. Stat the item itself, without following its final link.
             let type = try FileManager.default.attributesOfItem(atPath:url.path)[.type] as? FileAttributeType

@@ -34,7 +34,7 @@ final class FolderPickerTests: XCTestCase {
         }
         let cancelled = app.staticTexts["folder.status"]
         func cancelPicker() {
-            let button = pickerButton(["Cancel","取消","Close","关闭"])
+            let button = named(["Cancel","取消","Close","关闭"],in:app.navigationBars.buttons)
             XCTAssertTrue(button.waitForExistence(timeout:15),app.debugDescription)
             button.tap()
             expectation(for:NSPredicate(format:"label == %@", "已取消目录操作"),evaluatedWith:cancelled)

@@ -7,7 +7,13 @@
 | 宿主 Application Support/void/projects.json | 目录书签、宿主分配的 UUID、目录身份与最近选择，只供宿主访问。 |
 | 宿主 Application Support/void/Builds/ | 按 UUID 存储的已确认产物与恢复指针。 |
 
-Files 选择器返回的目录需要由每个应用独立授权。宿主保存系统书签，在每次协调访问后释放授权。文件服务商撤销访问或书签过期时，从「管理 → 重新授权文件夹」选择原目录。登记按目录身份核对。[Apple 目录授权](https://developer.apple.com/documentation/uikit/providing-access-to-directories)
+打开既有项目会先恢复原目录。Void 自己的文稿使用相对于本次安装 Documents 的位置，外部目录使用系统授予的书签，可恢复的过期书签会自动更新。宿主核验目录标识和已登记的项目 ID。目录标识发生变化时，只有原位置和 runtime.json 的原 ID 同时匹配才更新登记。已有项目沿用宿主 UUID、权限、构建历史和数据库。[Apple 目录授权](https://developer.apple.com/documentation/uikit/providing-access-to-directories)
+
+宿主在同一次目录协调中直接读取 app/manifest.json 和它声明的入口。其余源码以实际子目录名构成相对键，扫描 app/、assets/ 和 modules/。点号开头的临时项会跳过，普通文件名即使带隐藏属性也会读取。遇到读取拒绝、文件未下载、JSON 损坏或路径含符号链接时，界面会显示对应阶段和原因。
+
+项目列表和「管理」都可查看「目录诊断」。同一请求 ID 的 picker.present、picker.didPick 和 picker.dismiss 分别表示选择器已显示、宿主收到选中回调、选择器已关闭。随后查看 grant.begin、grant.accessor、scan.begin、scan.end 和最终 result。每条记录含耗时，失败时保留系统错误域和代码。选择回调只记录数量和目录末级名。最近 180 条保存在宿主内，重启后可查看。
+
+每次目录读取操作最多等待 20 秒。「取消」和超时都会调用系统文件协调器的取消方法。已经进入服务商读取的工作可以晚些返回，宿主会丢弃过期结果。[Apple 文件协调取消语义](https://developer.apple.com/documentation/foundation/nsfilecoordinator/cancel())
 
 脚本通过 `ios.fs` 访问自己项目的数据。`data/` 对应项目的共享数据，`project/` 对应获准的项目文件夹，`private/` 和 `cache/` 分别对应按项目 UUID 区分的私有文件及缓存。宿主书签、其他项目和钥匙串使用各自独立的存储。SQLite 使用 `ios.graphics.execute/query/transaction`，移除最近记录不影响项目的数据库。[文件 API](SDK_REFERENCE.md#文件)
 

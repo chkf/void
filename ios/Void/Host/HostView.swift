@@ -63,6 +63,11 @@ struct HostView: View {
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
+                    VStack(alignment:.leading,spacing:4) {
+                    if let problem = model.problem, model.page != nil || model.mode == .swiftui && model.workspaceTemplate == nil {
+                        Text(verbatim:problem).font(.caption).lineLimit(3).textSelection(.enabled)
+                            .accessibilityIdentifier("preview.error")
+                    }
                     HStack {
                         if model.busy {
                             ProgressView()
@@ -80,6 +85,7 @@ struct HostView: View {
                         Spacer()
                         Button { panel = .manage } label: { Label("管理", systemImage: "slider.horizontal.3") }
                             .accessibilityIdentifier("host.manage")
+                    }
                     }.padding(.horizontal).padding(.vertical, 8).background(.bar)
                 }
             } else {
