@@ -57,8 +57,8 @@ case "${1:-device}" in
     xcodebuild "${args[@]}" -configuration Debug -destination 'generic/platform=iOS Simulator' build-for-testing
     ;;
   test)
-    bash scripts/ios-build.sh start-simulator
     bash scripts/ios-build.sh build-tests
+    bash scripts/ios-build.sh start-simulator
     bash scripts/ios-build.sh run-tests
     ;;
   run-tests)

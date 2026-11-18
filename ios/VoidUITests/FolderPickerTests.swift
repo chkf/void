@@ -8,17 +8,17 @@ final class FolderPickerTests: XCTestCase {
     private func named(_ labels: [String], in elements: XCUIElementQuery) -> XCUIElement {
         elements.matching(NSPredicate(format:"label IN %@ OR identifier IN %@",labels,labels)).firstMatch
     }
-    private var browser: XCUIElement { app.otherElements["Browse View (Picker)"].firstMatch }
+    private var navigation: XCUIElement { app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].firstMatch }
     private var openButton: XCUIElement { app.buttons["DOCPicker.actionButton"].firstMatch }
     private func folder(_ title: String) -> XCUIElement {
         app.cells.matching(NSPredicate(format:"label == %@ OR label BEGINSWITH %@ OR identifier BEGINSWITH %@",title,title + ",",title + ",")).firstMatch
     }
     private func showBrowser() {
-        if !browser.waitForExistence(timeout:3) {
+        if !openButton.waitForExistence(timeout:5) {
             let browse = named(["Browse","浏览"],in:app.tabBars.buttons)
-            if browse.waitForExistence(timeout:5) { browse.tap() }
+            if browse.exists && browse.isHittable { browse.tap() }
         }
-        XCTAssertTrue(browser.waitForExistence(timeout:15),app.debugDescription)
+        XCTAssertTrue(openButton.waitForExistence(timeout:60),app.debugDescription)
     }
     private func selectDirectory() {
         showBrowser()
@@ -46,7 +46,7 @@ final class FolderPickerTests: XCTestCase {
         openButton.tap()
         let allow = named(["Allow","允许"],in:app.buttons)
         if allow.waitForExistence(timeout:2) { allow.tap() }
-        else if browser.exists {
+        else if openButton.exists {
             let alert = XCUIApplication(bundleIdentifier:"com.apple.springboard").alerts
             let systemAllow = named(["Allow","允许"],in:alert.buttons)
             if systemAllow.exists { systemAllow.tap() }
@@ -54,17 +54,19 @@ final class FolderPickerTests: XCTestCase {
         awaitDismissal()
     }
     private func awaitDismissal() {
-        let gone = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:browser)
+        let gone = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:openButton)
         XCTAssertEqual(XCTWaiter.wait(for:[gone],timeout:15),.completed,app.debugDescription)
     }
     private func cancelPicker() {
         showBrowser()
-        let cancel = named(["Cancel","取消","Close","关闭"],in:browser.buttons)
+        let cancel = named(["Cancel","取消","Close","关闭"],in:navigation.buttons)
         if cancel.exists && cancel.isHittable { cancel.tap() }
         else {
             // Compact Files exposes Open and the history controls. Drag its actual sheet handle.
-            let top = browser.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.014))
-            let bottom = browser.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.9))
+            let handle = named(["Sheet Grabber","表单抓取按钮"],in:app.buttons)
+            let top = handle.exists ? handle.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)) :
+                navigation.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0))
+            let bottom = app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.9))
             top.press(forDuration:0.12,thenDragTo:bottom)
         }
         awaitDismissal()
@@ -75,6 +77,7 @@ final class FolderPickerTests: XCTestCase {
 
     private func openLibrary() {
         continueAfterFailure = false
+        executionTimeAllowance = 360
         app.launchEnvironment["VOID_PICKER_TEST_PROJECT"] = token
         app.launch()
         if !app.buttons["host.import"].waitForExistence(timeout:3) {

@@ -52,8 +52,6 @@ jobs:
       VOID_SIMULATOR_FIXTURES: '1'
     steps:
       - uses: actions/checkout@v4
-      - name: 启动 iPhone 模拟器
-        run: bash scripts/ios-build.sh start-simulator
       - uses: actions/setup-node@v4
         with:
           node-version: 22.20.0
@@ -62,6 +60,8 @@ jobs:
       - run: npm run prepare:ios
       - name: 编译模拟器应用与测试
         run: bash scripts/ios-build.sh build-tests
+      - name: 启动 iPhone 模拟器
+        run: bash scripts/ios-build.sh start-simulator
       - name: 运行原生单元测试与界面测试
         run: bash scripts/ios-build.sh run-tests
       - name: 保存模拟器应用
