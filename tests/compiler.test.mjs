@@ -87,6 +87,28 @@ test("缺失或不兼容的依赖会中止构建", async () => {
   await assert.rejects(compile({ ...template, files }), /react@99/);
 });
 
+test("编译器只按需读取实际引用的二进制资源", async () => {
+  const files = {
+    "app/index.html": Buffer.from('<link rel="stylesheet" href="style.css">'),
+    "app/style.css": new Uint8Array(0),
+    "assets/图标.png": new Uint8Array(0),
+    "assets/未引用.mov": new Uint8Array(0)
+  };
+  const bytes = {
+    "app/style.css": Buffer.from('body { background-image: url("../assets/图标.png") }'),
+    "assets/图标.png": Buffer.from([16, 35, 78])
+  };
+  const requested = [];
+  const product = await compile({mode:"web", entry:"index.html", files, async readSource(name) {
+    requested.push(name);
+    return bytes[name];
+  }});
+  assert.deepEqual(requested.sort(), Object.keys(bytes).sort());
+  assert.equal(product.files["assets/未引用.mov"],files["assets/未引用.mov"]);
+  const generated = Object.keys(product.files).find(key => key.startsWith("bundle/assets/"));
+  assert.deepEqual(Buffer.from(product.files[generated]),bytes["assets/图标.png"]);
+});
+
 test("18 组原生接口的 TypeScript、运行时和 IPA 注册表逐项一致", async () => {
   const catalog = JSON.parse(await read("Toolchain/sdk-api.json"));
   const context = vm.createContext({ setTimeout, clearTimeout, console, crypto: webcrypto });

@@ -23,7 +23,10 @@ final class PreviewRecoveryTests: XCTestCase {
         _ = try ProjectFiles.create(name,in:FolderGrant.documents,template:.tsx)
         let found = try await library.discover(root)
         let original = try XCTUnwrap(found.first)
-        _ = try await library.open(original.id,remember:true)
+        // An interruption can occur on the very first scan, before the last-opened
+        // catalog pointer has been written.
+        let before = try await library.catalog()
+        XCTAssertNil(before.last)
         let recovery = PreviewRecovery(storage:storage)
         let former = UUID(), active = UUID()
         try await recovery.mark(PreviewAttempt(request:former,project:original.id,stage:.compiler),starting:true)

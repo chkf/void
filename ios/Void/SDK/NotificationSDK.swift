@@ -2,7 +2,9 @@ import UIKit
 import UserNotifications
 
 final class VoidAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private let exitDiagnostics = HostExitDiagnostics()
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        exitDiagnostics.subscribe()
         UNUserNotificationCenter.current().delegate = self
         return true
     }

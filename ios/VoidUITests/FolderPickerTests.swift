@@ -95,18 +95,24 @@ final class FolderPickerTests: XCTestCase {
 
     private func scanDocumentsAndPreview() {
         app.buttons["host.local"].tap()
-        previewDiscoveredFixture()
+        previewDiscoveredFixture(localScan:true)
     }
 
-    private func previewDiscoveredFixture() {
+    private func openFixtureOverview() {
+        let row = app.buttons["recent." + fixture]
+        XCTAssertTrue(row.waitForExistence(timeout:12),app.debugDescription)
+        row.tap()
+        let preview = app.buttons["project.preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout:12),app.debugDescription)
+        XCTAssertFalse(app.staticTexts["preview.stage"].exists)
+        preview.tap()
+    }
+
+    private func previewDiscoveredFixture(localScan: Bool = false) {
         let status = app.staticTexts["folder.status"]
         let found = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label BEGINSWITH %@", "已找到"),object:status)
         XCTAssertEqual(XCTWaiter.wait(for:[found],timeout:45),.completed,app.debugDescription)
-        if status.label != "已找到「" + fixture + "」" {
-            let original = app.buttons["recent." + fixture]
-            XCTAssertTrue(original.waitForExistence(timeout:8),app.debugDescription)
-            original.tap()
-        }
+        if localScan || status.label != "已找到「" + fixture + "」" { openFixtureOverview() }
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
     }
 
@@ -143,7 +149,7 @@ final class FolderPickerTests: XCTestCase {
         let status = app.staticTexts["folder.status"]
         let found = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label BEGINSWITH %@", "已找到"),object:status)
         XCTAssertEqual(XCTWaiter.wait(for:[found],timeout:45),.completed,app.debugDescription)
-        if status.label != "已找到「" + fixture + "」" { app.buttons["recent." + fixture].tap() }
+        openFixtureOverview()
         let stage = app.staticTexts["preview.stage"]
         let frame = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@", "正在等待项目首屏"),object:stage)
         XCTAssertEqual(XCTWaiter.wait(for:[frame],timeout:100),.completed,app.debugDescription)
@@ -152,7 +158,7 @@ final class FolderPickerTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["preview.interrupted"].waitForExistence(timeout:30),app.debugDescription)
         let record = app.buttons["recent." + fixture]
         XCTAssertTrue(record.exists)
-        record.tap()
+        openFixtureOverview()
         XCTAssertTrue(app.staticTexts["预览已恢复"].waitForExistence(timeout:120),app.debugDescription)
     }
 

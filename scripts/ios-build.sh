@@ -101,6 +101,17 @@ case "${1:-device}" in
     fi
     xcodebuild "${args[@]}" -configuration Debug -destination 'generic/platform=iOS Simulator' build-for-testing
     ;;
+  release-preview)
+    bash scripts/ios-build.sh start-simulator
+    device=$(choose_simulator)
+    xcrun simctl bootstatus "$device" -b
+    xcodebuild "${args[@]}" -configuration Release ENABLE_TESTABILITY=YES \
+      -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO \
+      -only-testing:VoidTests/DirectoryTests/testLocalScanAndRecentSelectionDoNotReadOrStartAProject \
+      -only-testing:VoidTests/DirectoryTests/testFingerprintMatchesFullContentsWithoutRetainingAssetsAndBoundsGrowingSources \
+      -only-testing:VoidTests/DirectoryTests/testRecentTSXPreviewsExistingSQLiteThroughNativeFirstFrame \
+      -resultBundlePath "$out/release-preview.xcresult" test
+    ;;
   test)
     bash scripts/ios-build.sh build-tests
     bash scripts/ios-build.sh start-simulator
@@ -143,5 +154,5 @@ PY
     if ((test_status != 0)); then exit "$test_status"; fi
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
-  *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests" >&2; exit 2 ;;
+  *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests|release-preview" >&2; exit 2 ;;
 esac

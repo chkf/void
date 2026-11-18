@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 
 enum HostPage {
+    case overview
     case workspace(ProjectTemplate)
     case swiftUI(UUID)
     case script(ProjectPage)
@@ -16,6 +17,13 @@ final class HostModel: ObservableObject {
     var workspaceTemplate: ProjectTemplate? {
         if case let .workspace(template) = screen { return template }
         return nil
+    }
+    var showingOverview: Bool {
+        if case .overview = screen { return true }
+        return false
+    }
+    var shouldMonitor: Bool {
+        !showingOverview && workspaceTemplate == nil && (screen != nil || waitingEntry != nil)
     }
     var page: ProjectPage? {
         if case let .script(value) = screen { return value }
@@ -68,18 +76,18 @@ final class HostModel: ObservableObject {
             try await SimulatorPickerFixture.prepareIfRequested()
             #endif
             let catalog = try await list()
-            if let id = catalog.last, let record = records.first(where:{ $0.id == id }) {
-                var interrupted = try await previewRecovery.pending()
-                if interrupted == nil, usesAppCatalog,
-                   let request = PreviewRecovery.interruptedLegacyRequest(DirectoryJournal.shared.recent()) {
-                    let previous = PreviewAttempt(request:request,project:id,stage:.legacyPreparation)
-                    try await previewRecovery.mark(previous,starting:true)
-                    interrupted = previous
-                }
-                if let interrupted, interrupted.project == id {
-                    recoveryMessage = "上次预览在「" + interrupted.stage.title + "」时中断。可从下面的原项目记录重试。"
-                    DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
-                } else { await open(record) }
+            var interrupted = try await previewRecovery.pending()
+            if interrupted == nil, usesAppCatalog, let id = catalog.last,
+               let request = PreviewRecovery.interruptedLegacyRequest(DirectoryJournal.shared.recent()) {
+                let previous = PreviewAttempt(request:request,project:id,stage:.legacyPreparation)
+                try await previewRecovery.mark(previous,starting:true)
+                interrupted = previous
+            }
+            if let interrupted, let original = records.first(where:{ $0.id == interrupted.project }) {
+                recoveryMessage = "「" + original.name + "」上次在「" + interrupted.stage.title + "」时中断。"
+                DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
+            } else if let id = catalog.last, let record = records.first(where:{ $0.id == id }) {
+                await open(record)
             }
         } catch { notice = error.localizedDescription }
     }
@@ -121,7 +129,7 @@ final class HostModel: ObservableObject {
         try Task.checkCancellation()
         try await list()
         guard folders.request?.id == r.id, current?.id == r.origin else { return message }
-        if found.count == 1 {
+        if r.purpose != .local, found.count == 1 {
             if current?.id == found[0].id {
                 current = found[0]
                 refresh(force:true,remember:true,trace:r.trace)
@@ -177,6 +185,14 @@ final class HostModel: ObservableObject {
         log = []
     }
 
+    func selectRecent(_ record: ProjectRecord) async {
+        if record.pendingTemplate != nil { await open(record); return }
+        folders.changeProject(to:record.id)
+        clear()
+        current = record
+        screen = .overview
+    }
+
     func open(_ record: ProjectRecord, from request: FolderRequest? = nil) async {
         if request?.id != folders.request?.id || request == nil { folders.changeProject(to:record.id) }
         clear()
@@ -217,7 +233,7 @@ final class HostModel: ObservableObject {
     }
 
     func monitor() async {
-        guard let record = current, workspaceTemplate == nil else { return }
+        guard let record = current, shouldMonitor else { return }
         let observer = try? await SourceWatcher.start(grant:record.grant) { [weak self] in
             Task { @MainActor in if self?.current?.id == record.id { self?.refresh() } }
         }
@@ -225,8 +241,8 @@ final class HostModel: ObservableObject {
         watch = observer
         defer { observer?.stop(); if observer === watch { watch = nil } }
         while !Task.isCancelled && current?.id == record.id {
-            refresh()
             do { try await Task.sleep(for: .seconds(4)) } catch { break }
+            if current?.id == record.id, shouldMonitor, work == nil { refresh() }
         }
     }
 
@@ -248,7 +264,7 @@ final class HostModel: ObservableObject {
     }
 
     func refresh(force: Bool = false, remember: Bool = false, previous: Bool = false, trace input: DirectoryTrace? = nil) {
-        guard let record = current, force || (workspaceTemplate == nil && !userStoppedScanning) else { return }
+        guard let record = current, force || (shouldMonitor && !userStoppedScanning) else { return }
         if force { userStoppedScanning = false }
         if let pending = work {
             guard force else { needsScan = true; return }
@@ -299,6 +315,11 @@ final class HostModel: ObservableObject {
                 var scanned = false
                 do {
                     if force { try await stage(.scan) }
+                    if !force && !remember, let inspected {
+                        let revision = try await library.revision(record.id,trace:trace)
+                        try check(token)
+                        if revision == inspected { return }
+                    }
                     let snapshot = try await library.open(record.id,remember:remember,trace:trace)
                     scanned = true
                     try check(token)
@@ -344,9 +365,9 @@ final class HostModel: ObservableObject {
                             if self.generation == token { self.compiler = page }
                         }) { try await stage(.compile) }
                         try await stage(.verify)
-                        let latest = try await library.open(record.id,remember:false,trace:trace)
+                        let latest = try await library.revision(record.id,trace:trace)
                         try check(token)
-                        guard latest.revision == snapshot.revision else { needsScan = true; return }
+                        guard latest == snapshot.revision else { needsScan = true; return }
                     }
                     try await stage(.firstFrame)
                     try await activate(product,record:verifiedRecord,token:token,expected:previous ? nil : snapshot.revision,trace:diagnostic)
@@ -370,7 +391,7 @@ final class HostModel: ObservableObject {
                     }
                     problem = detail
                     if scanError { inspected = nil }
-                    if let issue = error as? DirectoryIssue, [.provider,.timeout,.unreadable,.identity].contains(issue.kind) {
+                    if let issue = error as? DirectoryIssue, [.provider,.timeout,.unreadable,.identity,.sourceLimit].contains(issue.kind) {
                         userStoppedScanning = true
                         needsScan = false
                         scanStatus = "目录检查已结束"
@@ -379,7 +400,7 @@ final class HostModel: ObservableObject {
                         page?.sdk.close()
                         permissions = []
                     }
-                    if mode != .swiftui, screen == nil, let accepted = try? await products.accepted(record.id) {
+                    if mode != .swiftui, screen == nil, (error as? DirectoryIssue)?.kind != .sourceLimit, let accepted = try? await products.accepted(record.id) {
                         do {
                             try await stage(.firstFrame)
                             try await activate(accepted,record:record,token:token,expected:nil,trace:diagnostic)
@@ -437,9 +458,9 @@ final class HostModel: ObservableObject {
         }
         try check(token)
         if let expected {
-            let latest = try await library.open(record.id,remember:false,trace:trace)
+            let latest = try await library.revision(record.id,trace:trace)
             try check(token)
-            guard latest.revision == expected else { needsScan = true; return }
+            guard latest == expected else { needsScan = true; return }
         }
         try await products.confirm(product, project: record.id)
         try check(token)

@@ -129,14 +129,17 @@ enum ProjectFiles {
     }
 
     static func snapshot(info metadata: ProjectInfo, files: [String:Data]) -> SourceSnapshot {
+        SourceSnapshot(info:metadata,files:files,revision:revision(files.mapValues { SHA256.hash(data:$0) }))
+    }
+
+    static func revision(_ digests: [String:SHA256.Digest]) -> String {
         var hash = SHA256()
-        for name in files.keys.sorted() {
+        for name in digests.keys.sorted() {
             hash.update(data: Data(name.utf8))
             hash.update(data: Data([0]))
-            hash.update(data: Data(SHA256.hash(data: files[name]!)))
+            if let digest = digests[name] { hash.update(data:Data(digest)) }
         }
-        let revision = hash.finalize().map { String(format: "%02x", $0) }.joined()
-        return SourceSnapshot(info: metadata, files: files, revision: revision)
+        return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
     static func rename(_ name: String, at root: URL) throws {

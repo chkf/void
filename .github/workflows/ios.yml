@@ -39,6 +39,23 @@ jobs:
           path: .build/ios/void-unsigned.ipa
           if-no-files-found: error
 
+  preview-release:
+    name: Release 模式下的原目录与 SQLite 首屏
+    runs-on: xcode-27
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+      VOID_IOS_SDK: '27.2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          cache: npm
+      - run: npm ci
+      - run: npm run prepare:ios
+      - run: bash scripts/ios-build.sh release-preview
+
   simulator:
     name: iPhone 模拟器测试
     runs-on: xcode-27
@@ -86,9 +103,9 @@ jobs:
   release:
     name: 发布 iPhone 安装包
     if: >-
-      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.iphone.result == 'success' &&
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.iphone.result == 'success' && needs.preview-release.result == 'success' &&
           (needs.simulator.result == 'success' || contains(github.ref_name, '-dev.')) }}
-    needs: [iphone, simulator]
+    needs: [iphone, simulator, preview-release]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -118,7 +135,7 @@ jobs:
           cat > "$notes" <<EOF
           下载下方的 **void-unsigned.ipa**。适用于 iOS 17 及以上的 iPhone，安装前需要使用自己的 Apple 签名。
 
-          本版将 TSX 编译放入独立工作线程，分别显示读取、编译和等待首屏的状态，可取消卡住的预览。预览中断后，下次启动先回项目列表。请沿用旧版签名团队和实际 Bundle ID 覆盖安装，从最近项目打开原目录。
+          本机扫描仅读取项目清单。点最近记录先显示项目页，点「预览项目」后才开始读取源码。新版分块校验文件并减少编译时占用的内存，系统提供的退出或卡顿摘要可从「目录诊断」查看。请沿用原来的签名团队和实际 Bundle ID 覆盖安装。
 
           $simulator_note 原 iPhone 上的系统 Open、原「健身记录」预览和训练保存仍待真机验证。
 

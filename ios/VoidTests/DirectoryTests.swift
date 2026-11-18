@@ -88,6 +88,61 @@ final class DirectoryTests: XCTestCase {
         }
     }
 
+    func testFingerprintMatchesFullContentsWithoutRetainingAssetsAndBoundsGrowingSources() throws {
+        let asset = root.appendingPathComponent("assets/图 像.bin")
+        try fm.createDirectory(at:asset.deletingLastPathComponent(),withIntermediateDirectories:true)
+        let content = Data(repeating:91,count:2 * 1024 * 1024 + 7)
+        try content.write(to:asset)
+        var reader = ProjectSourceReader()
+        let full = try reader.snapshot(root,allowMissingEntry:false,trace:nil,io:nil)
+        let check = try reader.snapshot(root,allowMissingEntry:false,trace:nil,io:nil,retainingSources:false)
+        XCTAssertEqual(full.files["assets/图 像.bin"],content)
+        XCTAssertEqual(full.revision,ProjectFiles.snapshot(info:full.info,files:full.files).revision)
+        XCTAssertEqual(check.revision,full.revision)
+        XCTAssertEqual(Set(check.files.keys),["app/manifest.json","runtime.json"])
+        reader.sourceByteLimit = content.count - 1
+        XCTAssertThrowsError(try reader.snapshot(root,allowMissingEntry:false,trace:nil,io:nil)) {
+            XCTAssertEqual(($0 as? DirectoryIssue)?.kind,.sourceLimit)
+        }
+        XCTAssertEqual(try Data(contentsOf:asset),content)
+    }
+
+    @MainActor
+    func testLocalScanAndRecentSelectionDoNotReadOrStartAProject() async throws {
+        let name = "目录-" + UUID().uuidString
+        let local = FolderGrant.documents.appendingPathComponent(name)
+        try fm.copyItem(at:root,to:local)
+        defer { try? fm.removeItem(at:local) }
+        let library = ProjectLibrary(base:store)
+        let original = try await library.discover(local)
+        let record = try XCTUnwrap(original.first)
+        let unavailable = local.appendingPathComponent("app/src/暂不可读.ts")
+        try fm.createSymbolicLink(at:unavailable,withDestinationURL:local.appendingPathComponent("runtime.json"))
+        let trace = DirectoryTrace("local-test")
+        let found = try await library.discover(FolderGrant.documents,localRoot:true,trace:trace)
+        XCTAssertTrue(found.contains { $0.id == record.id })
+        let events = DirectoryJournal.shared.recent().filter { $0.request == trace.id }.map(\.stage)
+        XCTAssertTrue(events.contains("scan.configuration"))
+        XCTAssertFalse(events.contains("scan.sources"))
+        let host = HostModel(storage:store)
+        await host.selectRecent(record)
+        XCTAssertTrue(host.showingOverview)
+        XCTAssertFalse(host.shouldMonitor)
+        XCTAssertFalse(host.busy)
+        XCTAssertNil(host.compiler)
+        XCTAssertNil(host.page)
+        // Even the ordinary foreground watcher cannot start a preview from this screen.
+        host.refresh()
+        XCTAssertFalse(host.busy)
+        host.refresh(force:true,remember:true)
+        let deadline = ContinuousClock.now + .seconds(25)
+        while host.busy && ContinuousClock.now < deadline { try await Task.sleep(for:.milliseconds(50)) }
+        XCTAssertTrue(host.problem?.contains("符号链接") == true,host.problem ?? "")
+        XCTAssertTrue(host.showingOverview)
+        XCTAssertEqual(host.current?.id,record.id)
+        XCTAssertTrue(fm.fileExists(atPath:unavailable.path))
+    }
+
     func testFirstEmptyProviderListingRetriesOnceAndKeepsRelativeImports() throws {
         let ordinary = ProjectSourceReader(), trace = DirectoryTrace("scan-test")
         var reader = ordinary
@@ -288,5 +343,41 @@ final class DirectoryTests: XCTestCase {
         XCTAssertEqual(restored.page?.nodes.first?.text("value"),"再次预览",restored.problem ?? "")
         XCTAssertEqual(restored.current?.id,model.current?.id)
         await model.showLibrary(); await restored.showLibrary()
+    }
+
+    @MainActor
+    func testRecentTSXPreviewsExistingSQLiteThroughNativeFirstFrame() async throws {
+        let library = ProjectLibrary(base:store)
+        let found = try await library.discover(root)
+        let original = try XCTUnwrap(found.first)
+        let originalID = try Data(contentsOf:root.appendingPathComponent("runtime.json"))
+        SDKConsent.shared.set(true,for:"database",project:original.id)
+        defer { SDKConsent.shared.set(nil,for:"database",project:original.id) }
+        let session = SDKSession(record:original,storage:store,permissions:["database"],networkHosts:[])
+        let graphics = GraphicsSDK()
+        _ = try await graphics.call("execute",SDKArgs(["sql":"CREATE TABLE retained(value TEXT)"]),in:session)
+        _ = try await graphics.call("execute",SDKArgs(["sql":"INSERT INTO retained VALUES ('原记录已读取')"]),in:session)
+        session.close()
+        try write(#"{"dependencies":{"@runtime/ui":"1.0.0","@runtime/sdk":"1.1.0","react":"18.3.1"}}"#,"app/package.json")
+        try write("""
+        import {ios} from "@runtime/sdk";
+        import {render, Form, Section, Text} from "@runtime/ui";
+        async function start() {
+          const result = await ios.graphics.query({sql:"SELECT value FROM retained"});
+          const title = result.success ? String(result.data[0].value) : result.error.code;
+          render(<Form><Section title="记录"><Text value={title}/></Section></Form>);
+        }
+        void start();
+        ""","app/src/main.tsx")
+        let host = HostModel(storage:store)
+        await host.selectRecent(original)
+        XCTAssertTrue(host.showingOverview)
+        host.refresh(force:true,remember:true)
+        let deadline = ContinuousClock.now + .seconds(110)
+        while host.busy && ContinuousClock.now < deadline { try await Task.sleep(for:.milliseconds(100)) }
+        XCTAssertEqual(host.page?.nodes.first?.children.first?.children.first?.text("value"),"原记录已读取",host.problem ?? "")
+        XCTAssertEqual(host.current?.id,original.id)
+        XCTAssertEqual(try Data(contentsOf:root.appendingPathComponent("runtime.json")),originalID)
+        await host.showLibrary()
     }
 }

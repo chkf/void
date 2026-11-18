@@ -10,7 +10,7 @@ private struct ObservedFolder: Equatable {
     let project: UUID?
     let grant: FolderGrant?
     let active: Bool
-    let workspace: Bool
+    let monitor: Bool
 }
 
 struct HostView: View {
@@ -27,6 +27,20 @@ struct HostView: View {
             if let record = model.current {
                 ZStack {
                     switch model.screen {
+                    case .overview:
+                        NavigationStack {
+                            List {
+                                LabeledContent("版本",value:record.version)
+                                Button {
+                                    model.refresh(force:true,remember:true)
+                                } label: {
+                                    Label("预览项目",systemImage:"play.fill")
+                                }.disabled(model.busy).accessibilityIdentifier("project.preview")
+                                if let problem = model.problem {
+                                    Section("预览提示") { Text(verbatim:problem).textSelection(.enabled) }
+                                }
+                            }.navigationTitle(record.name)
+                        }
                     case .workspace(let template):
                         NavigationStack {
                             List {
@@ -88,11 +102,11 @@ struct HostView: View {
                             Text(model.scanStatus ?? "正在准备预览").font(.caption).accessibilityIdentifier("preview.stage")
                             Button("取消") { model.cancelScan() }.accessibilityIdentifier("scan.cancel")
                         } else if let status = model.scanStatus { Text(status).font(.caption) }
-                        if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil {
+                        if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil && !model.showingOverview {
                             Label(model.mode == .swiftui ? "查看构建说明" : "更新失败", systemImage: "exclamationmark.circle")
                                 .foregroundStyle(.secondary)
                         }
-                        if model.workspaceTemplate != nil {
+                        if model.workspaceTemplate != nil || model.showingOverview {
                             Button { Task { await model.showLibrary() } } label: { Label("项目列表", systemImage: "list.bullet") }
                                 .accessibilityIdentifier("project.library")
                         }
@@ -119,7 +133,7 @@ struct HostView: View {
                         }
                         if !model.records.isEmpty {
                             Section("最近项目") { ForEach(model.records) { record in
-                                Button { Task { await model.open(record) } } label: {
+                                Button { Task { await model.selectRecent(record) } } label: {
                                     VStack(alignment: .leading) {
                                         Text(verbatim: record.name)
                                         if let template = record.pendingTemplate {
@@ -161,8 +175,8 @@ struct HostView: View {
         .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)) { _ in model.memoryWarning() }
         .task { await model.load() }
         .task(id:ObservedFolder(project:model.current?.id,grant:model.current?.grant,
-                                active:phase == .active,workspace:model.workspaceTemplate != nil)) {
-            if phase == .active { await model.monitor() }
+                                active:phase == .active,monitor:model.shouldMonitor)) {
+            if phase == .active && model.shouldMonitor { await model.monitor() }
         }
         .sheet(item:$panel,onDismiss:{ folders.sheetClosed() }) { selection in
             switch selection {

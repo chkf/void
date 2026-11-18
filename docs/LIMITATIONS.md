@@ -1,5 +1,21 @@
 # 验证范围
 
+## v0.1.0-dev.6 本机扫描、旧记录与显式预览
+
+原 iPhone 的用户报告，dev.5 点本机扫描和旧记录都会退出。源码确认，本机发现原先为每个目录建立完整源码快照，仅发现一个项目时还会立即打开它。旧记录同样自动启动预览。缺少该次系统退出报告，尚无法确定手机上的具体终止原因。
+
+本机发现现在只协调读取清单和目录身份。已预览过的最近记录先打开项目页，点「预览项目」才读源码、启动编译器或挂载项目页面。完整性核对分块计算摘要，每次读取至多 256 KiB。单份配置上限为 1 MiB，单次源码快照上限为 96 MiB 和 24,000 个可见条目。超出上限会在项目页显示原因。iOS 提供崩溃或卡顿报告时，诊断页在本机记录异常类别、信号或卡顿时长。[目录读取](../ios/Void/Projects/ProjectSourceReader.swift) · [Apple 系统诊断的交付条件](https://developer.apple.com/documentation/metrickit/mxmetricmanager)
+
+## v0.1.0-dev.5 预览卡住与中断恢复
+
+公开 arm64 IPA 共 6,043,439 字节，SHA-256 为 `a40f49f11772fa2eccada0b664cbe3aafc9e8966caa581ff1ab0d9d014868d8a`。首轮通过 32 项原生测试和 5 项界面测试，包括真正的 Files Open 和预览时结束进程再重开。另一项界面测试在 XCTest 读取系统选择器抓手时超时。[模拟器记录](https://github.com/chkf/void/actions/runs/44381000775/job/135072887562)
+
+dev.4 在模拟器上曾完成目录扫描，随后在等待 TSX 首屏时超时。另可在源码确认，旧版编译时在主界面线程将整份快照编码为 Base64，等待编译器的 WebKit 回调时没有截止时间。原 iPhone 只观察到「准备预览」后卡住或退出，尚无系统崩溃报告可供归因。[dev.4 首屏超时记录](https://github.com/chkf/void/actions/runs/44373037031/job/135044703003)
+
+新版用独立 Worker 运行 TypeScript 和 Wasm 编译器，按文件读取经核验的快照。以真实 Chromium 载入同一份离线编译工具，取消一次任务后立即重新编译，中文及空格命名的相对依赖通过。3 MiB 的原样资源通过文件键返回，编译结果中无需再带这份资源的 Base64 文本。7 项离线工具链测试也已通过。[编译器调度](../runtime/compiler-client.js) · [工具链回归](../tests/compiler.test.mjs)
+
+等待新预览期间，宿主把请求、宿主项目 UUID 和当前阶段写入自己的恢复文件。遇到异常结束会先显示原项目列表。成功或主动取消后只清理本次恢复标记，过期任务不能清理新请求的记录。内存警告和 WebKit 进程终止有独立的诊断行。[恢复逻辑](../ios/Void/Recovery/PreviewRecovery.swift) · [回归测试](../ios/VoidTests/PreviewRecoveryTests.swift)
+
 ## v0.1.0-dev.4 原生目录打开
 
 已从公开 Release 下载并校验构建号 4 的 arm64 IPA。文件大小为 5,998,639 字节，SHA-256 为 `2813fed0e3953bc3102999a5fa9781fbdd5a651485709a2078382f6df4e0e238`。包内标识 `app.chkf.void` 与 dev.3 一致，最低 iOS 17.0，使用 Xcode 27.2（27B52）及 iOS 27.2 SDK 构建。原位更新需沿用旧版的实际签名和应用标识。[发布附件](https://github.com/chkf/void/releases/tag/v0.1.0-dev.4) · [源码提交](https://github.com/chkf/void/commit/c3aef51cd5dfd05822a5eea10451ce4f49905832)
@@ -15,6 +31,8 @@
 在 iPhone 模拟器的系统 Files 中实际按下 Open，从列表导入尚未登记的目录。选择回调只出现一次，136 毫秒后记录到关闭，随后读到 TSX 首屏。「管理」重新选择同一目录时也只回调一次，58 毫秒后记录到关闭，原项目身份核验成功。同一次运行中，另一个取消用例在 XCTest 读取系统界面时超时。[系统 Open、回调与 TSX 首屏实测](https://github.com/chkf/void/actions/runs/44371016095/job/135037483162)
 
 同一套宿主代码在后续模拟器回归中通过列表取消、管理取消以及在选择器显示期间结束进程再启动的测试，两条取消路径均留下各自的请求结果。该轮外部文稿测试实际选到了系统服务商的根目录，宿主关闭选择器并给出“此目录没有可识别的项目”。另一次本机目录已经扫描成功，随后等待 TSX 页面启动超时。[取消、外部授权与中断恢复记录](https://github.com/chkf/void/actions/runs/44373037031/job/135044703003)
+
+在独立模拟器的本地 File Provider 中，后续回归实际选中外部项目目录，使用系统返回的书签完成 TSX 预览，管理入口第二次 Open 更新了原授权。本机扫描、两入口取消和选择器中结束进程后重开也通过。另一项本机 Open 已经返回正确项目并完成扫描，dev.4 在等待首屏时超时。[外部 File Provider 书签、首屏与重授权记录](https://github.com/chkf/void/actions/runs/44377566398/job/135060699982)
 
 ## 较早版本
 

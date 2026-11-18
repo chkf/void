@@ -1,8 +1,32 @@
 import Foundation
+import MetricKit
 import OSLog
 
+// System reports may arrive on a later launch. Keep them separate from the request in
+// progress at delivery time. Neither call stacks nor project content enter this journal.
+final class HostExitDiagnostics: NSObject, MXMetricManagerSubscriber {
+    func didReceive(_ payloads: [MXDiagnosticPayload]) {
+        for payload in payloads {
+            let trace = DirectoryTrace("iOS")
+            for crash in payload.crashDiagnostics ?? [] {
+                let signal = crash.signal?.stringValue ?? "?"
+                let type = crash.exceptionType?.stringValue ?? "?"
+                let reason = (crash.terminationReason ?? "").lowercased()
+                let category = ["0x8badf00d","watchdog","jetsam","memory","codesign","dyld"].first(where: reason.contains)
+                trace.event("system.crash","版本 " + crash.applicationVersion + " · signal " + signal + " · exception " + type +
+                            (category.map { " · " + $0 } ?? ""))
+            }
+            for hang in payload.hangDiagnostics ?? [] {
+                let seconds = hang.hangDuration.converted(to:.seconds).value
+                trace.event("system.hang","版本 " + hang.applicationVersion + " · " + String(format:"%.1f 秒",seconds))
+            }
+        }
+    }
+    func subscribe() { MXMetricManager.shared.add(self) }
+}
+
 struct DirectoryIssue: LocalizedError, CustomNSError {
-    enum Kind: Int { case missing = 1, unreadable, pendingDownload, invalidJSON, wrongType, link, outside, provider, timeout, identity, emptySelection, noProjects, pickerUnavailable }
+    enum Kind: Int { case missing = 1, unreadable, pendingDownload, invalidJSON, wrongType, link, outside, provider, timeout, identity, emptySelection, noProjects, pickerUnavailable, sourceLimit }
     let kind: Kind
     let item: String
     var underlying: NSError? = nil
@@ -29,6 +53,7 @@ struct DirectoryIssue: LocalizedError, CustomNSError {
         case .emptySelection: message = "系统文件选择器未返回目录"
         case .noProjects: message = "此目录没有可识别的项目"
         case .pickerUnavailable: message = "系统未能显示文件选择器"
+        case .sourceLimit: message = "本次读取达到预览容量限制，已停止读取"
         }
         let native = underlying.map { " (\($0.domain) \($0.code))" } ?? ""
         return [item, message + native].filter { !$0.isEmpty }.joined(separator:" · ")

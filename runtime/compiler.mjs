@@ -7,6 +7,10 @@ const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 const builtins = new Set(["react", "react/jsx-runtime", "react-dom", "react-dom/client", "@runtime/ui", "@runtime/sdk"]);
 
+export function fromBase64(text) {
+  return Uint8Array.from(atob(text), c => c.charCodeAt(0));
+}
+
 export function toBase64(bytes) {
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += 8192) {
@@ -85,7 +89,7 @@ function matchesBuiltin(name, requested, installed) {
   return requested === installed || (name === "@runtime/sdk" && requested === "1.0.0" && installed === "1.1.0");
 }
 
-function resolver(files, versions, declared) {
+function resolver(files, versions, declared, readSource) {
   return {
     name: "void-project",
     setup(build) {
@@ -120,8 +124,8 @@ function resolver(files, versions, declared) {
       build.onLoad({ filter: /.*/, namespace: "host-library" }, ({ path }) => ({
         contents: "module.exports = globalThis.__voidLibraries[" + JSON.stringify(path) + "]"
       }));
-      build.onLoad({ filter: /.*/, namespace: "project" }, ({ path }) => ({
-        contents: files[path], loader: loaders[path.split(".").pop()] || "file"
+      build.onLoad({ filter: /.*/, namespace: "project" }, async ({ path }) => ({
+        contents: await readSource(path), loader: loaders[path.split(".").pop()] || "file"
       }));
     }
   };
@@ -186,7 +190,7 @@ export async function compileProject(esbuild, input, declarations, versions) {
       entryPoints: entries, bundle: true, write: false, outdir: "void-output",
       assetNames: "bundle/assets/[name]-[hash]", jsx: "automatic", target: "safari17",
       format: "iife", sourcemap: "linked", metafile: true, logLevel: "silent",
-      plugins: [resolver(files, versions, declared)]
+      plugins: [resolver(files, versions, declared, input.readSource ?? (name => files[name]))]
     });
     for (const file of result.outputFiles) {
       const path = file.path.replaceAll("\\", "/").split("/void-output/").at(-1);
