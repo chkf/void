@@ -30,7 +30,9 @@ final class HostTests: XCTestCase {
         let input = app.textFields["你的名字"]
         XCTAssertTrue(input.exists)
         XCTAssertTrue(app.staticTexts["你好"].exists)
-        let control = toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+        let knob = toggle.switches.firstMatch
+        let control = knob.exists ? knob.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)) :
+            toggle.coordinate(withNormalizedOffset:CGVector(dx:0.92,dy:0.5))
         control.tap()
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: app.staticTexts["你好"])
         waitForExpectations(timeout: 8)

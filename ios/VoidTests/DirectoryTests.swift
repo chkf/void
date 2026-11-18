@@ -163,8 +163,8 @@ final class DirectoryTests: XCTestCase {
         XCTAssertEqual(same.id,original.id); XCTAssertEqual(same.declaredID,declared)
         XCTAssertEqual(same.directoryKey,original.directoryKey)
         XCTAssertEqual(SDKConsent.shared.decision("database",project:same.id),true)
-        let query = try await sql(same,"query","SELECT v FROM saved") as? [[String:Int]]
-        XCTAssertEqual(query?.first?["v"],37)
+        let rows = try await sql(same,"query","SELECT CAST(v AS TEXT) AS saved_value FROM saved") as? [[String:String]]
+        XCTAssertEqual(rows?.first?["saved_value"],"37")
         XCTAssertEqual(try Data(contentsOf:history),Data([1,2,3]))
         let copy = parent.appendingPathComponent("副本")
         try fm.copyItem(at:root,to:copy)
@@ -179,6 +179,32 @@ final class DirectoryTests: XCTestCase {
         do { _ = try await cold.create(name:"取消创建",parent:parent,template:.tsx,commit:cancelled); XCTFail("不应创建") }
         catch { XCTAssertTrue(error is CancellationError) }
         XCTAssertFalse(fm.fileExists(atPath:parent.appendingPathComponent("取消创建").path))
+    }
+
+    func testLocalRescanRestoresMovedOriginalWithoutOpeningASameNameReplacement() async throws {
+        let library = ProjectLibrary(base:store)
+        let originalRecords = try await library.discover(root)
+        let record = try XCTUnwrap(originalRecords.first)
+        let moved = FolderGrant.documents.appendingPathComponent("已移动 " + UUID().uuidString)
+        try fm.moveItem(at:root,to:moved)
+        defer { try? fm.removeItem(at:moved) }
+        let opened = try await library.open(record.id,remember:true)
+        XCTAssertEqual(opened.info.runtimeID,declared)
+        let repaired = try await library.catalog()
+        XCTAssertEqual(repaired.records.map(\.id),[record.id])
+        XCTAssertEqual(repaired.records[0].directoryKey,record.directoryKey)
+        XCTAssertEqual(try repaired.records[0].grant.withRoot { ProjectSourceReader.canonical($0) },ProjectSourceReader.canonical(moved))
+        // Restore the valid old registration, then put a different project at its recorded location.
+        var previous = repaired
+        previous.records[0] = record
+        try JSONEncoder().encode(previous).write(to:store.appendingPathComponent("projects.json"),options:.atomic)
+        try fm.copyItem(at:moved,to:root)
+        try write("{\"formatVersion\":1,\"id\":\"" + UUID().uuidString + "\"}","runtime.json")
+        do { _ = try await library.open(record.id,remember:true); XCTFail("同名替代目录不能打开") }
+        catch { XCTAssertEqual((error as? DirectoryIssue)?.kind,.identity) }
+        let final = try await library.catalog()
+        XCTAssertEqual(final.records.count,1)
+        XCTAssertEqual(final.records[0].grant,record.grant)
     }
 
     func testSystemVarAliasUsesSameVerifiedDirectory() throws {

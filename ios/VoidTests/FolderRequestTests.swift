@@ -61,6 +61,29 @@ final class FolderRequestTests: XCTestCase {
         XCTAssertThrowsError(try r.commit.begin())
     }
 
+    @MainActor
+    func testProjectSwitchAfterCommitWaitsForActualSaveResult() async throws {
+        let flow = FolderRequests(), project = UUID()
+        var finishWrite: CheckedContinuation<Void,Never>?
+        flow.process = { request,_ in
+            try request.commit.begin()
+            await withCheckedContinuation { finishWrite = $0 }
+            throw DirectoryIssue(kind:.unreadable,item:"登记目录")
+        }
+        let request = flow.begin(.reconnect(project),origin:project)
+        flow.picked(request.id,[FolderGrant.documents]); flow.dismissed(request.id)
+        for _ in 0..<100 where finishWrite == nil { try await Task.sleep(for:.milliseconds(10)) }
+        let finish = try XCTUnwrap(finishWrite)
+        flow.changeProject(to:UUID())
+        XCTAssertEqual(flow.phase,.processing)
+        finish.resume()
+        for _ in 0..<100 where flow.active { try await Task.sleep(for:.milliseconds(10)) }
+        XCTAssertEqual(flow.phase,.failed)
+        let results = DirectoryJournal.shared.recent().filter { $0.request == request.id && $0.stage == "reconnect.result" }
+        XCTAssertEqual(results.count,1)
+        XCTAssertEqual(results.first?.code,DirectoryIssue.Kind.unreadable.rawValue)
+    }
+
     func testBlockedFileCoordinatorIsCancelledAndLateAccessorCannotRun() async throws {
         let dir = FolderGrant.documents.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)

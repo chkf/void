@@ -41,6 +41,7 @@ struct FolderPickerPresenter: UIViewControllerRepresentable {
             }
             let picker = UIDocumentPickerViewController(forOpeningContentTypes:[.folder],asCopy:false)
             picker.allowsMultipleSelection = false
+            picker.sheetPresentationController?.prefersGrabberVisible = true
             picker.directoryURL = initialDirectory
             picker.delegate = self
             self.picker = picker; active = request; closing = false; didPresent = false
