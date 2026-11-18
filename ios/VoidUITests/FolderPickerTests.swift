@@ -10,21 +10,8 @@ final class FolderPickerTests: XCTestCase {
     }
     private var navigation: XCUIElement { app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].firstMatch }
     private var openButton: XCUIElement { app.buttons["DOCPicker.actionButton"].firstMatch }
-    private func folder(_ title: String) -> XCUIElement {
-        app.cells.matching(NSPredicate(format:"label == %@ OR label BEGINSWITH %@ OR identifier BEGINSWITH %@",title,title + ",",title + ",")).firstMatch
-    }
-    private func enter(_ cell: XCUIElement, expecting child: XCUIElement) {
-        let image = cell.images.firstMatch
-        let point = image.exists ? image.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)) :
-            cell.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.25))
-        point.tap()
-        if !child.waitForExistence(timeout:4), cell.exists {
-            // In Files icon mode the large cell extends below its interactive thumbnail.
-            point.doubleTap()
-        }
-    }
     private func showBrowser() {
-        if !openButton.waitForExistence(timeout:5) {
+        if !openButton.waitForExistence(timeout:8) || !openButton.isEnabled {
             let browse = named(["Browse","浏览"],in:app.tabBars.buttons)
             if browse.exists && browse.isHittable { browse.tap() }
         }
@@ -32,42 +19,17 @@ final class FolderPickerTests: XCTestCase {
     }
     private func selectDirectory() {
         showBrowser()
-        let title = app.navigationBars.buttons.matching(NSPredicate(format:"label BEGINSWITH %@",fixture + ",")).firstMatch
-        if !title.exists && !folder("app").waitForExistence(timeout:3) {
-            let project = folder(fixture)
-            if !project.waitForExistence(timeout:3) {
-                let container = folder("void")
-                if !container.exists {
-                    let back = app.buttons["DOC.navBarButton.backInHistory"]
-                    if back.exists && back.isHittable { back.tap() }
-                }
-                if !container.waitForExistence(timeout:3) {
-                    let browse = named(["Browse","浏览"],in:app.tabBars.buttons)
-                    if browse.exists && browse.isHittable { browse.tap() }
-                    let local = named(["On My iPhone","我的 iPhone","在我的 iPhone 上"],in:app.descendants(matching:.any))
-                    if local.exists && local.isHittable { local.tap() }
-                }
-                if container.waitForExistence(timeout:8) { enter(container,expecting:project) }
-            }
-            if !project.waitForExistence(timeout:5) {
-                let search = app.searchFields.firstMatch
-                if search.exists && search.isHittable {
-                    search.tap(); search.typeText(fixture + "\n")
-                }
-            }
-            XCTAssertTrue(project.waitForExistence(timeout:20),app.debugDescription)
-            let sources = folder("app")
-            enter(project,expecting:sources)
-            XCTAssertTrue(sources.waitForExistence(timeout:10) || (project.exists && project.isSelected) || title.exists,app.debugDescription)
-        }
-        XCTAssertTrue(openButton.waitForExistence(timeout:10),app.debugDescription)
+        // This is Apple's Open action on the displayed directory. Assert the returned
+        // project's unique name after dismissal instead of interpreting Files' virtual cells.
+        XCTAssertTrue(openButton.isEnabled,app.debugDescription)
         openButton.tap()
-        let allow = named(["Allow","允许"],in:app.buttons)
-        if allow.waitForExistence(timeout:2) { allow.tap() }
-        else if openButton.exists {
+        if app.alerts.firstMatch.waitForExistence(timeout:2) {
+            let allow = named(["Allow","允许","Open","打开"],in:app.alerts.buttons)
+            if allow.exists { allow.tap() }
+        } else if openButton.exists {
             let alert = XCUIApplication(bundleIdentifier:"com.apple.springboard").alerts
-            let systemAllow = named(["Allow","允许"],in:alert.buttons)
-            if systemAllow.exists { systemAllow.tap() }
+            let allow = named(["Allow","允许"],in:alert.buttons)
+            if allow.exists { allow.tap() }
         }
         awaitDismissal()
     }
