@@ -4,13 +4,15 @@ import Foundation
 // Arrange a new, unregistered directory inside the running test app's actual data container.
 // UI tests still navigate Apple's Files browser and use its real Open and cancel actions.
 enum SimulatorPickerFixture {
-    static func prepareIfRequested() async throws {
+    static var directory: URL? {
         guard let token = ProcessInfo.processInfo.environment["VOID_PICKER_TEST_PROJECT"],
-              let id = UUID(uuidString:token) else { return }
-        let name = "Void Picker " + String(id.uuidString.prefix(8))
+              let id = UUID(uuidString:token) else { return nil }
+        return FolderGrant.documents.appendingPathComponent("Void Picker " + String(id.uuidString.prefix(8)),isDirectory:true)
+    }
+    static func prepareIfRequested() async throws {
+        guard let target = directory else { return }
+        let name = target.lastPathComponent
         try await DirectoryIO.run { io in
-            let root = FolderGrant.documents
-            let target = root.appendingPathComponent(name,isDirectory:true)
             let coordinator = NSFileCoordinator()
             try io.withCoordinator(coordinator) {
                 var failure: NSError?

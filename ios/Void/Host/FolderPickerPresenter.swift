@@ -39,6 +39,10 @@ struct FolderPickerPresenter: UIViewControllerRepresentable {
             }
             let picker = UIDocumentPickerViewController(forOpeningContentTypes:[.folder],asCopy:false)
             picker.allowsMultipleSelection = false
+            #if DEBUG && targetEnvironment(simulator)
+            // Files still owns selection and grants access only when the tester presses Open.
+            if let start = SimulatorPickerFixture.directory { picker.directoryURL = start }
+            #endif
             picker.sheetPresentationController?.prefersGrabberVisible = true
             picker.delegate = self
             self.picker = picker; active = request; closing = false; didPresent = false

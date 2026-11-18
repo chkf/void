@@ -13,6 +13,16 @@ final class FolderPickerTests: XCTestCase {
     private func folder(_ title: String) -> XCUIElement {
         app.cells.matching(NSPredicate(format:"label == %@ OR label BEGINSWITH %@ OR identifier BEGINSWITH %@",title,title + ",",title + ",")).firstMatch
     }
+    private func enter(_ cell: XCUIElement, expecting child: XCUIElement) {
+        let image = cell.images.firstMatch
+        let point = image.exists ? image.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)) :
+            cell.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.25))
+        point.tap()
+        if !child.waitForExistence(timeout:4), cell.exists {
+            // In Files icon mode the large cell extends below its interactive thumbnail.
+            point.doubleTap()
+        }
+    }
     private func showBrowser() {
         if !openButton.waitForExistence(timeout:5) {
             let browse = named(["Browse","浏览"],in:app.tabBars.buttons)
@@ -23,7 +33,7 @@ final class FolderPickerTests: XCTestCase {
     private func selectDirectory() {
         showBrowser()
         let title = app.navigationBars.buttons.matching(NSPredicate(format:"label BEGINSWITH %@",fixture + ",")).firstMatch
-        if !title.exists {
+        if !title.exists && !folder("app").waitForExistence(timeout:3) {
             let project = folder(fixture)
             if !project.waitForExistence(timeout:3) {
                 let container = folder("void")
@@ -37,10 +47,18 @@ final class FolderPickerTests: XCTestCase {
                     let local = named(["On My iPhone","我的 iPhone","在我的 iPhone 上"],in:app.descendants(matching:.any))
                     if local.exists && local.isHittable { local.tap() }
                 }
-                if container.waitForExistence(timeout:5) { container.tap() }
+                if container.waitForExistence(timeout:8) { enter(container,expecting:project) }
             }
-            XCTAssertTrue(project.waitForExistence(timeout:15),app.debugDescription)
-            project.tap()
+            if !project.waitForExistence(timeout:5) {
+                let search = app.searchFields.firstMatch
+                if search.exists && search.isHittable {
+                    search.tap(); search.typeText(fixture + "\n")
+                }
+            }
+            XCTAssertTrue(project.waitForExistence(timeout:20),app.debugDescription)
+            let sources = folder("app")
+            enter(project,expecting:sources)
+            XCTAssertTrue(sources.waitForExistence(timeout:10) || (project.exists && project.isSelected) || title.exists,app.debugDescription)
         }
         XCTAssertTrue(openButton.waitForExistence(timeout:10),app.debugDescription)
         openButton.tap()
@@ -87,6 +105,8 @@ final class FolderPickerTests: XCTestCase {
     }
     private func importAndPreview() {
         app.buttons["host.import"].tap(); selectDirectory()
+        let status = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@","已找到「" + fixture + "」"),object:app.staticTexts["folder.status"])
+        XCTAssertEqual(XCTWaiter.wait(for:[status],timeout:25),.completed,app.debugDescription)
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
     }
     private func reconnect() {
