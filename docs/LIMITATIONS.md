@@ -1,5 +1,7 @@
 # 验证范围
 
+2026-11-18 的开发预发布已通过 Xcode 16.4 的 iPhone Release 构建。已从公开下载地址重新取得 IPA，核对 SHA-256、arm64 可执行文件、iOS 17.0 最低版本和归档完整性。包内版本为 0.1.0，Bundle ID 为 app.chkf.void，安装前需要签名。[v0.1.0-dev.1 下载及校验值](https://github.com/chkf/void/releases/tag/v0.1.0-dev.1) · [构建任务](https://github.com/chkf/void/actions/runs/44310978579)
+
 Windows 上可运行 `npm test` 验证真实 TypeScript 类型检查、Wasm 打包、React 控件树及事件、HTML/CSS 构建和共享目录隔离。iPhone Release、iOS 单元测试和界面测试由 [GitHub Actions](https://github.com/chkf/void/actions/workflows/ios.yml) 执行。具体提交的结论和产物以相应运行记录为准。
 
 当前接入的 SDK 方法是 `ios.system.info()`。系统照片、相机、麦克风、定位、蓝牙等能力和对应授权仍在实施清单中。当前文件修改会触发重建与页面替换。项目私有 SQLite、完整热替换、六类持久日志和后台任务仍待实现。

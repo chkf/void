@@ -6,7 +6,7 @@
 
 - [ ] 1.1 建立可构建的 Swift/SwiftUI iOS 工程和共享 scheme，划分设计中的十二个模块与原生渲染器。用 Xcode 构建并冷启动宿主。
 - [ ] 1.2 实现原生项目列表、运行页、独立管理 sheet、设置及恢复入口。用 UI 测试走通首次选择项目、重开直达上次项目及从失效页面返回管理的路径。
-- [ ] 1.3 写入 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/BUILD.md` 和可重复的构建脚本。按文档从干净检出构建，核对部署目标、依赖锁定和签名配置。
+- [x] 1.3 写入 `docs/ARCHITECTURE.md`、`docs/RUNTIME.md`、`docs/BUILD.md` 和可重复的构建脚本。按文档从干净检出构建，核对部署目标、依赖锁定和签名配置。
 
 ## 2. 项目目录与生命周期
 
