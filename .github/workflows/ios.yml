@@ -1,0 +1,59 @@
+name: iOS 原生构建
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          cache: npm
+      - run: npm ci
+      - run: npm run openspec -- validate --all --strict
+      - name: 生成离线工具链并测试 TSX 模板
+        run: npm test
+      - name: 编译 iPhone Release
+        run: |
+          xcodebuild -version
+          bash scripts/ios-build.sh device
+      - name: 保存未签名的 iPhone 包
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-unsigned-iphone
+          path: .build/ios/void-unsigned.ipa
+          if-no-files-found: error
+      - name: 模拟器冷启动及原生控件测试
+        run: bash scripts/ios-build.sh test
+      - name: 保存模拟器应用
+        uses: actions/upload-artifact@v4
+        with:
+          name: void-simulator
+          path: .build/ios/void-simulator.zip
+      - name: 保存 Xcode 测试报告
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          for result in .build/ios/*.xcresult; do
+            if [[ -d "$result" ]]; then ditto -c -k --keepParent "$result" .build/ios/void-tests.zip; fi
+          done
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: void-tests
+          path: .build/ios/void-tests.zip
+          if-no-files-found: ignore

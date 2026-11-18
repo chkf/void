@@ -1,0 +1,7 @@
+node_modules/
+.build/
+ios/Toolchain/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+.DS_Store
