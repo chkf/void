@@ -37,9 +37,9 @@ actor ProjectLibrary {
         return device.stringValue + "/" + inode.stringValue
     }
 
-    func create(name: String, parent: URL?) throws -> ProjectRecord {
+    func create(name: String, parent: URL?, template: ProjectTemplate = .swiftUI) throws -> ProjectRecord {
         var grant = try parent.map { try FolderGrant.selected($0) } ?? FolderGrant(bookmark: nil, child: "")
-        _ = try grant.coordinated(write: true) { try ProjectFiles.create(name, in: $0) }
+        _ = try grant.coordinated(write: true) { try ProjectFiles.create(name, in: $0, template: template) }
         grant.child = name
         return try register([grant])[0]
     }

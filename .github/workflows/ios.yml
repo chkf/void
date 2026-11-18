@@ -10,13 +10,14 @@ permissions:
 jobs:
   iphone:
     name: iPhone Release
-    runs-on: macos-15-intel
+    runs-on: xcode-27
     concurrency:
       group: ios-${{ github.ref }}-device
       cancel-in-progress: true
     timeout-minutes: 35
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+      VOID_IOS_SDK: '27.2'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -40,13 +41,14 @@ jobs:
 
   simulator:
     name: iPhone 模拟器测试
-    runs-on: macos-15-intel
+    runs-on: xcode-27
     timeout-minutes: 45
     concurrency:
       group: ios-${{ github.ref }}-test
       cancel-in-progress: true
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+      VOID_IOS_SDK: '27.2'
     steps:
       - uses: actions/checkout@v4
       - name: 启动 iPhone 模拟器
@@ -108,7 +110,7 @@ jobs:
           cat > "$notes" <<EOF
           下载下方的 **void-unsigned.ipa**。适用于 iOS 17 及以上的 iPhone，安装前需要使用自己的 Apple 签名。
 
-          此包由 Xcode 编译，包含 SwiftUI 宿主、项目模板和设备端离线编译器。
+          新建项目默认打开用 SwiftUI 编写的原生表单。编辑项目的 Swift 源码后，通过 GitHub Actions 重新编译并签名安装。已有 React/TSX 和 HTML 项目可继续导入。
 
           SHA-256：${digest#sha256:}
 

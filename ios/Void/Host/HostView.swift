@@ -11,15 +11,20 @@ struct HostView: View {
     @Environment(\.scenePhase) private var phase
     @State private var panel: Panel?
     @State private var projectName = ""
+    @State private var template = ProjectTemplate.swiftUI
 
     var body: some View {
         Group {
             if let record = model.current {
                 ZStack {
-                    if let page = model.page { RunningPage(page: page).id(page.id) }
-                    else if let problem = model.problem {
-                        ContentUnavailableView("项目未能打开", systemImage: "folder.badge.questionmark", description: Text(verbatim: problem))
-                    } else { ProgressView("正在打开" + record.name) }
+                    switch model.screen {
+                    case .swiftUI(let id): ProjectContentView(projectName: record.name).id(id)
+                    case .script(let page): RunningPage(page: page).id(page.id)
+                    case nil:
+                        if let problem = model.problem {
+                            ContentUnavailableView("项目未能打开", systemImage: "folder.badge.questionmark", description: Text(verbatim: problem))
+                        } else { ProgressView("正在打开" + record.name) }
+                    }
                     if let candidate = model.candidate {
                         ProjectSurface(page: candidate).id(candidate.id).frame(width: 1, height: 1).opacity(0).accessibilityHidden(true)
                     }
@@ -27,7 +32,10 @@ struct HostView: View {
                 .safeAreaInset(edge: .bottom) {
                     HStack {
                         if model.busy { ProgressView().accessibilityLabel("正在构建") }
-                        if model.problem != nil && model.page != nil { Label("更新失败", systemImage: "exclamationmark.circle").foregroundStyle(.secondary) }
+                        if model.problem != nil && model.screen != nil {
+                            Label(model.mode == .swiftui ? "查看构建说明" : "更新失败", systemImage: "exclamationmark.circle")
+                                .foregroundStyle(.secondary)
+                        }
                         Spacer()
                         Button { panel = .manage } label: { Label("管理", systemImage: "slider.horizontal.3") }
                             .accessibilityIdentifier("host.manage")
@@ -37,7 +45,7 @@ struct HostView: View {
                 NavigationStack {
                     List {
                         Section {
-                            Button { projectName = ""; panel = .create } label: { Label("创建项目", systemImage: "plus") }
+                            Button { projectName = ""; template = .swiftUI; panel = .create } label: { Label("创建项目", systemImage: "plus") }
                                 .accessibilityIdentifier("host.create")
                             Button { panel = .importFolder } label: { Label("导入文件夹", systemImage: "folder") }
                         }
@@ -67,10 +75,14 @@ struct HostView: View {
                 NavigationStack {
                     Form {
                         TextField("项目名称", text: $projectName).accessibilityIdentifier("project.name")
+                        Picker("界面", selection: $template) {
+                            Text("SwiftUI").tag(ProjectTemplate.swiftUI)
+                            Text("React / TSX").tag(ProjectTemplate.tsx)
+                        }
                         Section {
                             Button("在此 iPhone 创建") {
                                 panel = nil
-                                Task { await model.create(cleanName, parent: nil) }
+                                Task { await model.create(cleanName, parent: nil, template: template) }
                             }.accessibilityIdentifier("project.createLocal")
                             Button("选择其他文件夹…") { panel = .selectParent }
                         }.disabled(cleanName.isEmpty)
@@ -82,7 +94,7 @@ struct HostView: View {
                     guard let url else { return }
                     Task {
                         switch selection {
-                        case .selectParent: await model.create(cleanName, parent: url)
+                        case .selectParent: await model.create(cleanName, parent: url, template: template)
                         case .reconnect: await model.reconnect(url)
                         default: await model.importDirectory(url)
                         }
@@ -140,8 +152,12 @@ private struct ManagementView: View {
                 }
                 Section("恢复") {
                     if let message = model.problem { Text(verbatim: message).textSelection(.enabled) }
-                    Button("重新构建并打开") { close(); model.refresh(force: true) }.disabled(model.busy)
-                    Button("恢复上一可运行版本") { close(); model.refresh(force: true, previous: true) }.disabled(model.busy)
+                    Button(model.mode == .swiftui ? "重新打开 SwiftUI 页面" : "重新构建并打开") {
+                        close(); model.refresh(force: true)
+                    }.disabled(model.busy)
+                    if model.mode != .swiftui {
+                        Button("恢复上一可运行版本") { close(); model.refresh(force: true, previous: true) }.disabled(model.busy)
+                    }
                     Button("重新授权文件夹", action: reconnect)
                 }
                 NavigationLink("设置") { SettingsView() }
@@ -160,6 +176,7 @@ private struct SettingsView: View {
     var body: some View {
         Form {
             LabeledContent("宿主版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
+            LabeledContent("构建号", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
             LabeledContent("原生控件协议", value: "1")
             LabeledContent("SDK 版本", value: "1.0.0")
             Section("已接入能力") { Text("SwiftUI 页面"); Text("本地 Web 页面"); Text("系统信息") }

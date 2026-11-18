@@ -11,7 +11,7 @@ const read = path => readFile(new URL(path, root));
 const types = JSON.parse(await read("Toolchain/types.json"));
 const versions = JSON.parse(await read("Toolchain/versions.json"));
 const libraries = await read("Toolchain/libraries.js");
-const nativeFiles = Object.fromEntries(await Promise.all(["app/package.json", "app/manifest.json", "app/src/main.tsx"].map(async path => [path, await read("StarterProject/" + path)])));
+const nativeFiles = Object.fromEntries(await Promise.all(["app/package.json", "app/manifest.json", "app/src/main.tsx"].map(async path => [path, await read("TSXProject/" + path)])));
 const template = { files: nativeFiles, entry: "src/main.tsx", mode: "native" };
 const compile = input => compileProject(esbuild, input, types, versions);
 

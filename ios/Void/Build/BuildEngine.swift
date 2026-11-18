@@ -48,6 +48,7 @@ private final class CompilerPage: NSObject, WKNavigationDelegate {
 @MainActor
 enum BuildEngine {
     static func build(_ snapshot: SourceSnapshot) async throws -> Product {
+        guard snapshot.info.mode != .swiftui else { throw RuntimeIssue("SwiftUI 源码由 Xcode 随宿主编译") }
         let resources = try await Task.detached {
             try Dictionary(uniqueKeysWithValues: ["index.html", "compiler.js", "esbuild.wasm", "types.json", "versions.json"].map { ($0, try Toolchain.read($0)) })
         }.value

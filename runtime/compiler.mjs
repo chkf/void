@@ -150,6 +150,7 @@ function htmlEntries(html, path, entries) {
 // 桌面测试与 IPA 中的构建会话调用同一入口。输入只包含获准发布的源码快照。
 export async function compileProject(esbuild, input, declarations, versions) {
   const { files, entry, mode } = input;
+  if (mode !== "native" && mode !== "web") throw new Error("此构建器支持 TSX 和 Web 项目。SwiftUI 源码需要使用 Xcode 编译。");
   const path = "app/" + entry;
   if (!Object.hasOwn(files, path)) throw new Error("入口不存在 " + path);
   const pkg = files["app/package.json"] ? JSON.parse(decoder.decode(files["app/package.json"])) : {};

@@ -11,6 +11,41 @@ final class RuntimeTests: XCTestCase {
         }
     }
 
+    func testSwiftUIProjectOpensDirectlyAndDetectsEditsThatNeedANewBuild() async throws {
+        let name = "SwiftUI-" + UUID().uuidString
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        let project = FolderGrant.documents.appendingPathComponent(name)
+        defer {
+            try? FileManager.default.removeItem(at: storage)
+            try? FileManager.default.removeItem(at: project)
+        }
+        let host = HostModel(storage: storage)
+        await host.create(name, parent: nil)
+        try await wait { host.screen != nil || host.problem != nil || host.notice != nil }
+        guard case let .swiftUI(original)? = host.screen else { return XCTFail(host.problem ?? host.notice ?? "缺少 SwiftUI 页面") }
+        XCTAssertNil(host.page)
+        XCTAssertNil(host.candidate)
+        let entry = project.appendingPathComponent("app/" + CompiledProject.entry)
+        let source = try String(contentsOf: entry, encoding: .utf8)
+        try (source + "\n// 外部编辑\n").write(to: entry, atomically: true, encoding: .utf8)
+        host.refresh()
+        try await wait { host.problem != nil }
+        XCTAssertTrue(host.problem?.contains("GitHub Actions") == true)
+        guard case let .swiftUI(current)? = host.screen else { return XCTFail("已打开的页面应保留") }
+        XCTAssertEqual(current, original)
+        await host.showLibrary()
+        host.open(try XCTUnwrap(host.records.first))
+        try await wait { host.problem != nil }
+        XCTAssertNil(host.screen)
+        try source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n", with: "\r\n")
+            .write(to: entry, atomically: true, encoding: .utf8)
+        host.refresh()
+        try await wait { host.screen != nil }
+        XCTAssertNil(host.problem)
+        XCTAssertNil(host.page)
+        await host.showLibrary()
+    }
+
     func testBrokenEditKeepsNativePageAndProjectCanBeReopened() async throws {
         let name = "RuntimeTests-" + UUID().uuidString
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent(name)
@@ -20,7 +55,7 @@ final class RuntimeTests: XCTestCase {
             try? FileManager.default.removeItem(at: project)
         }
         let host = HostModel(storage: storage)
-        await host.create(name, parent: nil)
+        await host.create(name, parent: nil, template: .tsx)
         try await wait { host.page != nil || host.problem != nil || host.notice != nil }
         let original = try XCTUnwrap(host.page, host.problem ?? host.notice ?? "")
         XCTAssertEqual(original.nodes.first?.type, "Form")

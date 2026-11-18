@@ -1,11 +1,21 @@
 import Foundation
 import SwiftUI
 
+enum HostPage {
+    case swiftUI(UUID)
+    case script(ProjectPage)
+}
+
 @MainActor
 final class HostModel: ObservableObject {
     @Published var records: [ProjectRecord] = []
     @Published private(set) var current: ProjectRecord?
-    @Published private(set) var page: ProjectPage?
+    @Published private(set) var screen: HostPage?
+    @Published private(set) var mode: UIMode?
+    var page: ProjectPage? {
+        if case let .script(value) = screen { return value }
+        return nil
+    }
     @Published private(set) var candidate: ProjectPage?
     @Published private(set) var busy = false
     @Published var notice: String?
@@ -45,8 +55,8 @@ final class HostModel: ObservableObject {
         return value
     }
 
-    func create(_ name: String, parent: URL?) async {
-        do { let record = try await library.create(name: name, parent: parent); try await list(); open(record) }
+    func create(_ name: String, parent: URL?, template: ProjectTemplate = .swiftUI) async {
+        do { let record = try await library.create(name: name, parent: parent, template: template); try await list(); open(record) }
         catch { notice = error.localizedDescription }
     }
 
@@ -87,7 +97,8 @@ final class HostModel: ObservableObject {
         candidate?.stop()
         candidate = nil
         page?.stop()
-        page = nil
+        screen = nil
+        mode = nil
         inspected = nil
         needsScan = false
         requestedRestart = false
@@ -153,6 +164,7 @@ final class HostModel: ObservableObject {
             do {
                 let snapshot = try await library.open(record.id, remember: remember)
                 try check(token)
+                mode = snapshot.info.mode
                 permissions = snapshot.info.permissions
                 if remember || current?.name != snapshot.info.name || current?.version != snapshot.info.version {
                     try await list()
@@ -163,6 +175,16 @@ final class HostModel: ObservableObject {
                 inspected = snapshot.revision
                 busy = true
                 problem = nil
+                if snapshot.info.mode == .swiftui {
+                    try await Task.detached { try CompiledProject.validate(snapshot) }.value
+                    try check(token)
+                    if force || screen == nil || page != nil {
+                        page?.stop()
+                        screen = .swiftUI(UUID())
+                    }
+                    log.append("已打开 SwiftUI 页面 " + snapshot.revision.prefix(12))
+                    return
+                }
                 let product: Product
                 if previous {
                     guard let saved = try await products.accepted(record.id, previous: true) else { throw RuntimeIssue("还没有可恢复的上一版本") }
@@ -184,12 +206,12 @@ final class HostModel: ObservableObject {
                 let code = (error as NSError)
                 if error is FolderAccessIssue || (code.domain == NSCocoaErrorDomain && code.code == NSFileReadNoPermissionError) {
                     page?.stop()
-                    page = nil
+                    screen = nil
                     inspected = nil
                     permissions = []
                     return
                 }
-                if page == nil, let accepted = try? await products.accepted(record.id) {
+                if mode != .swiftui, screen == nil, let accepted = try? await products.accepted(record.id) {
                     do { try await activate(accepted, record: record, token: token, expected: nil); problem = detail }
                     catch { if generation == token { problem = detail + "\n" + error.localizedDescription } }
                 }
@@ -236,7 +258,7 @@ final class HostModel: ObservableObject {
         next.onFailure = { [weak self, weak next] message in
             if let self, let next, self.page === next { self.problem = message; self.log.append(message) }
         }
-        page = next
+        screen = .script(next)
         log.append("已打开 " + product.revision.prefix(12))
     }
 }

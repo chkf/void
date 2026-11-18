@@ -1,5 +1,5 @@
 {
-  "name": "void-project",
+  "name": "void-tsx-project",
   "private": true,
   "dependencies": {
     "@runtime/ui": "1.0.0",

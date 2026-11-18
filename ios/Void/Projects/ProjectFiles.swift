@@ -7,7 +7,12 @@ struct RuntimeIssue: LocalizedError {
     var errorDescription: String? { message }
 }
 
-enum UIMode: String, Codable { case native, web }
+enum UIMode: String, Codable { case swiftui, native, web }
+
+enum ProjectTemplate: String {
+    case swiftUI = "StarterProject"
+    case tsx = "TSXProject"
+}
 
 struct ProjectInfo {
     let declaredID: String?
@@ -60,8 +65,12 @@ enum ProjectFiles {
             }
         }
         let manifest = try dictionary(files["app/manifest.json"], file: "app/manifest.json")
-        let native = manifest["uiMode"] as? String == "native"
-        let defaultEntry = native ? "src/main.tsx" : "index.html"
+        let defaultEntry: String
+        switch manifest["uiMode"] as? String {
+        case "swiftui": defaultEntry = CompiledProject.entry
+        case "native": defaultEntry = "src/main.tsx"
+        default: defaultEntry = "index.html"
+        }
         let entry = (manifest["entry"] as? String) ?? defaultEntry
         guard safePath(entry), files["app/" + entry] != nil else {
             throw RuntimeIssue("app/manifest.json · 入口无效或缺失 " + entry)
@@ -82,7 +91,7 @@ enum ProjectFiles {
             guard let text = value as? String, let mode = UIMode(rawValue: text) else {
                 throw RuntimeIssue("app/manifest.json · 未知的 uiMode")
             }
-            if mode == .native { return mode }
+            if mode == .swiftui || mode == .native { return mode }
         }
         guard ["html", "htm"].contains((entry as NSString).pathExtension.lowercased()) else {
             throw RuntimeIssue("app/manifest.json · Web 项目需要 HTML 入口")
@@ -145,15 +154,15 @@ enum ProjectFiles {
         try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: manifest, options: .atomic)
     }
 
-    static func create(_ name: String, in parent: URL) throws -> URL {
+    static func create(_ name: String, in parent: URL, template: ProjectTemplate = .swiftUI) throws -> URL {
         guard component(name), !name.hasPrefix(".") else { throw RuntimeIssue("请输入有效的项目文件夹名称") }
         let target = parent.appendingPathComponent(name, isDirectory: true)
         guard !manager.fileExists(atPath: target.path) else { throw RuntimeIssue("此位置已有同名文件或目录") }
-        guard let template = Bundle.main.url(forResource: "StarterProject", withExtension: nil) else {
+        guard let source = Bundle.main.url(forResource: template.rawValue, withExtension: nil) else {
             throw RuntimeIssue("宿主缺少项目模板")
         }
         let staging = parent.appendingPathComponent(".void-new-" + UUID().uuidString)
-        try manager.copyItem(at: template, to: staging)
+        try manager.copyItem(at: source, to: staging)
         defer { if manager.fileExists(atPath: staging.path) { try? manager.removeItem(at: staging) } }
         let config: [String: Any] = ["formatVersion": 1, "id": UUID().uuidString]
         try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])

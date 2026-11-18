@@ -1,7 +1,7 @@
 {
   "name": "我的项目",
   "version": "1.0.0",
-  "uiMode": "native",
-  "entry": "src/main.tsx",
+  "uiMode": "swiftui",
+  "entry": "SwiftUI/ProjectContentView.swift",
   "permissions": []
 }

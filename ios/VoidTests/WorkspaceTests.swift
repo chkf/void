@@ -9,7 +9,8 @@ final class WorkspaceTests: XCTestCase {
         defer { try? fm.removeItem(at: parent) }
         let url = try ProjectFiles.create("测试", in: parent)
         let first = try ProjectFiles.snapshot(at: url)
-        XCTAssertEqual(first.info.mode, .native)
+        XCTAssertEqual(first.info.mode, .swiftui)
+        XCTAssertNoThrow(try CompiledProject.validate(first))
         XCTAssertEqual(first.info.name, "测试")
         XCTAssertNotNil(first.info.declaredID)
         for folder in ["app", "assets", "modules", "logs", "data"] {

@@ -1,5 +1,7 @@
 # 我的项目
 
-在 void 中打开此目录。编辑 app/src/main.tsx 并保存，回到前台的宿主会读取新版本。模板中的表单、输入框和开关由 SwiftUI 绘制。app/manifest.json 记录名称、版本、界面模式和入口。
+默认界面在 app/SwiftUI/ProjectContentView.swift 中。可直接使用 SwiftUI 的视图、属性包装器和系统控件。宿主用 ProjectContentView(projectName:) 创建页面。
+
+将本目录的 app/SwiftUI/ 同步到 GitHub 仓库的 ios/StarterProject/app/SwiftUI/，然后推送版本标签。GitHub Actions 编译 Swift 源码并生成 IPA。签名并安装对应版本后，打开项目即可看到修改。宿主核对目录中的 Swift 源文件与安装包中的源码，若版本不同，管理面板会显示重新构建提示。
 
 外部编辑器需要在 Files 中单独选择同一个目录。应用源码放在 app/，可发布的资源放在 assets/，本地依赖放在 modules/。data/ 留给想与编辑器共享的数据，logs/ 保存宿主诊断。只有获准使用该文件夹的应用才能通过 Files 访问它。
