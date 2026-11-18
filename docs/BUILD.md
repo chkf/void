@@ -1,6 +1,6 @@
 # 构建与签名
 
-GitHub Actions 使用 macOS 15 和 Xcode 16.4 构建 arm64 iPhone 安装包，最低 iOS 17。模拟器测试在 Apple 芯片的 macOS 26 运行器上使用 Xcode 26.5。两者均使用 Node.js 22.20.0。推送、拉取请求或在工作流页面选择 Run workflow 均可构建当前分支。[构建记录](https://github.com/chkf/void/actions/workflows/ios.yml) · [iPhone 构建镜像](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md) · [模拟器镜像](https://github.com/actions/runner-images/blob/main/images/macos/macos-26-arm64-Readme.md)
+GitHub Actions 使用 macOS 15、Xcode 16.4 和 Node.js 22.20.0 构建 arm64 iPhone 安装包，最低 iOS 17。模拟器使用 iOS 18.5 镜像，其测试构建按 Apple 提供的 WebKit 兼容方式设置 18.4 的模拟器部署目标。推送、拉取请求或手动运行工作流均可构建当前分支。[构建记录](https://github.com/chkf/void/actions/workflows/ios.yml) · [运行器镜像](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md) · [Apple 对 iOS 18.5 模拟器的说明](https://developer.apple.com/forums/thread/785964)
 
 | Actions 产物 | 用途 |
 | --- | --- |
@@ -18,7 +18,6 @@ npm ci
 npm run openspec -- validate --all --strict
 npm test
 bash scripts/ios-build.sh device
-export DEVELOPER_DIR=/Applications/Xcode_26.5.app/Contents/Developer
 bash scripts/ios-build.sh test
 ```
 
