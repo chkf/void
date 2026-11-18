@@ -126,8 +126,17 @@ final class RuntimeTests: XCTestCase {
         XCTAssertEqual(host.workspaceTemplate, .tsx)
         host.refresh(force: true)
         try await wait { host.page != nil || host.problem != nil || host.notice != nil }
-        let original = try XCTUnwrap(host.page, host.problem ?? host.notice ?? "")
-        XCTAssertEqual(original.nodes.first?.type, "Form")
+        let beforeWarning = try XCTUnwrap(host.page,host.problem ?? host.notice ?? "")
+        XCTAssertEqual(beforeWarning.nodes.first?.type,"Form")
+        host.refresh(force:true)
+        host.memoryWarning()
+        try await wait { !host.busy }
+        XCTAssertEqual(host.page?.id,beforeWarning.id)
+        XCTAssertTrue(host.problem?.contains("内存") == true)
+        host.refresh(force:true,remember:true)
+        try await wait { !host.busy }
+        let original = try XCTUnwrap(host.page,host.problem ?? "")
+        XCTAssertEqual(original.nodes.first?.type,"Form")
         let toggle = try XCTUnwrap(original.nodes.first?.children.first?.children.first { $0.type == "Toggle" })
         let sequence = original.event(toggle.id, name: "onChange", value: false)
         try await wait { original.acknowledged >= sequence || host.problem != nil }

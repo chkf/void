@@ -16,6 +16,28 @@ const nativeFiles = Object.fromEntries(await Promise.all(["app/package.json", "a
 const template = { files: nativeFiles, entry: "src/main.tsx", mode: "native" };
 const compile = input => compileProject(esbuild, input, types, versions);
 
+test("取消的编译会终止工作线程，迟到的回调不能交付到下一次构建", async () => {
+  const workers = [];
+  class Worker {
+    constructor(path) { assert.equal(path, "compiler.js"); this.stops = 0; workers.push(this); }
+    postMessage(input) { this.input = input; }
+    terminate() { this.stops++; }
+  }
+  const context = vm.createContext({ Worker });
+  vm.runInContext((await read("Toolchain/compiler-client.js")).toString(), context);
+  const input = { paths: ["app/有 空格.tsx"], entry: "有 空格.tsx", mode: "native" };
+  const first = context.buildProject(input);
+  const rejected = assert.rejects(first, /已取消编译/);
+  context.cancelVoidBuild();
+  await rejected;
+  const next = context.buildProject(input);
+  workers[0].onmessage({ data: { entry: "stale" } });
+  workers[1].onmessage({ data: { entry: "new" } });
+  assert.equal((await next).entry, "new");
+  assert.equal(workers[1].input.paths[0], input.paths[0]);
+  assert.deepEqual(workers.map(w => w.stops), [1, 1]);
+});
+
 test("原生模板离线编译、输出 Source Map，真实 React 状态随开关事件提交新树", async () => {
   const product = await compile(template);
   assert.ok(product.files["bundle/main.js.map"]);

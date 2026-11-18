@@ -74,6 +74,7 @@ case "${1:-device}" in
     app="$out/DerivedData/Build/Products/Release-iphoneos/VoidHost.app"
     xcrun lipo "$app/VoidHost" -verify_arch arm64
     test -s "$app/Toolchain/esbuild.wasm"
+    test -s "$app/Toolchain/compiler-client.js"
     test -s "$app/Toolchain/sdk-api.json"
     test -s "$app/Toolchain/sdk-reference.md"
     test -s "$app/Toolchain/sdk.d.ts"

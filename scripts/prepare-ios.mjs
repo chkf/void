@@ -44,7 +44,8 @@ for (const [entry, name] of [["libraries.js", "libraries.js"], ["browser-compile
   });
 }
 await copyFile(join(root, "node_modules/esbuild-wasm/esbuild.wasm"), join(output, "esbuild.wasm"));
-await writeFile(join(output, "index.html"), '<!doctype html><meta charset="utf-8"><script src="compiler.js"></script>');
+await copyFile(join(root, "runtime/compiler-client.js"), join(output, "compiler-client.js"));
+await writeFile(join(output, "index.html"), '<!doctype html><meta charset="utf-8"><script src="compiler-client.js"></script>');
 const licenses = [];
 for (const name of [...Object.keys(deps).filter(n => !n.includes("openspec")), "scheduler", "csstype", "@types/prop-types", "entities", "loose-envify", "js-tokens"]) {
   const dir = join(root, "node_modules", name);
@@ -54,7 +55,7 @@ for (const name of [...Object.keys(deps).filter(n => !n.includes("openspec")), "
 }
 await writeFile(join(output, "LICENSES.txt"), licenses.join("\n\n"));
 const hash = createHash("sha256");
-for (const file of ["compiler.js", "esbuild.wasm", "libraries.js", "types.json", "versions.json"]) {
+for (const file of ["compiler-client.js", "compiler.js", "esbuild.wasm", "libraries.js", "types.json", "versions.json"]) {
   hash.update(await readFile(join(output, file)));
 }
 await writeFile(join(output, "build-id.txt"), hash.digest("hex"));

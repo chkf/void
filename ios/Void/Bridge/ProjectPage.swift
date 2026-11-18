@@ -15,12 +15,15 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     private var base: URL?
     private var valid = true
     private var ready = false
-    private var timeout: Task<Void, Never>?
+    private var timeout: Task<Void,Never>?
+    private var lastProgress = ContinuousClock.now
+    private let trace: DirectoryTrace?
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
 
-    init(product: Product, record: ProjectRecord, storage: URL, permissions: [String], networkHosts: [String]) throws {
+    init(product: Product, record: ProjectRecord, storage: URL, permissions: [String], networkHosts: [String], trace: DirectoryTrace? = nil) throws {
         self.product = product
+        self.trace = trace
         sdk = SDKSession(record: record, storage: storage, permissions: permissions, networkHosts: networkHosts)
         server = try ResourceServer(files: product.files)
         let config = WKWebViewConfiguration()
@@ -53,15 +56,17 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         let base = try await server.start()
         guard valid else { throw CancellationError() }
         self.base = base
-        view.load(URLRequest(url: base.appendingPathComponent(product.entry)))
+        progress("page.load")
+        view.load(URLRequest(url:base.appendingPathComponent(product.entry)))
         timeout = Task { [weak self] in
-            var idleSince = ContinuousClock.now
             while !Task.isCancelled {
                 do { try await Task.sleep(for:.seconds(1)) } catch { return }
                 guard let self, self.valid, !self.ready else { return }
-                if self.sdk.hasPendingRequests { idleSince = .now }
-                else if idleSince.duration(to:.now) >= .seconds(25) {
-                    self.onFailure?("项目启动超时，请检查入口或恢复可运行版本")
+                if self.sdk.ui.isPresenting { self.lastProgress = .now; continue }
+                let limit: Duration = self.sdk.hasPendingRequests ? .seconds(120) : .seconds(60)
+                if self.lastProgress.duration(to:.now) >= limit {
+                    self.trace?.event("page.firstFrameTimeout")
+                    self.onFailure?("等待项目首屏超时，可以返回项目列表或重试")
                     return
                 }
             }
@@ -91,13 +96,30 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         decisionHandler(action.targetFrame?.isMainFrame == true && contains(action.request.url) ? .allow : .cancel)
     }
 
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { if valid { onFailure?("项目的 WebKit 进程已终止") } }
-    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        if valid { onFailure?(error.localizedDescription) }
+    private func progress(_ stage: String) {
+        guard valid, !ready else { return }
+        lastProgress = .now
+        trace?.event(stage)
+    }
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { progress("page.navigationCommitted") }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { progress("page.navigationFinished") }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        guard valid else { return }
+        trace?.event("page.processTerminated")
+        onFailure?("项目的 WebKit 进程已终止，可在管理中重新预览")
+    }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { navigationFailed(error) }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { navigationFailed(error) }
+    private func navigationFailed(_ error: Error) {
+        guard valid else { return }
+        trace?.event("page.navigationFailed",error:error)
+        let e = error as NSError
+        onFailure?("项目页面加载失败（\(e.domain) \(e.code)）")
     }
 
     private func confirm() {
         if !ready {
+            progress("page.firstFrame")
             ready = true
             timeout?.cancel()
             onReady?()

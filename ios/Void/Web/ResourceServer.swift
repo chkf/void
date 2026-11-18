@@ -11,6 +11,9 @@ final class ResourceServer {
     private let compiler: Bool
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private var startup: CheckedContinuation<URL, Error>?
+    private var startupTimeout: DispatchWorkItem?
+    private var started = false
+    private var stopped = false
 
     init(files: [String: Data], compiler: Bool = false) throws {
         self.files = files
@@ -21,38 +24,54 @@ final class ResourceServer {
     }
 
     func start() async throws -> URL {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-            queue.async {
-                self.startup = continuation
-                self.listener.stateUpdateHandler = { [weak self] state in self?.stateChanged(state) }
-                self.listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
-                self.listener.start(queue: self.queue)
+        try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                queue.async {
+                    guard !self.started, !self.stopped else { continuation.resume(throwing:CancellationError()); return }
+                    self.started = true
+                    self.startup = continuation
+                    let deadline = DispatchWorkItem { [weak self] in
+                        self?.finishStartup(.failure(RuntimeIssue("启动本地预览服务超时")))
+                        self?.stop()
+                    }
+                    self.startupTimeout = deadline
+                    self.queue.asyncAfter(deadline:.now()+20,execute:deadline)
+                    self.listener.stateUpdateHandler = { [weak self] state in self?.stateChanged(state) }
+                    self.listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
+                    self.listener.start(queue:self.queue)
+                }
             }
-        }
+        } onCancel: { self.stop() }
     }
 
     private func stateChanged(_ state: NWListener.State) {
-        guard let startup else { return }
+        guard startup != nil else { return }
         switch state {
         case .ready:
-            self.startup = nil
             guard let port = listener.port,
-                  let url = URL(string: "http://127.0.0.1:" + String(port.rawValue) + "/" + token + "/")
-            else { startup.resume(throwing: RuntimeIssue("无法分配本地资源地址")); return }
-            startup.resume(returning: url)
-        case .failed(let error), .waiting(let error):
-            self.startup = nil
-            startup.resume(throwing: error)
-        case .cancelled:
-            self.startup = nil
-            startup.resume(throwing: CancellationError())
+                  let url = URL(string:"http://127.0.0.1:" + String(port.rawValue) + "/" + token + "/")
+            else { finishStartup(.failure(RuntimeIssue("无法分配本地资源地址"))); return }
+            finishStartup(.success(url))
+        case .failed(let error), .waiting(let error): finishStartup(.failure(error))
+        case .cancelled: finishStartup(.failure(CancellationError()))
         default: break
         }
     }
 
+    private func finishStartup(_ result: Result<URL,Error>) {
+        let waiting = startup
+        startup = nil
+        startupTimeout?.cancel()
+        startupTimeout = nil
+        waiting?.resume(with:result)
+    }
+
     func stop() {
-        listener.cancel()
         queue.async {
+            guard !self.stopped else { return }
+            self.stopped = true
+            self.finishStartup(.failure(CancellationError()))
+            self.listener.cancel()
             self.connections.values.forEach { $0.cancel() }
             self.connections.removeAll()
         }
@@ -79,7 +98,14 @@ final class ResourceServer {
             if let end = request.range(of: Data("\r\n\r\n".utf8)),
                let headers = String(data: request[..<end.lowerBound], encoding: .utf8) {
                 let response = self.respond(headers)
-                connection.send(content: response, completion: .contentProcessed { _ in connection.cancel() })
+                if let body = response.body {
+                    connection.send(content:response.headers,completion:.contentProcessed { error in
+                        if error != nil { connection.cancel(); return }
+                        connection.send(content:body,completion:.contentProcessed { _ in connection.cancel() })
+                    })
+                } else {
+                    connection.send(content:response.headers,completion:.contentProcessed { _ in connection.cancel() })
+                }
             } else if done { connection.cancel() }
             else { self.receive(connection, bytes: request) }
         }
@@ -99,8 +125,9 @@ final class ResourceServer {
         return start..<(min(count - 1, last) + 1)
     }
 
-    private func respond(_ request: String) -> Data {
-        let denied = Data("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8)
+    private typealias Response = (headers: Data, body: Data?)
+    private func respond(_ request: String) -> Response {
+        let denied: Response = (Data("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".utf8),nil)
         let lines = request.components(separatedBy: "\r\n")
         let first = (lines.first ?? "").split(separator: " ")
         guard first.count == 3, ["GET", "HEAD"].contains(first[0]), let port = listener.port else { return denied }
@@ -122,7 +149,7 @@ final class ResourceServer {
         var extra = ""
         if let value = headers["range"] {
             guard let selected = Self.byteRange(value, count: data.count) else {
-                return Data(("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + String(data.count) + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").utf8)
+                return (Data(("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */" + String(data.count) + "\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").utf8),nil)
             }
             range = selected
             status = "206 Partial Content"
@@ -136,8 +163,7 @@ final class ResourceServer {
         let policy = "default-src 'none'; script-src \(script); connect-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; media-src 'self' blob:; worker-src 'self' blob:; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
         let head = "HTTP/1.1 \(status)\r\nContent-Type: \(mime)\r\nContent-Length: \(range.count)\r\n" + extra
             + "Accept-Ranges: bytes\r\nContent-Security-Policy: \(policy)\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nCache-Control: private, max-age=31536000, immutable\r\nConnection: close\r\n\r\n"
-        var result = Data(head.utf8)
-        if first[0] == "GET" { result.append(data[range]) }
-        return result
+        let body = first[0] == "GET" ? (range.count == data.count ? data : data[range]) : nil
+        return (Data(head.utf8),body)
     }
 }

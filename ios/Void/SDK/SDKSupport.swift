@@ -119,6 +119,7 @@ final class SDKWait<Value> {
 final class SDKPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
     weak var anchor: UIView?
     private weak var current: UIViewController?
+    var isPresenting: Bool { current?.presentingViewController != nil && current?.isBeingDismissed == false }
     private var cancel: (() -> Void)?
 
     func show<T>(_ controller: UIViewController, until wait: SDKWait<T>) async throws -> T {

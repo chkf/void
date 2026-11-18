@@ -148,6 +148,7 @@ struct HostView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in folders.updateProgress() }
+        .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)) { _ in model.memoryWarning() }
         .task { await model.load() }
         .task(id:ObservedFolder(project:model.current?.id,grant:model.current?.grant,
                                 active:phase == .active,workspace:model.workspaceTemplate != nil)) {

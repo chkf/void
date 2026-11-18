@@ -34,6 +34,7 @@ final class HostModel: ObservableObject {
     private var scanTrace: DirectoryTrace?
     private let library: ProjectLibrary
     private let products: ProductStore
+    private let previewRecovery: PreviewRecovery
     private let storage: URL
     private var networkHosts: [String] = []
     private var loaded = false
@@ -47,6 +48,7 @@ final class HostModel: ObservableObject {
         let base = storage ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("void")
         library = ProjectLibrary(base: base)
         self.storage = base
+        previewRecovery = PreviewRecovery(storage:base)
         products = ProductStore(base: base.appendingPathComponent("Builds"))
         folders.process = { [weak self] request,url in
             guard let self else { throw CancellationError() }
@@ -62,7 +64,12 @@ final class HostModel: ObservableObject {
             try await SimulatorPickerFixture.prepareIfRequested()
             #endif
             let catalog = try await list()
-            if let id = catalog.last, let record = records.first(where: { $0.id == id }) { await open(record) }
+            if let id = catalog.last, let record = records.first(where:{ $0.id == id }) {
+                if let interrupted = try await previewRecovery.pending(), interrupted.project == id {
+                    notice = "上次预览在「" + interrupted.stage.title + "」时中断。已返回项目列表，可从原记录手动预览。"
+                    DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
+                } else { await open(record) }
+            }
         } catch { notice = error.localizedDescription }
     }
 
@@ -218,6 +225,14 @@ final class HostModel: ObservableObject {
         scanStatus = "已取消预览"
     }
 
+    func memoryWarning() {
+        guard busy, work != nil else { return }
+        scanTrace?.event("preview.memoryWarning")
+        cancelScan()
+        problem = "系统报告内存紧张，本次预览已停止。可返回原项目后重试。"
+        scanStatus = "本次预览已停止"
+    }
+
     func refresh(force: Bool = false, remember: Bool = false, previous: Bool = false, trace input: DirectoryTrace? = nil) {
         guard let record = current, force || (workspaceTemplate == nil && !userStoppedScanning) else { return }
         if force { userStoppedScanning = false }
@@ -250,85 +265,119 @@ final class HostModel: ObservableObject {
                     }
                 }
             }
-            var scanned = false
-            do {
-                let snapshot = try await library.open(record.id,remember:remember,trace:trace)
-                scanned = true
+            let diagnostic = trace ?? DirectoryTrace("preview")
+            let attemptID = diagnostic.id
+            var marked = false
+            func stage(_ stage: PreviewStage) async throws {
                 try check(token)
-                waitingEntry = nil
-                mode = snapshot.info.mode
-                permissions = snapshot.info.permissions
-                networkHosts = snapshot.info.networkHosts
-                if let sdk = page?.sdk, !sdk.declared.isSubset(of: Set(permissions)) || !sdk.networkHosts.isSubset(of: Set(networkHosts.map { $0.lowercased() })) {
-                    sdk.close()
-                }
-                if force || remember || current?.name != snapshot.info.name || current?.version != snapshot.info.version {
-                    try await list()
+                let attempt = PreviewAttempt(request:attemptID,project:record.id,stage:stage)
+                try await previewRecovery.mark(attempt,starting:!marked)
+                marked = true
+                try check(token)
+                scanTrace = diagnostic
+                scanStatus = stage.title
+                diagnostic.event("preview." + stage.rawValue)
+            }
+            func run() async {
+                var scanned = false
+                do {
+                    if force { try await stage(.scan) }
+                    let snapshot = try await library.open(record.id,remember:remember,trace:trace)
+                    scanned = true
                     try check(token)
-                    current = records.first { $0.id == record.id }
-                }
-                guard force || inspected != snapshot.revision else { return }
-                inspected = snapshot.revision
-                busy = true
-                problem = nil
-                let verifiedRecord = current ?? record
-                scanStatus = "正在准备预览"
-                if snapshot.info.mode == .swiftui {
-                    try await Task.detached { try CompiledProject.validate(snapshot) }.value
-                    try check(token)
-                    try await finishFirstPreview(record, token: token)
-                    if force || screen == nil || page != nil {
-                        page?.stop()
-                        screen = .swiftUI(UUID())
+                    waitingEntry = nil
+                    mode = snapshot.info.mode
+                    permissions = snapshot.info.permissions
+                    networkHosts = snapshot.info.networkHosts
+                    if let sdk = page?.sdk, !sdk.declared.isSubset(of: Set(permissions)) || !sdk.networkHosts.isSubset(of: Set(networkHosts.map { $0.lowercased() })) {
+                        sdk.close()
                     }
+                    if force || remember || current?.name != snapshot.info.name || current?.version != snapshot.info.version {
+                        try await list()
+                        try check(token)
+                        current = records.first { $0.id == record.id }
+                    }
+                    guard force || inspected != snapshot.revision else { return }
+                    inspected = snapshot.revision
+                    busy = true
+                    problem = nil
+                    let verifiedRecord = current ?? record
+                    try await stage(.cache)
+                    if snapshot.info.mode == .swiftui {
+                        try await Task.detached { try CompiledProject.validate(snapshot) }.value
+                        try check(token)
+                        try await finishFirstPreview(record, token: token)
+                        if force || screen == nil || page != nil {
+                            page?.stop()
+                            screen = .swiftUI(UUID())
+                        }
+                        trace?.event("preview.result","OK")
+                        log.append("已打开 SwiftUI 页面 " + snapshot.revision.prefix(12))
+                        return
+                    }
+                    let product: Product
+                    if previous {
+                        guard let saved = try await products.accepted(record.id, previous: true) else { throw RuntimeIssue("还没有可恢复的上一版本") }
+                        product = saved
+                    } else if remember, let cached = try? await products.matching(snapshot.revision, project: record.id) {
+                        product = cached
+                    } else {
+                        try await stage(.compiler)
+                        product = try await BuildEngine.build(snapshot) { try await stage(.compile) }
+                        try await stage(.verify)
+                        let latest = try await library.open(record.id,remember:false,trace:trace)
+                        try check(token)
+                        guard latest.revision == snapshot.revision else { needsScan = true; return }
+                    }
+                    try await stage(.firstFrame)
+                    try await activate(product,record:verifiedRecord,token:token,expected:previous ? nil : snapshot.revision,trace:diagnostic)
                     trace?.event("preview.result","OK")
-                    log.append("已打开 SwiftUI 页面 " + snapshot.revision.prefix(12))
-                    return
+                } catch {
+                    guard generation == token, !Task.isCancelled else { return }
+                    let missing = error as? MissingProjectEntry
+                    waitingEntry = missing?.path
+                    if let missing {
+                        mode = missing.mode
+                        inspected = nil
+                    }
+                    let scanError = !scanned || error is DirectoryIssue || error is FolderAccessIssue || missing != nil
+                    let e = error as NSError
+                    let message = scanError || error is RuntimeIssue ? DirectoryIssue.safeMessage(error) : "预览失败（\(e.domain) \(e.code)）"
+                    let detail = (scanError ? "目录扫描 · " : "") + message
+                    if trace != nil || problem != detail {
+                        let failureTrace = trace ?? DirectoryTrace("preview")
+                        failureTrace.event(scanError ? "scan.result" : "preview.result","失败",error:error)
+                        log.append(detail)
+                    }
+                    problem = detail
+                    if scanError { inspected = nil }
+                    if let issue = error as? DirectoryIssue, [.provider,.timeout,.unreadable,.identity].contains(issue.kind) {
+                        userStoppedScanning = true
+                        needsScan = false
+                        scanStatus = "目录检查已结束"
+                    }
+                    if let issue = error as? DirectoryIssue, [.unreadable,.identity,.outside,.link].contains(issue.kind) {
+                        page?.sdk.close()
+                        permissions = []
+                    }
+                    if mode != .swiftui, screen == nil, let accepted = try? await products.accepted(record.id) {
+                        do {
+                            try await stage(.firstFrame)
+                            try await activate(accepted,record:record,token:token,expected:nil,trace:diagnostic)
+                            problem = detail
+                        } catch { if generation == token { problem = detail + "\n" + error.localizedDescription } }
+                    }
                 }
-                let product: Product
-                if previous {
-                    guard let saved = try await products.accepted(record.id, previous: true) else { throw RuntimeIssue("还没有可恢复的上一版本") }
-                    product = saved
-                } else if remember, let cached = try? await products.matching(snapshot.revision, project: record.id) {
-                    product = cached
-                } else {
-                    product = try await BuildEngine.build(snapshot)
-                    let latest = try await library.open(record.id,remember:false,trace:trace)
-                    try check(token)
-                    guard latest.revision == snapshot.revision else { needsScan = true; return }
+            }
+            await run()
+            if marked {
+                // Let SwiftUI mount the first screen before removing the interrupted-preview marker.
+                if generation == token, screen != nil, problem == nil {
+                    await Task.yield()
+                    try? await Task.sleep(for:.milliseconds(350))
                 }
-                try await activate(product,record:verifiedRecord,token:token,expected:previous ? nil : snapshot.revision,trace:trace)
-                trace?.event("preview.result","OK")
-            } catch {
-                guard generation == token, !Task.isCancelled else { return }
-                let missing = error as? MissingProjectEntry
-                waitingEntry = missing?.path
-                if let missing {
-                    mode = missing.mode
-                    inspected = nil
-                }
-                let scanError = !scanned || error is DirectoryIssue || error is FolderAccessIssue || missing != nil
-                let detail = (scanError ? "目录扫描 · " : "") + DirectoryIssue.safeMessage(error)
-                if trace != nil || problem != detail {
-                    let failureTrace = trace ?? DirectoryTrace("preview")
-                    failureTrace.event(scanError ? "scan.result" : "preview.result","失败",error:error)
-                    log.append(detail)
-                }
-                problem = detail
-                if scanError { inspected = nil }
-                if let issue = error as? DirectoryIssue, [.provider,.timeout,.unreadable,.identity].contains(issue.kind) {
-                    userStoppedScanning = true
-                    needsScan = false
-                    scanStatus = "目录检查已结束"
-                }
-                if let issue = error as? DirectoryIssue, [.unreadable,.identity,.outside,.link].contains(issue.kind) {
-                    page?.sdk.close()
-                    permissions = []
-                }
-                if mode != .swiftui, screen == nil, let accepted = try? await products.accepted(record.id) {
-                    do { try await activate(accepted, record: record, token: token, expected: nil); problem = detail }
-                    catch { if generation == token { problem = detail + "\n" + error.localizedDescription } }
-                }
+                do { try await previewRecovery.finish(attemptID) }
+                catch { diagnostic.event("preview.recoveryWriteFailed",error:error) }
             }
         }
     }
@@ -348,7 +397,7 @@ final class HostModel: ObservableObject {
 
     private func activate(_ product: Product, record: ProjectRecord, token: UUID, expected: String?, trace: DirectoryTrace? = nil) async throws {
         try check(token)
-        let next = try ProjectPage(product: product, record: record, storage: storage, permissions: permissions, networkHosts: networkHosts)
+        let next = try ProjectPage(product:product,record:record,storage:storage,permissions:permissions,networkHosts:networkHosts,trace:trace)
         candidate = next
         defer {
             if candidate === next { candidate = nil }

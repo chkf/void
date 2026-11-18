@@ -7,10 +7,6 @@ const decoder = new TextDecoder();
 const encoder = new TextEncoder();
 const builtins = new Set(["react", "react/jsx-runtime", "react-dom", "react-dom/client", "@runtime/ui", "@runtime/sdk"]);
 
-export function fromBase64(text) {
-  return Uint8Array.from(atob(text), c => c.charCodeAt(0));
-}
-
 export function toBase64(bytes) {
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += 8192) {
