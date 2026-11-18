@@ -72,6 +72,11 @@ case "${1:-device}" in
       xcrun simctl location "$device" set 37.3349,-122.0090
       container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
       touch "$container/tmp/void-sdk-fixtures"
+      fixture="$container/Documents/Void Picker Test"
+      if [[ ! -e "$fixture" ]]; then
+        mkdir -p "$container/Documents"
+        cp -R ios/TSXProject "$fixture"
+      fi
     fi
     result="$out/tests-$(date +%s).xcresult"
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \

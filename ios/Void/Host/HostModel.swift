@@ -28,6 +28,10 @@ final class HostModel: ObservableObject {
     @Published private(set) var waitingEntry: String?
     @Published private(set) var permissions: [String] = []
     @Published private(set) var log: [String] = []
+    let folders = FolderRequests()
+    @Published private(set) var scanStatus: String?
+    private var userStoppedScanning = false
+    private var scanTrace: DirectoryTrace?
     private let library: ProjectLibrary
     private let products: ProductStore
     private let storage: URL
@@ -46,6 +50,10 @@ final class HostModel: ObservableObject {
         library = ProjectLibrary(base: base)
         self.storage = base
         products = ProductStore(base: base.appendingPathComponent("Builds"))
+        folders.process = { [weak self] request,url in
+            guard let self else { throw CancellationError() }
+            return try await self.processDirectory(request,url)
+        }
     }
 
     func load() async {
@@ -69,21 +77,48 @@ final class HostModel: ObservableObject {
         catch { notice = error.localizedDescription }
     }
 
-    func importDirectory(_ url: URL) async {
-        do {
-            let result = try await library.discover(url)
-            try await list()
-            if result.count == 1 { await open(result[0]) }
-        } catch { notice = error.localizedDescription }
+    private func processDirectory(_ r: FolderRequest, _ url: URL) async throws -> String {
+        func checkRequest() throws {
+            try Task.checkCancellation()
+            guard current?.id == r.origin, folders.request?.id == r.id else { throw CancellationError() }
+        }
+        try checkRequest()
+        r.trace.event("grant.resolve")
+        let found: [ProjectRecord]
+        let message: String
+        switch r.purpose {
+        case .create(let name,let template):
+            found = [try await library.create(name:name,parent:url,template:template,trace:r.trace)]
+            message = "已创建「" + name + "」"
+        case .importFolder,.local:
+            found = try await library.discover(url,localRoot:r.purpose == .local,trace:r.trace)
+            message = found.count == 1 ? "已找到「" + found[0].name + "」" : "已找到 \(found.count) 个项目"
+        case .reconnect(let id):
+            guard id == r.origin else { throw CancellationError() }
+            try await library.reconnect(id,url:url,trace:r.trace)
+            found = try await library.catalog().recent.filter { $0.id == id }
+            message = "已核验原项目目录"
+        }
+        try checkRequest()
+        try await list()
+        try checkRequest()
+        if found.count == 1 {
+            if current?.id == found[0].id {
+                current = found[0]
+                refresh(force:true,remember:true,trace:r.trace)
+            } else { await open(found[0],from:r) }
+        }
+        return message
     }
 
-    func reconnect(_ url: URL) async {
-        guard let id = current?.id else { return }
+    func importDirectory(_ url: URL) async {
+        let trace = DirectoryTrace("import")
         do {
-            try await library.reconnect(id, url: url)
+            let result = try await library.discover(url,trace:trace)
             try await list()
-            if let record = records.first(where: { $0.id == id }) { await open(record) }
-        } catch { notice = error.localizedDescription }
+            if result.count == 1 { await open(result[0]) }
+            trace.event("import.result","OK")
+        } catch { trace.event("import.result","失败",error:error); notice = DirectoryIssue.safeMessage(error) }
     }
 
     func rename(_ name: String) async {
@@ -113,6 +148,9 @@ final class HostModel: ObservableObject {
         requestedRestart = false
         requestedPrevious = false
         busy = false
+        scanStatus = nil
+        scanTrace = nil
+        userStoppedScanning = false
         permissions = []
         networkHosts = []
         problem = nil
@@ -120,7 +158,8 @@ final class HostModel: ObservableObject {
         log = []
     }
 
-    func open(_ record: ProjectRecord) async {
+    func open(_ record: ProjectRecord, from request: FolderRequest? = nil) async {
+        if request?.id != folders.request?.id || request == nil { folders.changeProject(to:record.id) }
         clear()
         current = record
         if let template = record.pendingTemplate {
@@ -134,7 +173,7 @@ final class HostModel: ObservableObject {
             }
             catch { if current?.id == record.id { notice = error.localizedDescription } }
         } else {
-            refresh(force: true, remember: true)
+            refresh(force:true,remember:true,trace:request?.trace)
         }
     }
 
@@ -147,6 +186,7 @@ final class HostModel: ObservableObject {
     }
 
     func showLibrary() async {
+        folders.changeProject(to:nil)
         do {
             try await library.forgetLast()
             clear()
@@ -157,11 +197,10 @@ final class HostModel: ObservableObject {
 
     func monitor() async {
         guard let record = current, workspaceTemplate == nil else { return }
-        let observer = try? record.grant.withRoot { url in
-            SourceWatcher(root: url) { [weak self] in
-                Task { @MainActor in if self?.current?.id == record.id { self?.refresh() } }
-            }
+        let observer = try? await SourceWatcher.start(grant:record.grant) { [weak self] in
+            Task { @MainActor in if self?.current?.id == record.id { self?.refresh() } }
         }
+        guard !Task.isCancelled, current?.id == record.id else { observer?.stop(); return }
         watch = observer
         defer { observer?.stop(); if observer === watch { watch = nil } }
         while !Task.isCancelled && current?.id == record.id {
@@ -170,21 +209,37 @@ final class HostModel: ObservableObject {
         }
     }
 
-    func refresh(force: Bool = false, remember: Bool = false, previous: Bool = false) {
-        guard let record = current, force || workspaceTemplate == nil else { return }
+    func cancelScan() {
+        guard let work else { return }
+        userStoppedScanning = true; needsScan = false; requestedRestart = false
+        scanTrace?.event("preview.cancel")
+        work.cancel()
+        candidate?.onFailure?("已取消预览")
+        scanStatus = "已取消预览"
+    }
+
+    func refresh(force: Bool = false, remember: Bool = false, previous: Bool = false, trace input: DirectoryTrace? = nil) {
+        guard let record = current, force || (workspaceTemplate == nil && !userStoppedScanning) else { return }
+        if force { userStoppedScanning = false }
         if work != nil {
             needsScan = true
             if force { requestedRestart = true; requestedPrevious = previous }
             return
         }
         let token = generation
-        if force { busy = true }
+        let trace = input ?? (force ? DirectoryTrace("preview") : nil)
+        scanTrace = trace
+        if force {
+            busy = true; scanStatus = "正在扫描项目目录"; trace?.event("preview.begin")
+        }
         work = Task {
             defer {
                 if generation == token {
                     work = nil
                     busy = false
-                    if needsScan {
+                    if !userStoppedScanning { scanStatus = nil }
+                    scanTrace = nil
+                    if needsScan && !userStoppedScanning {
                         let restart = requestedRestart, rollback = requestedPrevious
                         needsScan = false
                         requestedRestart = false
@@ -194,7 +249,7 @@ final class HostModel: ObservableObject {
                 }
             }
             do {
-                let snapshot = try await library.open(record.id, remember: remember)
+                let snapshot = try await library.open(record.id,remember:remember,trace:trace)
                 try check(token)
                 waitingEntry = nil
                 mode = snapshot.info.mode
@@ -203,7 +258,7 @@ final class HostModel: ObservableObject {
                 if let sdk = page?.sdk, !sdk.declared.isSubset(of: Set(permissions)) || !sdk.networkHosts.isSubset(of: Set(networkHosts.map { $0.lowercased() })) {
                     sdk.close()
                 }
-                if remember || current?.name != snapshot.info.name || current?.version != snapshot.info.version {
+                if force || remember || current?.name != snapshot.info.name || current?.version != snapshot.info.version {
                     try await list()
                     try check(token)
                     current = records.first { $0.id == record.id }
@@ -212,6 +267,8 @@ final class HostModel: ObservableObject {
                 inspected = snapshot.revision
                 busy = true
                 problem = nil
+                let verifiedRecord = current ?? record
+                scanStatus = "正在准备预览"
                 if snapshot.info.mode == .swiftui {
                     try await Task.detached { try CompiledProject.validate(snapshot) }.value
                     try check(token)
@@ -220,6 +277,7 @@ final class HostModel: ObservableObject {
                         page?.stop()
                         screen = .swiftUI(UUID())
                     }
+                    trace?.event("preview.result","OK")
                     log.append("已打开 SwiftUI 页面 " + snapshot.revision.prefix(12))
                     return
                 }
@@ -235,7 +293,8 @@ final class HostModel: ObservableObject {
                     try check(token)
                     guard latest.revision == snapshot.revision else { needsScan = true; return }
                 }
-                try await activate(product, record: record, token: token, expected: previous ? nil : snapshot.revision)
+                try await activate(product, record:verifiedRecord, token:token, expected:previous ? nil : snapshot.revision)
+                trace?.event("preview.result","OK")
             } catch {
                 guard generation == token, !Task.isCancelled else { return }
                 let missing = error as? MissingProjectEntry
@@ -244,16 +303,18 @@ final class HostModel: ObservableObject {
                     mode = missing.mode
                     inspected = nil
                 }
-                let detail = error.localizedDescription
-                if problem != detail { log.append(detail) }
+                let scanError = error is DirectoryIssue || error is FolderAccessIssue || missing != nil || scanStatus == "正在扫描项目目录"
+                let detail = (scanError ? "目录扫描 · " : "") + DirectoryIssue.safeMessage(error)
+                if trace != nil || problem != detail {
+                    let failureTrace = trace ?? DirectoryTrace("preview")
+                    failureTrace.event(scanError ? "scan.result" : "preview.result","失败",error:error)
+                    log.append(detail)
+                }
                 problem = detail
-                let code = (error as NSError)
-                if error is FolderAccessIssue || (code.domain == NSCocoaErrorDomain && code.code == NSFileReadNoPermissionError) {
-                    page?.stop()
-                    if workspaceTemplate == nil { screen = nil }
-                    inspected = nil
+                inspected = nil
+                if let issue = error as? DirectoryIssue, [.unreadable,.identity,.outside,.link].contains(issue.kind) {
+                    page?.sdk.close()
                     permissions = []
-                    return
                 }
                 if mode != .swiftui, screen == nil, let accepted = try? await products.accepted(record.id) {
                     do { try await activate(accepted, record: record, token: token, expected: nil); problem = detail }

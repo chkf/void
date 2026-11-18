@@ -42,123 +42,203 @@ actor ProjectLibrary {
         return device.stringValue + "/" + inode.stringValue
     }
 
-    func create(name: String, parent: URL?, template: ProjectTemplate = .swiftUI) throws -> ProjectRecord {
-        var grant = try parent.map { try FolderGrant.selected($0) } ?? FolderGrant(bookmark: nil, child: "")
-        _ = try grant.coordinated(write: true) { try ProjectFiles.create(name, in: $0, template: template) }
-        grant.child = name
-        return try register([grant], template: template)[0]
+    private struct Observation {
+        let grant: FolderGrant
+        let key: String
+        let snapshot: SourceSnapshot
+        let sameLocations: Set<UUID>
     }
 
-    func discover(_ url: URL) throws -> [ProjectRecord] {
-        let grant = try FolderGrant.selected(url)
-        let children: [String] = try grant.coordinated { root in
-            let fm = FileManager.default
-            if fm.fileExists(atPath: root.appendingPathComponent("app/manifest.json").path)
-                || fm.fileExists(atPath: root.appendingPathComponent("runtime.json").path) { return [""] }
-            return try fm.contentsOfDirectory(at: root, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])
-                .filter { fm.fileExists(atPath: $0.appendingPathComponent("app/manifest.json").path)
-                    || fm.fileExists(atPath: $0.appendingPathComponent("runtime.json").path) }
-                .map(\.lastPathComponent).sorted()
+    private static func inspect(_ original: FolderGrant, known: [ProjectRecord], incomplete: Bool, trace: DirectoryTrace?, io: DirectoryIO) throws -> Observation {
+        let grant = try original.refreshed()
+        let (key, snapshot) = try grant.coordinated(io:io,trace:trace) { root in
+            trace?.event("scan.begin")
+            do {
+                let key = try directoryKey(root)
+                let snapshot = try ProjectFiles.snapshot(at:root,allowMissingEntry:incomplete,trace:trace,io:io)
+                trace?.event("scan.end","OK")
+                return (key,snapshot)
+            } catch { trace?.event("scan.end","失败",error:error); throw error }
         }
-        guard !children.isEmpty else { throw RuntimeIssue("未找到项目，请选择包含 app/manifest.json 的目录或它的上一级") }
-        return try register(children.map { child in
-            var item = grant
-            item.child = child
-            return item
-        })
+        var matches = Set<UUID>()
+        for record in known where record.directoryKey != key {
+            try io.check()
+            if record.grant.sameLocation(as:grant) { matches.insert(record.id) }
+        }
+        return Observation(grant:grant,key:key,snapshot:snapshot,sameLocations:matches)
     }
 
-    private func register(_ grants: [FolderGrant], template: ProjectTemplate? = nil) throws -> [ProjectRecord] {
+    private static func matched(_ observed: Observation, _ record: ProjectRecord) throws {
+        let info = observed.snapshot.info
+        if let expected = record.declaredID, expected != info.declaredID { throw DirectoryIssue(kind:.identity,item:"runtime.json") }
+        if record.directoryKey == observed.key { return }
+        guard observed.sameLocations.contains(record.id), let expected = record.declaredID,
+              observed.snapshot.files["runtime.json"] != nil, info.runtimeID == expected else {
+            throw DirectoryIssue(kind:.identity,item:"登记目录")
+        }
+    }
+
+    private func register(_ observations: [Observation], template: ProjectTemplate? = nil) throws -> [ProjectRecord] {
+        try Task.checkCancellation()
         var catalog = try catalog()
         var found: [ProjectRecord] = []
-        for grant in grants {
-            let record = try grant.coordinated { root -> ProjectRecord in
-                let identity = try Self.directoryKey(root)
-                let metadata = try? ProjectFiles.snapshot(at: root).info
-                if var existing = catalog.records.first(where: { $0.directoryKey == identity }) {
-                    if let expected = existing.declaredID, let actual = metadata?.declaredID, expected != actual {
-                        throw RuntimeIssue("已登记目录的项目身份发生变化")
-                    }
-                    existing.grant = grant
-                    if existing.opened == nil { existing.opened = Date() }
-                    return existing
-                }
-                if let id = metadata?.declaredID, catalog.records.contains(where: { $0.declaredID == id }) {
-                    throw RuntimeIssue("另一目录已登记相同的项目 id，请为副本设置独立的 runtime.json id")
-                }
-                return ProjectRecord(id: UUID(), grant: grant, directoryKey: identity, declaredID: metadata?.declaredID,
-                                     name: metadata?.name ?? root.lastPathComponent, version: metadata?.version ?? "",
-                                     opened: Date(), pendingTemplate: template)
+        for o in observations {
+            let info = o.snapshot.info
+            let existing = catalog.records.first { $0.directoryKey == o.key || o.sameLocations.contains($0.id) || $0.grant == o.grant }
+            if let id = info.declaredID, catalog.records.contains(where:{ $0.declaredID == id && $0.id != existing?.id }) {
+                throw RuntimeIssue("另一目录已登记相同的项目 id，原登记已保留")
             }
-            catalog.records.removeAll { $0.id == record.id }
-            catalog.records.append(record)
+            var record: ProjectRecord
+            if var prior = existing {
+                try Self.matched(o,prior)
+                prior.grant = o.grant; prior.directoryKey = o.key
+                prior.declaredID = info.declaredID; prior.name = info.name; prior.version = info.version
+                if prior.opened == nil { prior.opened = Date() }
+                record = prior
+            } else {
+                record = ProjectRecord(id:UUID(),grant:o.grant,directoryKey:o.key,declaredID:info.declaredID,
+                    name:info.name,version:info.version,opened:Date(),pendingTemplate:template)
+            }
+            if let index = catalog.records.firstIndex(where:{$0.id == record.id}) { catalog.records[index] = record }
+            else { catalog.records.append(record) }
             found.append(record)
         }
+        try Task.checkCancellation()
         try save(catalog)
         return found
     }
 
-    func open(_ id: UUID, remember: Bool) throws -> SourceSnapshot {
+    func create(name: String, parent: URL?, template: ProjectTemplate = .swiftUI, trace: DirectoryTrace? = nil) async throws -> ProjectRecord {
+        let known = try catalog().records
+        let observed = try await DirectoryIO.run { io in
+            var grant = try parent.map { try FolderGrant.selected($0) } ?? FolderGrant(bookmark:nil,child:"")
+            _ = try grant.coordinated(write:true,io:io,trace:trace) { try ProjectFiles.create(name,in:$0,template:template,io:io) }
+            grant.child = name
+            return try Self.inspect(grant,known:known,incomplete:false,trace:trace,io:io)
+        }
+        return try register([observed],template:template)[0]
+    }
+
+    private static func children(of grant: FolderGrant, localRoot: Bool, trace: DirectoryTrace?, io: DirectoryIO) throws -> [FolderGrant] {
+        try grant.coordinated(io:io,trace:trace) { root in
+            let reader = ProjectSourceReader()
+            func hasProject(_ url: URL) throws -> Bool {
+                if try reader.optionalKind(url.appendingPathComponent("runtime.json"),"runtime.json") != nil { return true }
+                return try reader.optionalKind(url.appendingPathComponent("app"),"app") != nil
+            }
+            if !localRoot, try hasProject(root) { return [grant] }
+            var found: [FolderGrant] = []
+            for child in try reader.list(root,"项目列表").sorted(by:{$0.lastPathComponent < $1.lastPathComponent}) {
+                try io.check()
+                guard !["data","logs"].contains(child.lastPathComponent) else { continue }
+                let type: ProjectSourceReader.Kind?
+                do { type = try reader.optionalKind(child,"子目录") }
+                catch let error as DirectoryIssue where error.kind == .link { continue }
+                guard type == .directory, try hasProject(child) else { continue }
+                var item = grant; item.child = child.lastPathComponent; found.append(item)
+            }
+            guard !found.isEmpty else { throw DirectoryIssue(kind:.noProjects,item:"项目列表") }
+            return found
+        }
+    }
+
+    func discover(_ url: URL, localRoot: Bool = false, trace: DirectoryTrace? = nil) async throws -> [ProjectRecord] {
+        let known = try catalog().records
+        let observations = try await DirectoryIO.run { io in
+            let grant = try FolderGrant.selected(url)
+            if localRoot, grant.bookmark != nil || !grant.sameLocation(as:FolderGrant(bookmark:nil,child:"")) {
+                throw DirectoryIssue(kind:.outside,item:"本机项目")
+            }
+            return try Self.children(of:grant,localRoot:localRoot,trace:trace,io:io).map {
+                try Self.inspect($0,known:known,incomplete:true,trace:trace,io:io)
+            }
+        }
+        return try register(observations)
+    }
+
+    private static func locateLocal(_ record: ProjectRecord, trace: DirectoryTrace?, io: DirectoryIO) throws -> Observation? {
+        let local = FolderGrant(bookmark:nil,child:"")
+        let match: FolderGrant? = try local.coordinated(io:io,trace:trace) { root in
+            let reader = ProjectSourceReader()
+            for url in try reader.list(root,"本机项目") {
+                try io.check()
+                guard (try? directoryKey(url)) == record.directoryKey else { continue }
+                return FolderGrant(bookmark:nil,child:url.lastPathComponent)
+            }
+            return nil
+        }
+        guard let match else { return nil }
+        return try inspect(match,known:[record],incomplete:false,trace:trace,io:io)
+    }
+
+    func open(_ id: UUID, remember: Bool, trace: DirectoryTrace? = nil) async throws -> SourceSnapshot {
+        guard let record = try catalog().records.first(where:{ $0.id == id && $0.opened != nil }) else { throw RuntimeIssue("项目已从最近记录移除") }
+        let observed = try await DirectoryIO.run { io in
+            do { return try Self.inspect(record.grant,known:[record],incomplete:false,trace:trace,io:io) }
+            catch let issue as DirectoryIssue where ["登记目录","外部目录授权","原目录书签","目录协调"].contains(issue.item) {
+                guard let local = try Self.locateLocal(record,trace:trace,io:io) else { throw issue }
+                trace?.event("grant.recovered","Documents"); return local
+            }
+        }
+        try Task.checkCancellation()
         var catalog = try catalog()
-        guard let index = catalog.records.firstIndex(where: { $0.id == id && $0.opened != nil }) else { throw RuntimeIssue("项目已从最近记录移除") }
-        let record = catalog.records[index]
-        let snapshot = try record.grant.coordinated { root in
-            guard try Self.directoryKey(root) == record.directoryKey else { throw FolderAccessIssue("目录已被替换，请重新选择项目") }
-            return try ProjectFiles.snapshot(at: root)
+        guard let index = catalog.records.firstIndex(where:{ $0.id == id && $0.opened != nil }),
+              catalog.records[index].grant == record.grant || catalog.records[index].grant == observed.grant else { throw CancellationError() }
+        try Self.matched(observed,catalog.records[index])
+        let info = observed.snapshot.info
+        if let declared = info.declaredID, catalog.records.contains(where:{ $0.id != id && $0.declaredID == declared }) {
+            throw DirectoryIssue(kind:.identity,item:"runtime.json")
         }
-        let declared = snapshot.info.declaredID
-        if let expected = record.declaredID, declared != expected { throw FolderAccessIssue("runtime.json · 项目标识与登记记录不符") }
-        if let declared, catalog.records.contains(where: { $0.id != id && $0.declaredID == declared }) {
-            throw FolderAccessIssue("runtime.json · 项目标识与另一个目录冲突")
-        }
-        if remember || record.name != snapshot.info.name || record.version != snapshot.info.version || record.declaredID != declared {
-            catalog.records[index].declaredID = declared
-            catalog.records[index].name = snapshot.info.name
-            catalog.records[index].version = snapshot.info.version
+        if remember || record.name != info.name || record.version != info.version || record.declaredID != info.declaredID ||
+            record.grant != observed.grant || record.directoryKey != observed.key {
+            catalog.records[index].grant = observed.grant; catalog.records[index].directoryKey = observed.key
+            catalog.records[index].declaredID = info.declaredID; catalog.records[index].name = info.name; catalog.records[index].version = info.version
             if remember { catalog.records[index].opened = Date(); catalog.last = id }
             try save(catalog)
         }
-        return snapshot
+        return observed.snapshot
     }
 
-    func reconnect(_ id: UUID, url: URL) throws {
-        var catalog = try catalog()
-        guard let index = catalog.records.firstIndex(where: { $0.id == id }) else { throw RuntimeIssue("项目尚未登记") }
-        let grant = try FolderGrant.selected(url)
-        let identity = try grant.coordinated { try Self.directoryKey($0) }
-        guard identity == catalog.records[index].directoryKey else { throw RuntimeIssue("请选择原项目文件夹，所选目录的身份不同") }
-        catalog.records[index].grant = grant
-        try save(catalog)
-    }
-
-    func rename(_ record: ProjectRecord, name: String) throws {
-        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw RuntimeIssue("项目名称不能为空") }
-        try record.grant.coordinated(write: true) { root in
-            guard try Self.directoryKey(root) == record.directoryKey else { throw RuntimeIssue("目录身份发生变化") }
-            try ProjectFiles.rename(name, at: root)
+    func reconnect(_ id: UUID, url: URL, trace: DirectoryTrace? = nil) async throws {
+        guard let record = try catalog().records.first(where:{ $0.id == id }) else { throw RuntimeIssue("项目尚未登记") }
+        let observed = try await DirectoryIO.run { io in
+            try Self.inspect(FolderGrant.selected(url),known:[record],incomplete:true,trace:trace,io:io)
         }
-        _ = try open(record.id, remember: false)
+        try Task.checkCancellation()
+        try Self.matched(observed,record)
+        guard try catalog().records.contains(where:{ $0.id == id && $0.opened != nil && $0.grant == record.grant }) else { throw CancellationError() }
+        _ = try register([observed])
+    }
+
+    func rename(_ record: ProjectRecord, name: String) async throws {
+        guard !name.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else { throw RuntimeIssue("项目名称不能为空") }
+        try await DirectoryIO.run { io in
+            try record.grant.coordinated(write:true,io:io) { root in
+                guard try Self.directoryKey(root) == record.directoryKey else { throw DirectoryIssue(kind:.identity,item:"目录") }
+                try io.check()
+                try ProjectFiles.rename(name,at:root)
+            }
+        }
+        _ = try await open(record.id,remember:false)
     }
 
     func forgetLast() throws { var value = try catalog(); value.last = nil; try save(value) }
 
     @discardableResult
-    func selectWorkspace(_ id: UUID) throws -> [String] {
+    func selectWorkspace(_ id: UUID) async throws -> [String] {
         var value = try catalog()
         guard let index = value.records.firstIndex(where: { $0.id == id && $0.opened != nil }) else { throw RuntimeIssue("项目已从最近记录移除") }
         value.records[index].opened = Date()
         value.last = id
         try save(value)
         let record = value.records[index]
-        return (try? record.grant.coordinated { root -> [String] in
-            guard try Self.directoryKey(root) == record.directoryKey else { throw FolderAccessIssue("目录已被替换") }
-            let app = root.appendingPathComponent("app")
-            let manifest = app.appendingPathComponent("manifest.json")
-            try ProjectFiles.checkLink(app)
-            try ProjectFiles.checkLink(manifest)
-            let fields = try ProjectFiles.dictionary(Data(contentsOf:manifest), file:"app/manifest.json")
-            return fields["permissions"] as? [String] ?? []
-        }) ?? []
+        return try await DirectoryIO.run { io in
+            try record.grant.coordinated(io:io) { root in
+                guard try Self.directoryKey(root) == record.directoryKey else { throw DirectoryIssue(kind:.identity,item:"登记目录") }
+                let data = try ProjectSourceReader().required("app/manifest.json",at:root)
+                return try ProjectFiles.dictionary(data,file:"app/manifest.json")["permissions"] as? [String] ?? []
+            }
+        }
     }
 
     func finishFirstPreview(_ id: UUID) throws {

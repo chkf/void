@@ -44,7 +44,7 @@ final class HostTests: XCTestCase {
         XCTAssertTrue(app.navigationBars[name].exists)
         app.buttons["host.manage"].tap()
         XCTAssertTrue(app.buttons["host.switch"].exists)
-        XCTAssertTrue(app.buttons["重新授权文件夹"].exists)
+        XCTAssertTrue(app.buttons["host.reconnect"].exists)
         app.buttons["host.switch"].tap()
         let row = app.buttons["recent." + name]
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)

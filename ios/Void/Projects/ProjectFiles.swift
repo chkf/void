@@ -25,6 +25,7 @@ enum ProjectTemplate: String, Codable {
 
 struct ProjectInfo {
     let declaredID: String?
+    let runtimeID: String?
     let name: String
     let version: String
     let mode: UIMode
@@ -59,10 +60,16 @@ enum ProjectFiles {
                 throw RuntimeIssue("需要 JSON 对象")
             }
             return object
-        } catch { throw RuntimeIssue(file + " · " + error.localizedDescription) }
+        } catch { throw DirectoryIssue(kind:.invalidJSON,item:file,underlying:error as NSError) }
     }
 
     static func info(_ files: [String: Data], folderName: String) throws -> ProjectInfo {
+        let result = try metadata(files,folderName:folderName)
+        guard files["app/" + result.entry] != nil else { throw MissingProjectEntry(path:"app/" + result.entry,mode:result.mode) }
+        return result
+    }
+
+    static func metadata(_ files: [String: Data], folderName: String) throws -> ProjectInfo {
         var id: String?
         if let data = files["runtime.json"] {
             let config = try dictionary(data, file: "runtime.json")
@@ -84,14 +91,13 @@ enum ProjectFiles {
         let entry = (manifest["entry"] as? String) ?? defaultEntry
         guard safePath(entry) else { throw RuntimeIssue("app/manifest.json · 入口路径无效 " + entry) }
         let mode = try modeForManifest(manifest, entry: entry)
-        guard files["app/" + entry] != nil else { throw MissingProjectEntry(path:"app/" + entry, mode:mode) }
         let permissions = manifest["permissions"] as? [String] ?? []
         if manifest["permissions"] != nil && !(manifest["permissions"] is [String]) {
             throw RuntimeIssue("app/manifest.json · permissions 需要字符串数组")
         }
         let networkHosts = manifest["networkHosts"] as? [String] ?? []
         if manifest["networkHosts"] != nil && !(manifest["networkHosts"] is [String]) { throw RuntimeIssue("app/manifest.json · networkHosts 需要域名数组") }
-        return ProjectInfo(declaredID: id ?? manifest["id"] as? String,
+        return ProjectInfo(declaredID: id ?? manifest["id"] as? String, runtimeID:id,
                            name: manifest["name"] as? String ?? folderName,
                            version: manifest["version"] as? String ?? "1.0.0", mode: mode,
                            entry: entry, permissions: permissions, networkHosts: networkHosts)
@@ -116,36 +122,11 @@ enum ProjectFiles {
         }
     }
 
-    static func snapshot(at root: URL) throws -> SourceSnapshot {
-        try checkLink(root)
-        var files: [String: Data] = [:]
-        let config = root.appendingPathComponent("runtime.json")
-        if manager.fileExists(atPath: config.path) {
-            try checkLink(config)
-            files["runtime.json"] = try Data(contentsOf: config)
-        }
-        for name in sourceDirectories {
-            let dir = root.appendingPathComponent(name)
-            guard manager.fileExists(atPath: dir.path) else { continue }
-            try checkLink(dir)
-            var failure: Error?
-            guard let walker = manager.enumerator(at: dir, includingPropertiesForKeys: [.isSymbolicLinkKey, .isRegularFileKey],
-                                                  options: [.skipsHiddenFiles], errorHandler: { _, error in
-                failure = error
-                return false
-            }) else { throw RuntimeIssue("无法读取目录 " + name) }
-            for case let file as URL in walker {
-                let values = try file.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey])
-                guard values.isSymbolicLink != true else { throw RuntimeIssue("源码包含符号链接 · " + file.lastPathComponent) }
-                if values.isRegularFile == true {
-                    let path = file.pathComponents.dropFirst(root.pathComponents.count).joined(separator: "/")
-                    guard safePath(path) else { throw RuntimeIssue("无效的源文件路径 " + path) }
-                    files[path] = try Data(contentsOf: file)
-                }
-            }
-            if let failure { throw failure }
-        }
-        let metadata = try info(files, folderName: root.lastPathComponent)
+    static func snapshot(at root: URL, allowMissingEntry: Bool = false, trace: DirectoryTrace? = nil, io: DirectoryIO? = nil) throws -> SourceSnapshot {
+        try ProjectSourceReader().snapshot(root,allowMissingEntry:allowMissingEntry,trace:trace,io:io)
+    }
+
+    static func snapshot(info metadata: ProjectInfo, files: [String:Data]) -> SourceSnapshot {
         var hash = SHA256()
         for name in files.keys.sorted() {
             hash.update(data: Data(name.utf8))
@@ -165,7 +146,7 @@ enum ProjectFiles {
         try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: manifest, options: .atomic)
     }
 
-    static func create(_ name: String, in parent: URL, template: ProjectTemplate = .swiftUI) throws -> URL {
+    static func create(_ name: String, in parent: URL, template: ProjectTemplate = .swiftUI, io: DirectoryIO? = nil) throws -> URL {
         guard component(name), !name.hasPrefix(".") else { throw RuntimeIssue("请输入有效的项目文件夹名称") }
         let target = parent.appendingPathComponent(name, isDirectory: true)
         guard !manager.fileExists(atPath: target.path) else { throw RuntimeIssue("此位置已有同名文件或目录") }
@@ -188,6 +169,7 @@ enum ProjectFiles {
         for path in ["assets", "modules", "data", "logs"] {
             try manager.createDirectory(at: staging.appendingPathComponent(path), withIntermediateDirectories: true)
         }
+        try io?.check()
         try manager.moveItem(at: staging, to: target)
         return target
     }

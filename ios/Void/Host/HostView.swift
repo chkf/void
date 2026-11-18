@@ -2,12 +2,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private enum Panel: String, Identifiable {
-    case create, selectParent, importFolder, manage, settings, reconnect
+    case create, manage, settings, diagnostics
     var id: String { rawValue }
 }
 
 struct HostView: View {
     @ObservedObject var model: HostModel
+    @ObservedObject var folders: FolderRequests
+    init(model: HostModel) { self.model = model; self.folders = model.folders }
     @Environment(\.scenePhase) private var phase
     @State private var panel: Panel?
     @State private var projectName = ""
@@ -62,7 +64,11 @@ struct HostView: View {
                 }
                 .safeAreaInset(edge: .bottom) {
                     HStack {
-                        if model.busy { ProgressView().accessibilityLabel("正在构建") }
+                        if model.busy {
+                            ProgressView()
+                            Text(model.scanStatus ?? "正在准备预览").font(.caption)
+                            Button("取消") { model.cancelScan() }.accessibilityIdentifier("scan.cancel")
+                        } else if let status = model.scanStatus { Text(status).font(.caption) }
                         if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil {
                             Label(model.mode == .swiftui ? "查看构建说明" : "更新失败", systemImage: "exclamationmark.circle")
                                 .foregroundStyle(.secondary)
@@ -82,7 +88,11 @@ struct HostView: View {
                         Section {
                             Button { projectName = ""; template = .swiftUI; panel = .create } label: { Label("创建项目", systemImage: "plus") }
                                 .accessibilityIdentifier("host.create")
-                            Button { panel = .importFolder } label: { Label("导入文件夹", systemImage: "folder") }
+                            Button { begin(.importFolder) } label: { Label("导入文件夹", systemImage:"folder") }
+                                .accessibilityIdentifier("host.import")
+                            Button { begin(.local) } label: { Label("扫描本机项目",systemImage:"iphone") }
+                                .accessibilityIdentifier("host.local")
+                            Button { panel = .diagnostics } label: { Label("目录诊断",systemImage:"list.bullet.rectangle") }
                         }
                         if !model.records.isEmpty {
                             Section("最近项目") { ForEach(model.records) { record in
@@ -109,11 +119,26 @@ struct HostView: View {
                 }
             }
         }
+        .background { FolderPickerPresenter(flow:folders,initialDirectory:FolderGrant.documents).frame(width:0,height:0) }
+        .safeAreaInset(edge:.bottom) {
+            if folders.phase != .idle {
+                HStack {
+                    if folders.phase == .processing { ProgressView() }
+                    Text(verbatim:folders.message).font(.footnote).accessibilityIdentifier("folder.status")
+                    Spacer()
+                    if let request = folders.request, folders.active {
+                        Button("取消") { folders.cancel(request.id) }.accessibilityIdentifier("folder.cancel")
+                    } else {
+                        Button("关闭") { folders.clearResult() }.accessibilityIdentifier("folder.clear")
+                    }
+                }.padding(.horizontal).padding(.vertical,6).background(.bar)
+            }
+        }
         .task { await model.load() }
         .task(id: (model.current?.id.uuidString ?? "") + (phase == .active ? "/active" : "/inactive") + (model.workspaceTemplate == nil ? "" : "/workspace")) {
             if phase == .active { await model.monitor() }
         }
-        .sheet(item: $panel) { selection in
+        .sheet(item:$panel,onDismiss:{ folders.sheetClosed() }) { selection in
             switch selection {
             case .create:
                 NavigationStack {
@@ -128,24 +153,15 @@ struct HostView: View {
                                 panel = nil
                                 Task { await model.create(cleanName, parent: nil, template: template) }
                             }.accessibilityIdentifier("project.createLocal")
-                            Button("选择其他文件夹…") { panel = .selectParent }
+                            Button("选择其他文件夹…") { begin(.create(cleanName,template),afterSheet:true) }
                         }.disabled(cleanName.isEmpty)
                     }.navigationTitle("创建项目").toolbar { Button("取消") { panel = nil } }
                 }
-            case .selectParent, .importFolder, .reconnect:
-                FolderPicker { url in
-                    panel = nil
-                    guard let url else { return }
-                    Task {
-                        switch selection {
-                        case .selectParent: await model.create(cleanName, parent: url, template: template)
-                        case .reconnect: await model.reconnect(url)
-                        default: await model.importDirectory(url)
-                        }
-                    }
-                }
+            case .diagnostics: NavigationStack { DirectoryDiagnosticView().toolbar { Button("完成") { panel = nil } } }
             case .settings: NavigationStack { SettingsView().toolbar { Button("完成") { panel = nil } } }
-            case .manage: ManagementView(model: model, close: { panel = nil }, reconnect: { panel = .reconnect })
+            case .manage: ManagementView(model:model,close:{ panel = nil },reconnect:{
+                if let id = model.current?.id { begin(.reconnect(id),afterSheet:true) }
+            })
             }
         }
         .alert("项目操作失败", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
@@ -153,6 +169,10 @@ struct HostView: View {
         } message: { Text(verbatim: model.notice ?? "") }
     }
 
+    private func begin(_ purpose: FolderPurpose, afterSheet: Bool = false) {
+        _ = folders.begin(purpose,origin:model.current?.id,afterSheet:afterSheet)
+        if afterSheet { panel = nil }
+    }
     private var cleanName: String { projectName.trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
@@ -208,7 +228,10 @@ private struct ManagementView: View {
                     if model.mode != .swiftui && model.workspaceTemplate == nil {
                         Button("恢复上一可运行版本") { close(); model.refresh(force: true, previous: true) }.disabled(model.busy)
                     }
-                    Button("重新授权文件夹", action: reconnect)
+                    Button("重新扫描并预览") { close(); model.refresh(force:true,remember:true) }
+                        .accessibilityIdentifier("host.rescan")
+                    Button("重新授权文件夹",action:reconnect).accessibilityIdentifier("host.reconnect")
+                    NavigationLink("目录诊断") { DirectoryDiagnosticView() }
                 }
                 NavigationLink("设置") { SettingsView() }
             }
@@ -240,19 +263,3 @@ private struct SettingsView: View {
     }
 }
 
-private struct FolderPicker: UIViewControllerRepresentable {
-    let complete: (URL?) -> Void
-    func makeCoordinator() -> Coordinator { Coordinator(complete) }
-    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder], asCopy: false)
-        picker.delegate = context.coordinator
-        return picker
-    }
-    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
-    final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let complete: (URL?) -> Void
-        init(_ complete: @escaping (URL?) -> Void) { self.complete = complete }
-        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { complete(urls.first) }
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { complete(nil) }
-    }
-}

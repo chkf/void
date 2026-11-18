@@ -86,7 +86,7 @@ jobs:
   release:
     name: 发布 iPhone 安装包
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: iphone
+    needs: [iphone, simulator]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -111,7 +111,7 @@ jobs:
           cat > "$notes" <<EOF
           下载下方的 **void-unsigned.ipa**。适用于 iOS 17 及以上的 iPhone，安装前需要使用自己的 Apple 签名。
 
-          新建项目先进入工作区，可以按需预览。最近项目可向左滑动移除记录。Native SDK 1.1.0 提供 TSX 文件读写、SQLite 和其他原生接口。HealthKit、HomeKit 和 NFC 需要在签名时启用对应能力。
+          本版修复原生目录扫描与系统文件选择流程，包含本机项目扫描和目录诊断。请使用原安装的签名团队和相同 App ID 原位更新。保留原项目目录、登记和数据库，打开原最近项目即可预览。
 
           [SDK 接口与权限](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/SDK_REFERENCE.md) · [真机签名说明](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/BUILD.md)
 
