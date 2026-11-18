@@ -8,7 +8,7 @@ void 是一个面向个人的 iPhone 项目宿主。应用本身和默认项目�
 
 ## 开发与构建
 
-在 Releases 中下载 `void-unsigned.ipa`，用自己的 Apple 签名后即可安装到运行 iOS 17 及以上版本的 iPhone。[版本下载](https://github.com/chkf/void/releases)
+SwiftUI 开发预发布版可直接下载，用自己的 Apple 签名后即可安装到运行 iOS 17 及以上版本的 iPhone。[下载 v0.1.0-dev.2 IPA](https://github.com/chkf/void/releases/download/v0.1.0-dev.2/void-unsigned.ipa) · [全部版本](https://github.com/chkf/void/releases)
 
 推送代码后，GitHub Actions 用 Xcode 27.2 构建 iPhone Release，在 iOS 27.2 模拟器上测试。推送 `v` 开头的版本标签会将安装包发布到 Releases。[Xcode 工程](ios/Void.xcodeproj) · [构建记录](https://github.com/chkf/void/actions/workflows/ios.yml) · [构建与签名](docs/BUILD.md)
 

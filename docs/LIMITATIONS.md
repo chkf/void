@@ -1,6 +1,10 @@
 # 验证范围
 
-2026-11-18 的开发预发布已通过 Xcode 16.4 的 iPhone Release 构建。已从公开下载地址重新取得 IPA，核对 SHA-256、arm64 可执行文件、iOS 17.0 最低版本和归档完整性。包内版本为 0.1.0，Bundle ID 为 app.chkf.void，安装前需要签名。[v0.1.0-dev.1 下载及校验值](https://github.com/chkf/void/releases/tag/v0.1.0-dev.1) · [构建任务](https://github.com/chkf/void/actions/runs/44310978579)
+`v0.1.0-dev.2` 的默认项目使用 SwiftUI 源码。已从 Release 重新下载 IPA 并校验归档、arm64 可执行文件、SwiftUI 源文件和 TSX 兼容模板。包内记录为 Xcode 27.2（27B52）、iOS 27.2 SDK、最低 iOS 17.0、构建号 2。5,385,735 字节的附件 SHA-256 为 `e795af0f8c574591d23aa707bd1f889d1ca99a74db86761cb0d306ffa9303927`。[SwiftUI 版下载](https://github.com/chkf/void/releases/tag/v0.1.0-dev.2) · [构建和测试](https://github.com/chkf/void/actions/runs/44318674826)
+
+同一提交在 iPhone 17、iOS 27.2 模拟器上通过 7 项单元与运行时测试及 1 项界面测试。界面测试从默认模板创建项目，操作开关并输入名字，结束进程后重新打开原项目，再进入管理面板。运行时测试覆盖 Swift 源码不匹配提示、TSX 控件事件和失败后保留页面。[模拟器测试记录](https://github.com/chkf/void/actions/runs/44318674826/job/134851477091)
+
+较早的 `v0.1.0-dev.1` 由 Xcode 16.4 编译，默认项目用 TSX 编写。已从公开下载地址取得 IPA 并校验 SHA-256、arm64 可执行文件、iOS 17.0 最低版本和归档完整性。[早期版本](https://github.com/chkf/void/releases/tag/v0.1.0-dev.1)
 
 Windows 上可运行 `npm test` 验证真实 TypeScript 类型检查、Wasm 打包、React 控件树及事件、HTML/CSS 构建和共享目录隔离。iPhone Release、iOS 单元测试和界面测试由 [GitHub Actions](https://github.com/chkf/void/actions/workflows/ios.yml) 执行。具体提交的结论和产物以相应运行记录为准。
 
