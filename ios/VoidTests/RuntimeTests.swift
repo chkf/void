@@ -56,7 +56,11 @@ final class RuntimeTests: XCTestCase {
         let host = HostModel(storage: storage)
         defer { try? FileManager.default.removeItem(at: storage); try? FileManager.default.removeItem(at: project) }
         await host.create(name, parent: nil, template: .tsx)
+        XCTAssertEqual(Set(host.permissions), ["files.read", "files.write"])
         let record = try XCTUnwrap(host.current)
+        let reference = try String(contentsOf:project.appendingPathComponent("SDK_REFERENCE.md"),encoding:.utf8)
+        XCTAssertTrue(reference.contains("ios.fs.readFile"))
+        XCTAssertTrue(FileManager.default.fileExists(atPath:project.appendingPathComponent("types/runtime-sdk.d.ts").path))
         for key in ["files.read", "files.write"] { SDKConsent.shared.set(true, for: key, project: record.id) }
         defer { for key in ["files.read", "files.write"] { SDKConsent.shared.set(nil, for:key, project: record.id) } }
         let source = """
@@ -88,6 +92,25 @@ final class RuntimeTests: XCTestCase {
         try await wait { reopened.page != nil || reopened.problem != nil }
         XCTAssertEqual(reopened.page?.nodes.first?.text("value"), "重开下次见", reopened.problem ?? "")
         await reopened.showLibrary()
+    }
+
+    func testIncompleteImportedProjectWaitsForItsFirstPage() async throws {
+        let dir = FolderGrant.documents.appendingPathComponent(UUID().uuidString)
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at:dir); try? FileManager.default.removeItem(at:storage) }
+        let app = dir.appendingPathComponent("app")
+        try FileManager.default.createDirectory(at:app,withIntermediateDirectories:true)
+        try Data(#"{"name":"空白项目","uiMode":"web","entry":"index.html"}"#.utf8).write(to:app.appendingPathComponent("manifest.json"))
+        let host = HostModel(storage:storage)
+        await host.importDirectory(dir)
+        try await wait { host.waitingEntry != nil || host.notice != nil }
+        XCTAssertEqual(host.waitingEntry,"app/index.html")
+        try Data("<main>第一页</main>".utf8).write(to:app.appendingPathComponent("index.html"))
+        host.refresh()
+        try await wait { host.page != nil }
+        XCTAssertNil(host.waitingEntry)
+        XCTAssertNil(host.problem)
+        await host.showLibrary()
     }
 
     func testBrokenEditKeepsNativePageAndProjectCanBeReopened() async throws {

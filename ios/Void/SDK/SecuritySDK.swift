@@ -61,8 +61,10 @@ final class SecuritySDK: SDKModule {
                 return available ? (context.biometryType == .faceID ? "faceID" : (context.biometryType == .touchID ? "touchID" : "other")) : "none"
             }
             guard available else { throw SDKFailure.unavailable(error?.localizedDescription ?? "生物识别不可用") }
+            let reason = try a.string("reason", "验证当前项目的操作")
+            guard !reason.trimmingCharacters(in:.whitespacesAndNewlines).isEmpty else { throw SDKFailure.invalid("reason") }
             return try await withTaskCancellationHandler {
-                try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: a.string("reason", "验证当前项目的操作"))
+                try await context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason)
             } onCancel: { context.invalidate() }
         default: throw SDKFailure("UNKNOWN_METHOD", method)
         }

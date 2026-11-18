@@ -15,11 +15,16 @@ final class PictureCapture: NSObject, AVCapturePhotoCaptureDelegate {
 }
 final class MovieCapture: NSObject, AVCaptureFileOutputRecordingDelegate {
     let result: SDKWait<URL>
-    init(_ result: SDKWait<URL>) { self.result = result }
+    let started: SDKWait<Bool>
+    init(_ result: SDKWait<URL>, started: SDKWait<Bool>) { self.result = result; self.started = started }
+    func fileOutput(_ output: AVCaptureFileOutput, didStartRecordingTo fileURL: URL, from connections: [AVCaptureConnection]) {
+        Task { @MainActor in started.finish(.success(true)) }
+    }
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
         Task { @MainActor in
-            if let e = error as NSError?, e.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool != true { result.finish(.failure(e)) }
-            else { result.finish(.success(outputFileURL)) }
+            if let e = error as NSError?, e.userInfo[AVErrorRecordingSuccessfullyFinishedKey] as? Bool != true {
+                started.finish(.failure(e)); result.finish(.failure(e))
+            } else { started.finish(.success(true)); result.finish(.success(outputFileURL)) }
         }
     }
 }
@@ -79,12 +84,16 @@ final class CameraSDK: SDKModule {
             capture.commitConfiguration()
             self.capture = capture; input = camera; self.photos = photos; host = s
             await withCheckedContinuation { continuation in queue.async { capture.startRunning(); continuation.resume() } }
-            try Task.checkCancellation()
+            guard self.capture === capture, s.valid, !Task.isCancelled else {
+                if self.capture === capture { close() }
+                throw CancellationError()
+            }
             guard capture.isRunning else { close(); throw SDKFailure.unavailable("摄像头未能启动") }
             let layer = AVCaptureVideoPreviewLayer(session:capture); layer.videoGravity = .resizeAspect
             s.preview = layer
             return ["position":position,"flash":selected.hasFlash,"video":self.movie != nil]
         }
+        guard !opening else { throw SDKFailure("BUSY","相机正在启动") }
         guard let capture, let input, let photos else { throw SDKFailure("NOT_OPEN","请先打开相机") }
         let device = input.device
         switch method {
@@ -135,9 +144,11 @@ final class CameraSDK: SDKModule {
         case "startRecording":
             guard recording == nil, let movie else { throw SDKFailure.unavailable("录像不可用或已在进行") }
             let path = try a.string("to","data/Camera/" + UUID().uuidString + ".mov")
-            let file = try s.files.temp("capture.mov"), delegate = MovieCapture(SDKWait<URL>())
+            let file = try s.files.temp("capture.mov"), delegate = MovieCapture(SDKWait<URL>(), started:SDKWait<Bool>())
             recordingPath = path; recording = delegate
             movie.startRecording(to:file,recordingDelegate:delegate)
+            do { _ = try await delegate.started.value() }
+            catch { movie.stopRecording(); recording = nil; recordingPath = nil; throw error }
             return path
         case "stopRecording":
             guard let movie, let recording, let target = recordingPath else { throw SDKFailure("NOT_OPEN","尚未开始录像") }
@@ -153,7 +164,7 @@ final class CameraSDK: SDKModule {
     func close() {
         if movie?.isRecording == true { movie?.stopRecording() }
         if let capture { queue.async { capture.stopRunning() } }
-        picture?.result.finish(.failure(CancellationError())); recording?.result.finish(.failure(CancellationError()))
+        picture?.result.finish(.failure(CancellationError())); recording?.started.finish(.failure(CancellationError())); recording?.result.finish(.failure(CancellationError()))
         if host?.preview is AVCaptureVideoPreviewLayer { host?.preview = nil }
         input = nil; capture = nil; movie = nil; photos = nil; picture = nil; recording = nil; recordingPath = nil
     }

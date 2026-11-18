@@ -49,6 +49,7 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
       VOID_IOS_SDK: '27.2'
+      VOID_SIMULATOR_FIXTURES: '1'
     steps:
       - uses: actions/checkout@v4
       - name: 启动 iPhone 模拟器
@@ -110,7 +111,9 @@ jobs:
           cat > "$notes" <<EOF
           下载下方的 **void-unsigned.ipa**。适用于 iOS 17 及以上的 iPhone，安装前需要使用自己的 Apple 签名。
 
-          新建项目默认打开用 SwiftUI 编写的原生表单。编辑项目的 Swift 源码后，通过 GitHub Actions 重新编译并签名安装。已有 React/TSX 和 HTML 项目可继续导入。
+          新建项目先进入工作区，可以按需预览。最近项目可向左滑动移除记录。Native SDK 1.1.0 提供 TSX 文件读写、SQLite 和其他原生接口。HealthKit、HomeKit 和 NFC 需要在签名时启用对应能力。
+
+          [SDK 接口与权限](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/SDK_REFERENCE.md) · [真机签名说明](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/BUILD.md)
 
           SHA-256：${digest#sha256:}
 

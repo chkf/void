@@ -41,13 +41,25 @@ struct ProjectPermissionView: View {
                         Button("下次询问") { set(nil,key:key,project:record.id) }
                     } label: { LabeledContent(label, value:decision.map { $0 ? "已允许" : "已拒绝" } ?? "使用时询问") }
                 }
+                let recent = Array(consent.history(record.id).reversed())
+                if !recent.isEmpty {
+                    Section("最近使用") {
+                        ForEach(Array(recent.enumerated()),id:\.offset) { _, item in
+                            VStack(alignment:.leading) {
+                                Text(verbatim:item["method"] ?? "")
+                                Text(verbatim:[item["time"],item["result"]].compactMap{$0}.joined(separator:" · ")).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
             }
         }.navigationTitle("项目权限")
     }
     private func set(_ value: Bool?, key: String, project: UUID) {
         consent.set(value,for:key,project:project)
-        if value != true, let page = model.page {
-            page.sdk.close()
+        if value != true, model.page != nil || model.candidate != nil {
+            model.page?.sdk.close()
+            model.candidate?.sdk.close()
             model.refresh(force:true)
         }
     }

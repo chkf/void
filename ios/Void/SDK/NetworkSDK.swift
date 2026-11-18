@@ -66,6 +66,8 @@ final class NetworkSDK: SDKModule {
         guard let url = URL(string: try a.string("url")), policy.allows(url) else { throw SDKFailure.denied("请在 app/manifest.json 的 networkHosts 中声明目标域名") }
         let scheme = url.scheme?.lowercased() ?? ""
         guard (method == "openSocket" ? ["ws","wss"] : ["https","http"]).contains(scheme) else { throw SDKFailure.invalid("url") }
+        if method == "upload" { try await s.require("files.read") }
+        if method == "download" { try await s.require("files.write") }
         let id = try a.string("progressId", UUID().uuidString)
         guard sessions[id] == nil else { throw SDKFailure("BUSY","请求标识已在使用") }
         let config = URLSessionConfiguration.ephemeral

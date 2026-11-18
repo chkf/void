@@ -72,6 +72,18 @@ test("18 组原生接口的 TypeScript、运行时和 IPA 注册表逐项一致"
   const sdk = context.__voidLibraries["@runtime/sdk"].ios;
   const source = ts.createSourceFile("sdk.d.ts", types["/node_modules/@runtime/sdk/index.d.ts"], ts.ScriptTarget.Latest, true);
   const declaration = source.statements.find(node => ts.isInterfaceDeclaration(node) && node.name.text === "NativeSDK");
+  const reference = (await read("Toolchain/sdk-reference.md")).toString();
+  const documented = {};
+  let group;
+  for (const line of reference.split(/\r?\n/)) {
+    const header = line.match(/^\| 权限 \| `ios\.(\w+)` 方法 \|/);
+    if (header) { group = header[1]; documented[group] = {}; continue; }
+    const row = line.match(/^\| (?:项目基础能力|`([\w.]+)`) \| (.*) \|$/);
+    if (row && group) {
+      for (const match of row[2].matchAll(/`(\w+)`/g)) documented[group][match[1]] = row[1] ?? "";
+    }
+  }
+  assert.deepEqual(documented, catalog, "每个接口的离线说明和权限都应与应用一致");
   assert.equal(Object.keys(catalog).length, 18);
   for (const [group, methods] of Object.entries(catalog)) {
     const names = Object.keys(methods).sort();

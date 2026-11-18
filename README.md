@@ -1,10 +1,10 @@
 # void
 
-void 是一个面向个人的 iPhone 项目宿主。应用本身和默认项目页面都用 SwiftUI 编写。新建项目后可以直接试用系统表单、文本输入框和开关。[默认页面源码](ios/StarterProject/app/SwiftUI/ProjectContentView.swift)
+void 是一个面向个人的 iPhone 项目宿主。应用本身和默认项目页面都用 SwiftUI 编写。创建后先显示项目工作区，准备好再点「预览项目」；最近记录可左滑移除。[项目管理与使用](docs/RUNTIME.md)
 
 在仓库中修改 `ios/StarterProject/app/SwiftUI/`，再用 GitHub Actions 构建、签名并安装新版 IPA，即可运行修改后的 SwiftUI 页面。在 iPhone 的「文件」中编辑过同一项目的 Swift 源码时，需先将它同步回仓库。每个 IPA 包含一套已编译的项目视图。
 
-创建时也可选择 React / TSX 模板，在手机上加载脚本修改，由 SwiftUI 绘制控件。导入的 HTML 项目使用 WKWebView。[TSX 示例](ios/TSXProject/app/src/main.tsx) · [项目格式](docs/PROJECT_FORMAT.md)
+创建时也可选择 React / TSX 模板，在手机上加载脚本修改，由 SwiftUI 绘制控件。导入的 HTML 项目使用 WKWebView。Native SDK 1.1.0 为脚本提供 18 组原生能力，包括文件、SQLite、媒体、系统服务和硬件接口。[SDK 方法与权限](docs/SDK_REFERENCE.md) · [项目格式](docs/PROJECT_FORMAT.md)
 
 ## 开发与构建
 

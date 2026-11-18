@@ -58,7 +58,7 @@ private actor ProjectDatabase {
                 case is NSNull: status = sqlite3_bind_null(prepared, index)
                 case let text as String: status = sqlite3_bind_text(prepared, index, text, Int32(text.utf8.count), transient)
                 case let n as NSNumber:
-                    if CFNumberIsFloatType(n) { status = sqlite3_bind_double(prepared, index, n.doubleValue) }
+                    if CFGetTypeID(n) != CFBooleanGetTypeID() && CFNumberIsFloatType(n) { status = sqlite3_bind_double(prepared, index, n.doubleValue) }
                     else { status = sqlite3_bind_int64(prepared, index, n.int64Value) }
                 case let obj as [String:String] where obj["base64"] != nil:
                     guard let bytes = Data(base64Encoded: obj["base64"]!) else { throw SDKFailure.invalid("params.base64") }

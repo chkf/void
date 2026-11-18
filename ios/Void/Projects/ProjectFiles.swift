@@ -9,6 +9,12 @@ struct RuntimeIssue: LocalizedError {
 
 enum UIMode: String, Codable { case swiftui, native, web }
 
+struct MissingProjectEntry: LocalizedError {
+    let path: String
+    let mode: UIMode
+    var errorDescription: String? { "请在项目文件夹中创建 " + path + "，保存后即可预览。" }
+}
+
 enum ProjectTemplate: String, Codable {
     case swiftUI = "StarterProject"
     case tsx = "TSXProject"
@@ -76,10 +82,9 @@ enum ProjectFiles {
         default: defaultEntry = "index.html"
         }
         let entry = (manifest["entry"] as? String) ?? defaultEntry
-        guard safePath(entry), files["app/" + entry] != nil else {
-            throw RuntimeIssue("app/manifest.json · 入口无效或缺失 " + entry)
-        }
+        guard safePath(entry) else { throw RuntimeIssue("app/manifest.json · 入口路径无效 " + entry) }
         let mode = try modeForManifest(manifest, entry: entry)
+        guard files["app/" + entry] != nil else { throw MissingProjectEntry(path:"app/" + entry, mode:mode) }
         let permissions = manifest["permissions"] as? [String] ?? []
         if manifest["permissions"] != nil && !(manifest["permissions"] is [String]) {
             throw RuntimeIssue("app/manifest.json · permissions 需要字符串数组")
@@ -174,6 +179,12 @@ enum ProjectFiles {
         try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
             .write(to: staging.appendingPathComponent("runtime.json"), options: .atomic)
         try rename(name, at: staging)
+        if template == .tsx {
+            let types = staging.appendingPathComponent("types", isDirectory: true)
+            try manager.createDirectory(at: types, withIntermediateDirectories: true)
+            try Toolchain.read("sdk.d.ts").write(to: types.appendingPathComponent("runtime-sdk.d.ts"), options: .atomic)
+            try Toolchain.read("sdk-reference.md").write(to: staging.appendingPathComponent("SDK_REFERENCE.md"), options: .atomic)
+        }
         for path in ["assets", "modules", "data", "logs"] {
             try manager.createDirectory(at: staging.appendingPathComponent(path), withIntermediateDirectories: true)
         }

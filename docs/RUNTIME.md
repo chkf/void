@@ -2,6 +2,8 @@
 
 首次启动进入「项目」。点击「创建项目」，输入名称，可选择「在此 iPhone 创建」或系统文件夹。导入时可选择一个项目，也可选择含多个项目的父目录。登记与上次打开的项目保存在宿主私有目录。
 
+新建后先进入工作区，可查看需要编辑的入口文件，再点「预览项目」。第一次成功预览前，退出或重开都会回到工作区。要整理历史，在「最近项目」向左滑动并点「移除记录」。原目录与项目数据保留，重新导入原目录可继续使用。
+
 创建时默认选择 SwiftUI。页面中的名字输入框绑定到 Swift 的 `@State`，开关可以隐藏或显示问候。要修改页面，编辑 `ios/StarterProject/app/SwiftUI/ProjectContentView.swift` 并通过 GitHub Actions 编译。签名并安装新版 IPA 后，用新版模板创建项目，或将既有项目的 `app/SwiftUI/` 同步到相同版本。如果先在「文件」中编辑了项目源码，宿主会提示将改动同步回仓库。[SwiftUI 入口](../ios/StarterProject/app/SwiftUI/ProjectContentView.swift) · [构建与签名](BUILD.md)
 
 选择 React / TSX 模板时，可在「文件」中编辑 `app/src/main.tsx`。回到宿主后，编译成功的脚本会提交新的 SwiftUI 控件树。Web 项目在 HTML 入口加载确认后成为当前版本。

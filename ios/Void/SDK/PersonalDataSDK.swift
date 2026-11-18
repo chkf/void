@@ -65,6 +65,7 @@ final class EventSDK: SDKModule {
                 e = existing
             }
             if method == "deleteEvent" { try store.remove(e, span:.thisEvent); return NSNull() }
+            if method == "updateEvent" && a.values["calendarId"] != nil { e.calendar = try calendar(a.string("calendarId")) }
             if method == "createEvent" || a.values["title"] != nil { e.title = try a.string("title") }
             if method == "createEvent" || a.values["startDate"] != nil { e.startDate = try a.date("startDate") }
             if method == "createEvent" || a.values["endDate"] != nil { e.endDate = try a.date("endDate") }
@@ -92,6 +93,7 @@ final class EventSDK: SDKModule {
                 r = existing
             }
             if method == "remove" { try store.remove(r, commit:true); return NSNull() }
+            if method == "update" && a.values["listId"] != nil { r.calendar = try calendar(a.string("listId")) }
             if method == "create" || a.values["title"] != nil { r.title = try a.string("title") }
             if a.values["notes"] != nil { r.notes = try a.string("notes") }
             if a.values["completed"] != nil { r.isCompleted = try a.bool("completed") }

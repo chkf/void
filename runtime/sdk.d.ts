@@ -185,7 +185,7 @@ export interface NativeSDK {
   health: {
     available: NoArgs<boolean>;
     types: NoArgs<HealthType[]>;
-    authorization: Call<{ type:HealthType }, { read:"notDisclosed"; write:"authorized"|"denied"|"notDetermined" }>;
+    authorization: Call<{ type:HealthType }, { read:"notDisclosed"; write:"authorized"|"denied"|"notDetermined"|"unavailable" }>;
     authorizeRead: Call<{ types:HealthType[] }, null>;
     authorizeWrite: Call<{ types:HealthType[] }, null>;
     query: Call<DateRange & { type:HealthType; limit?:number }, HealthValue[]>;

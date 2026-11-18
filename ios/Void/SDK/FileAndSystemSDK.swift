@@ -70,7 +70,8 @@ final class FileSDK: SDKModule {
             return s.events.add(id) { task.cancel() }
         default:
             let files = s.files
-            return try await Task.detached { try files.call(method, a) }.value
+            let io = Task.detached { try Task.checkCancellation(); return try files.call(method, a) }
+            return try await withTaskCancellationHandler { try await io.value } onCancel: { io.cancel() }
         }
     }
 }
@@ -91,7 +92,9 @@ final class SystemSDK: SDKModule {
         let device = UIDevice.current
         let scene = s.ui.anchor?.window?.windowScene ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
         switch method {
-        case "info": return ["name":device.systemName, "version":device.systemVersion, "model":device.model]
+        case "info":
+            guard a.values.isEmpty else { throw SDKFailure.invalid("system.info 没有参数") }
+            return ["name":device.systemName, "version":device.systemVersion, "model":device.model]
         case "appearance": return scene?.traitCollection.userInterfaceStyle == .dark ? "dark" : "light"
         case "battery":
             device.isBatteryMonitoringEnabled = true

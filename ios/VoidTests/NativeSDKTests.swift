@@ -1,3 +1,5 @@
+import AVFoundation
+import UIKit
 import XCTest
 @testable import VoidHost
 
@@ -7,7 +9,7 @@ final class NativeSDKTests: XCTestCase {
     private var storage: URL!
     private var record: ProjectRecord!
     private var sdk: SDKSession!
-    private let permissions = ["files.read","files.write","database","network","graphics"]
+    private let permissions = ["files.read","files.write","database","network","graphics","audio.play","video","notifications"]
 
     override func setUp() async throws {
         parent = FolderGrant.documents.appendingPathComponent(UUID().uuidString)
@@ -108,5 +110,126 @@ final class NativeSDKTests: XCTestCase {
         XCTAssertTrue(nfc is Bool)
         let health = try await data("health.authorization",["type":"steps"]) as? [String:String]
         XCTAssertEqual(health?["read"],"notDisclosed")
+    }
+
+    func testNativeImageAudioVideoAndNotificationCategories() async throws {
+        let files = sdk.files
+        let image = UIGraphicsImageRenderer(size:CGSize(width:60,height:40)).image { context in
+            UIColor.blue.setFill(); context.fill(CGRect(x:0,y:0,width:60,height:40))
+        }
+        let imageFile = try files.temp("image.png")
+        try XCTUnwrap(image.pngData()).write(to:imageFile)
+        try files.store(imageFile,at:"data/image.png")
+        _ = try await data("graphics.processImage",["path":"data/image.png","to":"data/small.jpg","maxDimension":30])
+        let size = try await data("graphics.imageInfo",["path":"data/small.jpg"]) as? [String:Any]
+        XCTAssertEqual(size?["width"] as? Int,30)
+
+        let audio = try files.temp("sound.caf")
+        let format = try XCTUnwrap(AVAudioFormat(standardFormatWithSampleRate:16000,channels:1))
+        do {
+            let writer = try AVAudioFile(forWriting:audio,settings:format.settings)
+            let buffer = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat:format,frameCapacity:1600))
+            buffer.frameLength = 1600
+            for i in 0..<1600 { buffer.floatChannelData?[0][i] = Float(sin(Double(i) / 20) / 5) }
+            try writer.write(from:buffer)
+        }
+        try files.store(audio,at:"data/sound.caf")
+        let audioInfo = try await data("audio.info",["path":"data/sound.caf"]) as? [String:Any]
+        XCTAssertEqual(audioInfo?["sampleRate"] as? Double,16000)
+
+        let movie = try files.temp("fixture.mp4")
+        let writer = try AVAssetWriter(outputURL:movie,fileType:.mp4)
+        let video = AVAssetWriterInput(mediaType:.video,outputSettings:[AVVideoCodecKey:AVVideoCodecType.h264,AVVideoWidthKey:160,AVVideoHeightKey:96])
+        let adaptor = AVAssetWriterInputPixelBufferAdaptor(assetWriterInput:video,sourcePixelBufferAttributes:[
+            kCVPixelBufferPixelFormatTypeKey as String:kCVPixelFormatType_32BGRA,
+            kCVPixelBufferWidthKey as String:160,kCVPixelBufferHeightKey as String:96])
+        writer.add(video)
+        XCTAssertTrue(writer.startWriting(), writer.error?.localizedDescription ?? "")
+        writer.startSession(atSourceTime:.zero)
+        for frame in 0..<3 {
+            let deadline = ContinuousClock.now + .seconds(10)
+            while !video.isReadyForMoreMediaData {
+                guard ContinuousClock.now < deadline else { throw RuntimeIssue("生成测试视频超时") }
+                try await Task.sleep(for:.milliseconds(20))
+            }
+            var raw: CVPixelBuffer?
+            let pool = try XCTUnwrap(adaptor.pixelBufferPool)
+            XCTAssertEqual(CVPixelBufferPoolCreatePixelBuffer(nil,pool,&raw),kCVReturnSuccess)
+            let buffer = try XCTUnwrap(raw)
+            CVPixelBufferLockBaseAddress(buffer,[])
+            if let address = CVPixelBufferGetBaseAddress(buffer) { memset(address,Int32(frame * 40),CVPixelBufferGetBytesPerRow(buffer)*CVPixelBufferGetHeight(buffer)) }
+            CVPixelBufferUnlockBaseAddress(buffer,[])
+            XCTAssertTrue(adaptor.append(buffer,withPresentationTime:CMTime(value:Int64(frame),timescale:3)))
+        }
+        video.markAsFinished(); await writer.finishWriting()
+        guard writer.status == .completed else { throw writer.error ?? RuntimeIssue("测试视频写入失败") }
+        try files.store(movie,at:"data/clip.mp4")
+        let videoInfo = try await data("video.info",["path":"data/clip.mp4"]) as? [String:Any]
+        XCTAssertEqual(videoInfo?["width"] as? CGFloat,160)
+        _ = try await data("video.thumbnail",["path":"data/clip.mp4","to":"data/still.jpg"])
+        _ = try await data("video.transcode",["path":"data/clip.mp4","to":"data/export.mp4","quality":"passthrough"])
+        let exported = try await data("video.info",["path":"data/export.mp4"]) as? [String:Any]
+        XCTAssertEqual(exported?["height"] as? CGFloat,96)
+
+        _ = try await data("notifications.setCategories",["categories":[["id":"notes","actions":[["id":"open","title":"打开"]]]]])
+        let names = try await data("notifications.categories") as? [String]
+        XCTAssertEqual(names,["notes"])
+        _ = try await data("notifications.setCategories",["categories":[]])
+    }
+
+    func testPersonalStoresPhotoAndLocationOnDisposableSimulator() async throws {
+        let fixture = FileManager.default.temporaryDirectory.appendingPathComponent("void-sdk-fixtures")
+        try XCTSkipUnless(FileManager.default.fileExists(atPath:fixture.path), "此用例使用 CI 临时模拟器中的测试通讯录和日历")
+        let grants = ["contacts.read","contacts.write","calendar.read","calendar.write","reminders","photos.read","photos.write","location.whenInUse"]
+        sdk.declared.formUnion(grants)
+        for key in grants { SDKConsent.shared.set(true,for:key,project:record.id) }
+        defer { for key in grants { SDKConsent.shared.set(nil,for:key,project:record.id) } }
+        for (method, expected) in [("contacts.authorization","authorized"), ("calendar.authorization","fullAccess"), ("reminders.authorization","fullAccess")] {
+            let status = try await data(method) as? String
+            guard status == expected else { throw RuntimeIssue(method + " 需要测试模拟器授权，实际为 " + (status ?? "未知")) }
+        }
+        let photoAccess = try await data("photos.authorization") as? [String:String]
+        guard photoAccess?["readWrite"] == "authorized", photoAccess?["addOnly"] == "authorized" else { throw RuntimeIssue("测试模拟器需要相册读写授权") }
+        let locationAccess = try await data("location.authorization") as? [String:String]
+        guard ["whenInUse", "always"].contains(locationAccess?["status"] ?? "") else { throw RuntimeIssue("测试模拟器需要前台定位授权") }
+        let label = "Void-" + UUID().uuidString
+        let contactValue = try await data("contacts.create",["givenName":label,"phones":["5550100"]])
+        let contact = try XCTUnwrap(contactValue as? String)
+        _ = try await data("contacts.update",["id":contact,"organization":"void"])
+        let details = try await data("contacts.get",["id":contact]) as? [String:Any]
+        XCTAssertEqual(details?["organization"] as? String,"void")
+        let found = try await data("contacts.search",["name":label]) as? [[String:Any]]
+        XCTAssertEqual(found?.first?["id"] as? String,contact)
+        _ = try await data("contacts.remove",["id":contact])
+
+        let start = Date().addingTimeInterval(3600), end = start.addingTimeInterval(1800)
+        let eventValue = try await data("calendar.createEvent",["title":label,"startDate":start.ISO8601Format(),"endDate":end.ISO8601Format()])
+        let event = try XCTUnwrap(eventValue as? String)
+        _ = try await data("calendar.updateEvent",["id":event,"title":label + "-updated"])
+        let rows = try await data("calendar.events",["startDate":start.addingTimeInterval(-60).ISO8601Format(),"endDate":end.ISO8601Format()]) as? [[String:Any]]
+        XCTAssertTrue(rows?.contains(where:{$0["title"] as? String == label + "-updated"}) == true)
+        _ = try await data("calendar.deleteEvent",["id":event])
+
+        let listValue = try await data("reminders.createList",["title":label]) as? [String:Any]
+        let listID = try XCTUnwrap(listValue?["id"] as? String)
+        let reminderValue = try await data("reminders.create",["title":label,"listId":listID,"dueDate":end.ISO8601Format()])
+        let reminder = try XCTUnwrap(reminderValue as? String)
+        _ = try await data("reminders.update",["id":reminder,"completed":true])
+        let reminders = try await data("reminders.list",["listIds":[listID]]) as? [[String:Any]]
+        XCTAssertEqual(reminders?.first?["completed"] as? Bool,true)
+        _ = try await data("reminders.remove",["id":reminder])
+        _ = try await data("reminders.deleteList",["id":listID])
+
+        let image = UIGraphicsImageRenderer(size:CGSize(width:32,height:32)).image { c in UIColor.red.setFill(); c.fill(CGRect(x:0,y:0,width:32,height:32)) }
+        let file = try sdk.files.temp("photo.jpg")
+        try XCTUnwrap(image.jpegData(compressionQuality:0.9)).write(to:file)
+        try sdk.files.store(file,at:"data/photo.jpg")
+        let idValue = try await data("photos.save",["path":"data/photo.jpg","type":"image"])
+        let asset = try XCTUnwrap(idValue as? String)
+        let info = try await data("photos.asset",["id":asset]) as? [String:Any]
+        XCTAssertEqual(info?["type"] as? String,"image")
+        _ = try await data("photos.thumbnail",["id":asset,"to":"data/thumb.jpg"])
+        let point = try await data("location.current") as? [String:Any]
+        XCTAssertEqual(try XCTUnwrap(point?["latitude"] as? Double),37.3349,accuracy:0.005)
     }
 }

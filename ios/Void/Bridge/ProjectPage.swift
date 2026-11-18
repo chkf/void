@@ -55,9 +55,16 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         self.base = base
         view.load(URLRequest(url: base.appendingPathComponent(product.entry)))
         timeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(25))
-            guard !Task.isCancelled, let self, self.valid, !self.ready else { return }
-            self.onFailure?("项目启动超时，请检查入口或恢复可运行版本")
+            var idleSince = ContinuousClock.now
+            while !Task.isCancelled {
+                do { try await Task.sleep(for:.seconds(1)) } catch { return }
+                guard let self, self.valid, !self.ready else { return }
+                if self.sdk.hasPendingRequests { idleSince = .now }
+                else if idleSince.duration(to:.now) >= .seconds(25) {
+                    self.onFailure?("项目启动超时，请检查入口或恢复可运行版本")
+                    return
+                }
+            }
         }
     }
 

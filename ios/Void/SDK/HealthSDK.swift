@@ -5,6 +5,7 @@ import HealthKit
 final class HealthSDK: SDKModule {
     private let store = HKHealthStore()
     private let names = ["steps","heartRate","sleep","activeEnergy","exerciseMinutes","workouts","activitySummary"]
+    private let writable = Set(["steps","heartRate","sleep","activeEnergy","workouts"])
     private func type(_ name: String) throws -> HKObjectType {
         switch name {
         case "steps": return HKQuantityType(.stepCount)
@@ -32,14 +33,17 @@ final class HealthSDK: SDKModule {
         if method == "authorizeRead" || method == "authorizeWrite" {
             let requested = try a.strings("types")
             guard !requested.isEmpty else { throw SDKFailure.invalid("types") }
+            if method == "authorizeWrite", !Set(requested).isSubset(of:writable) { throw SDKFailure.unavailable("所选健康类型包括系统只读数据") }
             try await request(requested.map(type),write:method == "authorizeWrite")
             return NSNull()
         }
         let name = try a.string("type"), type = try self.type(name)
         if method == "authorization" {
+            if !writable.contains(name) || !HKHealthStore.isHealthDataAvailable() { return ["read":"notDisclosed","write":"unavailable"] }
             let state = store.authorizationStatus(for:type)
             return ["read":"notDisclosed","write":state == .sharingAuthorized ? "authorized" : (state == .sharingDenied ? "denied" : "notDetermined")]
         }
+        if method == "write", !writable.contains(name) { throw SDKFailure.unavailable("健康类型为系统只读数据") }
         try await request([type],write:method == "write")
         let start = try a.date("startDate"), end = try a.date("endDate")
         guard end >= start else { throw SDKFailure.invalid("endDate") }

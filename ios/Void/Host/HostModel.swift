@@ -25,6 +25,7 @@ final class HostModel: ObservableObject {
     @Published private(set) var busy = false
     @Published var notice: String?
     @Published private(set) var problem: String?
+    @Published private(set) var waitingEntry: String?
     @Published private(set) var permissions: [String] = []
     @Published private(set) var log: [String] = []
     private let library: ProjectLibrary
@@ -115,6 +116,7 @@ final class HostModel: ObservableObject {
         permissions = []
         networkHosts = []
         problem = nil
+        waitingEntry = nil
         log = []
     }
 
@@ -124,7 +126,12 @@ final class HostModel: ObservableObject {
         if let template = record.pendingTemplate {
             screen = .workspace(template)
             mode = template == .swiftUI ? .swiftui : .native
-            do { try await library.selectWorkspace(record.id); try await list() }
+            do {
+                let declared = try await library.selectWorkspace(record.id)
+                guard current?.id == record.id else { return }
+                permissions = declared
+                try await list()
+            }
             catch { if current?.id == record.id { notice = error.localizedDescription } }
         } else {
             refresh(force: true, remember: true)
@@ -189,6 +196,7 @@ final class HostModel: ObservableObject {
             do {
                 let snapshot = try await library.open(record.id, remember: remember)
                 try check(token)
+                waitingEntry = nil
                 mode = snapshot.info.mode
                 permissions = snapshot.info.permissions
                 networkHosts = snapshot.info.networkHosts
@@ -230,6 +238,12 @@ final class HostModel: ObservableObject {
                 try await activate(product, record: record, token: token, expected: previous ? nil : snapshot.revision)
             } catch {
                 guard generation == token, !Task.isCancelled else { return }
+                let missing = error as? MissingProjectEntry
+                waitingEntry = missing?.path
+                if let missing {
+                    mode = missing.mode
+                    inspected = nil
+                }
                 let detail = error.localizedDescription
                 if problem != detail { log.append(detail) }
                 problem = detail

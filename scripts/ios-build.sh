@@ -30,6 +30,9 @@ case "${1:-device}" in
     app="$out/DerivedData/Build/Products/Release-iphoneos/VoidHost.app"
     xcrun lipo "$app/VoidHost" -verify_arch arm64
     test -s "$app/Toolchain/esbuild.wasm"
+    test -s "$app/Toolchain/sdk-api.json"
+    test -s "$app/Toolchain/sdk-reference.md"
+    test -s "$app/Toolchain/sdk.d.ts"
     test -s "$app/StarterProject/app/SwiftUI/ProjectContentView.swift"
     test -s "$app/TSXProject/app/src/main.tsx"
     if [[ -n "${VOID_IOS_SDK:-}" ]]; then
@@ -61,6 +64,15 @@ case "${1:-device}" in
   run-tests)
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
+    if [[ "${VOID_SIMULATOR_FIXTURES:-}" == 1 ]]; then
+      xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
+      for service in contacts calendar reminders photos photos-add location; do
+        xcrun simctl privacy "$device" grant "$service" app.chkf.void
+      done
+      xcrun simctl location "$device" set 37.3349,-122.0090
+      container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
+      touch "$container/tmp/void-sdk-fixtures"
+    fi
     result="$out/tests-$(date +%s).xcresult"
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \

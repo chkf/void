@@ -10,6 +10,12 @@ await mkdir(output, { recursive: true });
 const deps = JSON.parse(await readFile(join(root, "package.json"), "utf8")).devDependencies;
 const versions = { react: deps.react, "react-dom": deps["react-dom"], "@runtime/ui": "1.0.0", "@runtime/sdk": "1.1.0" };
 await copyFile(join(root, "runtime/sdk-api.json"), join(output, "sdk-api.json"));
+await copyFile(join(root, "runtime/sdk.d.ts"), join(output, "sdk.d.ts"));
+const reference = (await readFile(join(root, "docs/SDK_REFERENCE.md"), "utf8"))
+  .replace("(../runtime/sdk.d.ts)", "(types/runtime-sdk.d.ts)")
+  .replace("(BUILD.md)", "(https://github.com/chkf/void/blob/main/docs/BUILD.md)")
+  .replace("(LIMITATIONS.md)", "(https://github.com/chkf/void/blob/main/docs/LIMITATIONS.md)");
+await writeFile(join(output, "sdk-reference.md"), reference);
 const types = Object.create(null);
 async function declarations(dir, virtual, filter) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {

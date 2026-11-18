@@ -142,12 +142,23 @@ actor ProjectLibrary {
 
     func forgetLast() throws { var value = try catalog(); value.last = nil; try save(value) }
 
-    func selectWorkspace(_ id: UUID) throws {
+    @discardableResult
+    func selectWorkspace(_ id: UUID) throws -> [String] {
         var value = try catalog()
         guard let index = value.records.firstIndex(where: { $0.id == id && $0.opened != nil }) else { throw RuntimeIssue("项目已从最近记录移除") }
         value.records[index].opened = Date()
         value.last = id
         try save(value)
+        let record = value.records[index]
+        return (try? record.grant.coordinated { root -> [String] in
+            guard try Self.directoryKey(root) == record.directoryKey else { throw FolderAccessIssue("目录已被替换") }
+            let app = root.appendingPathComponent("app")
+            let manifest = app.appendingPathComponent("manifest.json")
+            try ProjectFiles.checkLink(app)
+            try ProjectFiles.checkLink(manifest)
+            let fields = try ProjectFiles.dictionary(Data(contentsOf:manifest), file:"app/manifest.json")
+            return fields["permissions"] as? [String] ?? []
+        }) ?? []
     }
 
     func finishFirstPreview(_ id: UUID) throws {

@@ -42,13 +42,17 @@ final class SDKFiles: @unchecked Sendable {
                 do {
                     let attrs = try fm.attributesOfItem(atPath: url.path)
                     guard attrs[.type] as? FileAttributeType != .typeSymbolicLink else { throw SDKFailure.denied("文件路径包含符号链接") }
-                } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {}
+                } catch let error as NSError where error.domain == NSCocoaErrorDomain
+                    && [NSFileNoSuchFileError, NSFileReadNoSuchFileError].contains(error.code) {
+                    continue
+                }
             }
             return url
         }
         func use(_ shared: URL?) throws -> T {
             Self.ioLock.lock()
             defer { Self.ioLock.unlock() }
+            try Task.checkCancellation()
             let urls = try parts.map { components -> URL in
                 let scope = components[0]
                 if scope == "data" || scope == "project" {

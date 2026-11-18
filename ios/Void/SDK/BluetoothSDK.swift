@@ -110,8 +110,9 @@ final class BluetoothSDK: NSObject, SDKModule, CBCentralManagerDelegate, CBPerip
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        guard central.state != .unknown && central.state != .resetting else { powered = SDKWait<Bool>(); return }
+        guard central.state != .unknown && central.state != .resetting else { return }
         powered.finish(.success(true))
+        powered = SDKWait<Bool>()
         events?.deliver?("bluetooth","bluetooth.state",power(central.state))
         if central.state != .poweredOn {
             if let scanID { events?.stop(scanID) }

@@ -24,6 +24,17 @@ final class SDKConsent: ObservableObject {
         defaults.set(saved, forKey: key(project))
         revision += 1
     }
+    func history(_ id: UUID) -> [[String:String]] {
+        defaults.array(forKey:key(id) + ".activity") as? [[String:String]] ?? []
+    }
+    func note(_ method: String, result: String, project: UUID) {
+        var rows = history(project)
+        if let latest = rows.last, latest["method"] == method, latest["result"] == result,
+           let date = latest["time"].flatMap({ try? Date.ISO8601FormatStyle().parse($0) }), Date().timeIntervalSince(date) < 60 { return }
+        rows.append(["time":Date().ISO8601Format(),"method":method,"result":result])
+        defaults.set(Array(rows.suffix(50)), forKey:key(project) + ".activity")
+        revision += 1
+    }
     static let labels = [
         "files.read":"读取项目文件", "files.write":"更改项目文件", "files.pick":"通过文件选择器导入文件", "files.share":"导出或分享项目文件",
         "photos.pick":"选择照片或视频", "photos.read":"读取照片图库", "photos.write":"保存到照片图库", "camera":"使用相机",
@@ -52,6 +63,7 @@ final class SDKSession: ObservableObject {
     @Published var canvasHeight: CGFloat = 0
     private var modules: [String: SDKModule] = [:]
     private var pending: [String: Task<Void, Never>] = [:]
+    var hasPendingRequests: Bool { !pending.isEmpty }
     private var asking: Task<Void, Error>?
     private(set) var valid = true
     static let methods: [String: [String: String]] = {
@@ -108,11 +120,18 @@ final class SDKSession: ObservableObject {
                 let e = SDKFailure.describe(error)
                 result = ["success":false, "error":["code":e.code, "message":e.detail]]
             }
+            let parts = method.components(separatedBy:".")
+            if parts.count == 2, let permission = Self.methods[parts[0]]?[parts[1]], !permission.isEmpty {
+                access.note(method, result:(result["error"] as? [String:String])?["code"] ?? "OK", project:record.id)
+            }
             pending[id] = nil
             reply(["id":id, "result":result], nil)
         }
     }
-    func cancel(_ id: String) { pending[id]?.cancel() }
+    func cancel(_ id: String) {
+        pending[id]?.cancel()
+        if pending.values.allSatisfy({ $0.isCancelled }) { asking?.cancel() }
+    }
 
     private func call(_ method: String, _ args: SDKArgs) async throws -> Any {
         guard valid else { throw CancellationError() }

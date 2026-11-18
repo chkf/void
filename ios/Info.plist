@@ -30,6 +30,7 @@
   <key>NSHealthUpdateUsageDescription</key><string>将你同意的健康样本写入健康 App。</string>
   <key>NSHomeKitUsageDescription</key><string>按你的操作查看家庭配件、修改特征或运行场景。</string>
   <key>NSFaceIDUsageDescription</key><string>使用面容 ID 验证你在项目中发起的操作。</string>
+  <key>NSLocalNetworkUsageDescription</key><string>连接你授权的项目在清单中声明的本地网络服务。</string>
   <key>NSAppTransportSecurity</key><dict><key>NSAllowsLocalNetworking</key><true/></dict>
   <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 </dict></plist>

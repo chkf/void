@@ -42,7 +42,17 @@ struct HostView: View {
                     case .swiftUI(let id): ProjectContentView(projectName: record.name).id(id)
                     case .script(let page): RunningPage(page: page).id(page.id)
                     case nil:
-                        if let problem = model.problem {
+                        if let entry = model.waitingEntry {
+                            NavigationStack {
+                                ContentUnavailableView {
+                                    Label("等待第一个页面", systemImage:"doc.badge.plus")
+                                } description: {
+                                    Text("请在项目文件夹中创建 " + entry + "。保存后会自动打开。")
+                                } actions: {
+                                    Button("重新检查") { model.refresh(force:true) }
+                                }.navigationTitle(record.name)
+                            }
+                        } else if let problem = model.problem {
                             ContentUnavailableView("项目未能打开", systemImage: "folder.badge.questionmark", description: Text(verbatim: problem))
                         } else { ProgressView("正在打开" + record.name) }
                     }

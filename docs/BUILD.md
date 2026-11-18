@@ -25,3 +25,5 @@ bash scripts/ios-build.sh test
 Xcode 将 `ios/StarterProject/app/SwiftUI/` 下的 Swift 文件直接编译进 VoidHost，并将同一份模板源码复制进安装包，供创建和核对项目。可在该目录添加其他 Swift 文件。保留入口 `ProjectContentView(projectName:)` 即可。开发时运行 `npm run prepare:ios` 生成工具链，在 Xcode 中打开 `ios/Void.xcodeproj` 并选择 **Void**。构建脚本将产物写入 `.build/ios`。
 
 要安装到自己的 iPhone，在 Xcode 的 VoidHost target → Signing & Capabilities 中选择有权限的 Team 和可用的 Bundle Identifier，然后选择已配对的设备运行。CI 的默认构建无需 Apple 签名凭据。[Apple 设备运行说明](https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices)
+
+要在真机使用 HealthKit、HomeKit 或 NFC，在 Apple Developer 的 App ID 中启用实际需要的能力，并重新生成匹配的 provisioning profile。Xcode 真机目标使用仓库中的授权文件。给未签名 IPA 签名时，选用配置描述文件支持的授权项；个人账号与团队能启用的能力取决于 Apple 的签名配置。相机、麦克风、图库、定位、通讯录及其他隐私服务还会在首次需要时请求系统授权。[工程授权文件](../ios/VoidHost.entitlements) · [HealthKit](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.healthkit) · [HomeKit](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.homekit) · [NFC 标签读取](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.nfc.readersession.formats)
