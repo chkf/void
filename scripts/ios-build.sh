@@ -121,15 +121,35 @@ case "${1:-device}" in
   local-picker)
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
+    xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
+    container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
+    existing_project=$(uuidgen)
+    SIMCTL_CHILD_VOID_PICKER_TEST_PROJECT="$existing_project" xcrun simctl launch "$device" app.chkf.void
+    # Exercise Files with a previously created project, as on an in-place update.
+    # The preparing process ends before Files starts; the project has no catalog entry.
+    python3 - "$container/Documents" "$existing_project" <<'PY'
+import json, pathlib, sys, time
+
+name = 'Void Picker ' + sys.argv[2][:8].upper()
+folder = pathlib.Path(sys.argv[1]) / name
+for _ in range(90):
+    if (folder / 'app/src/main.tsx').is_file() and (folder / 'app/manifest.json').is_file():
+        assert json.loads((folder / 'app/manifest.json').read_bytes())['name'] == name
+        break
+    time.sleep(0.5)
+else:
+    raise SystemExit("模拟器中缺少预先创建的本机目录")
+PY
+    xcrun simctl terminate "$device" app.chkf.void
     xcrun simctl launch "$device" com.apple.DocumentsApp
     xcrun simctl terminate "$device" com.apple.DocumentsApp
     local_test_status=0
-    xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+    TEST_RUNNER_VOID_EXISTING_PICKER_PROJECT="$existing_project" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
       -only-testing:VoidUITests/FolderPickerTests/testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory \
       -resultBundlePath "$out/local-picker.xcresult" test-without-building || local_test_status=$?
     container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
-    python3 - "$container/Library/Preferences/app.chkf.void.plist" "$local_test_status" <<'PY'
+    python3 - "$container/Library/Preferences/app.chkf.void.plist" "$local_test_status" "$existing_project" <<'PY'
 import json, plistlib, sys, time
 
 events = []
@@ -152,7 +172,8 @@ picks = [e for e in events if e["stage"] == "picker.didPick"]
 assert len(picks) == 1, "本机 Files 必须只返回一次真实选中回调"
 picked = picks[0]
 timeline = [e for e in events if e["request"] == picked["request"]]
-assert picked["detail"].startswith("count=1 "), "系统未返回唯一的目录"
+expected = "count=1 Void Picker " + sys.argv[3][:8].upper()
+assert picked["detail"] == expected, "系统未返回预先创建的原目录"
 assert all(any(e["stage"] == step for e in timeline)
            for step in ["picker.present", "picker.dismiss", "import.result", "page.firstFrame"])
 PY

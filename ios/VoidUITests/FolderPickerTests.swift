@@ -3,7 +3,7 @@ import XCTest
 
 final class FolderPickerTests: XCTestCase {
     private let app = XCUIApplication()
-    private let token = UUID().uuidString
+    private var token = UUID().uuidString
     private var fixture: String { "Void Picker " + String(token.prefix(8)) }
 
     private func named(_ labels: [String], in elements: XCUIElementQuery) -> XCUIElement {
@@ -130,7 +130,6 @@ final class FolderPickerTests: XCTestCase {
     private struct VisiblePickerLabel {
         let text: String
         let point: CGPoint
-        let height: CGFloat
     }
 
     private func pickerLabels() throws -> [VisiblePickerLabel] {
@@ -144,13 +143,12 @@ final class FolderPickerTests: XCTestCase {
             guard let candidate = line.topCandidates(1).first else { return nil }
             let text = candidate.string.trimmingCharacters(in:.whitespacesAndNewlines.union(.punctuationCharacters)).lowercased()
             let box = line.boundingBox
-            return VisiblePickerLabel(text:text,point:CGPoint(x:box.midX,y:1-box.midY),height:box.height)
+            return VisiblePickerLabel(text:text,point:CGPoint(x:box.midX,y:1-box.midY))
         }
     }
 
-    private func coordinate(_ label: VisiblePickerLabel, forThumbnail: Bool = false) -> XCUICoordinate {
-        let y = label.point.y - (forThumbnail ? 2.5 * label.height : 0)
-        return app.coordinate(withNormalizedOffset:CGVector(dx:label.point.x,dy:y))
+    private func coordinate(_ label: VisiblePickerLabel) -> XCUICoordinate {
+        app.coordinate(withNormalizedOffset:CGVector(dx:label.point.x,dy:label.point.y))
     }
 
     // Files treats directoryURL as a hint. Navigate its visible folders and verify
@@ -185,17 +183,16 @@ final class FolderPickerTests: XCTestCase {
             let container = entries.first { $0.text == "void" }
             let location = entries.first { ["on my iphone","我的 iphone","我的iphone"].contains($0.text) }
             let browse = labels.first { ["browse","浏览"].contains($0.text) && ($0.point.x < 0.3 || $0.point.y > 0.9) }
-            if let folder = fixtureRow ?? container {
-                // In folder-selection mode Files can select a grid item on the first tap.
-                // Enter the visible folder by double-tapping its icon if its title stays in place.
-                let showsItemCount = entries.contains {
-                    abs($0.point.x - folder.point.x) < 0.09 && $0.point.y > folder.point.y &&
-                        $0.point.y - folder.point.y < 0.075 && ($0.text.contains("item") || $0.text.contains("项"))
+            if fixtureRow != nil || container != nil {
+                // Files exposes shared app documents as a Container and ordinary
+                // folders as Folder. Act on the item that owns the navigation action.
+                let identifier = fixtureRow != nil ? fixture + ", Folder" : "void, Container"
+                let cell = app.cells[identifier].firstMatch
+                if cell.waitForExistence(timeout:3) {
+                    if lastFolder == identifier { cell.doubleTap() }
+                    else { cell.tap() }
+                    lastFolder = identifier
                 }
-                let tile = coordinate(folder,forThumbnail:showsItemCount)
-                if lastFolder == folder.text { tile.doubleTap() }
-                else { tile.tap() }
-                lastFolder = folder.text
             } else if let place = location ?? browse {
                 coordinate(place).tap()
                 lastFolder = nil
@@ -208,6 +205,9 @@ final class FolderPickerTests: XCTestCase {
     }
 
     func testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory() throws {
+        if let existing = ProcessInfo.processInfo.environment["VOID_EXISTING_PICKER_PROJECT"] {
+            token = try XCTUnwrap(UUID(uuidString:existing)).uuidString
+        }
         openLibrary()
         app.buttons["host.import"].tap()
         try pickLocalProjectInFiles()
