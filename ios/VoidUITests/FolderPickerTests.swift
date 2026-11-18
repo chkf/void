@@ -130,6 +130,7 @@ final class FolderPickerTests: XCTestCase {
     private struct VisiblePickerLabel {
         let text: String
         let point: CGPoint
+        let height: CGFloat
     }
 
     private func pickerLabels() throws -> [VisiblePickerLabel] {
@@ -143,19 +144,22 @@ final class FolderPickerTests: XCTestCase {
             guard let candidate = line.topCandidates(1).first else { return nil }
             let text = candidate.string.trimmingCharacters(in:.whitespacesAndNewlines.union(.punctuationCharacters)).lowercased()
             let box = line.boundingBox
-            return VisiblePickerLabel(text:text,point:CGPoint(x:box.midX,y:1-box.midY))
+            return VisiblePickerLabel(text:text,point:CGPoint(x:box.midX,y:1-box.midY),height:box.height)
         }
     }
 
-    private func tap(_ label: VisiblePickerLabel) {
-        app.coordinate(withNormalizedOffset:CGVector(dx:label.point.x,dy:label.point.y)).tap()
+    private func coordinate(_ label: VisiblePickerLabel, forThumbnail: Bool = false) -> XCUICoordinate {
+        let y = label.point.y - (forThumbnail ? 2.5 * label.height : 0)
+        return app.coordinate(withNormalizedOffset:CGVector(dx:label.point.x,dy:y))
     }
 
     // Files treats directoryURL as a hint. Navigate its visible folders and verify
     // the app/ child before opening, even when the provider starts at another level.
     private func pickLocalProjectInFiles() throws {
-        let end = Date().addingTimeInterval(90)
+        let started = Date()
+        let end = started.addingTimeInterval(105)
         var lastScreen: [String] = []
+        var lastFolder: String?
         repeat {
             let labels = try pickerLabels()
             let open = labels.first { ["open","打开"].contains($0.text) && $0.point.x > 0.6 && $0.point.y < 0.3 }
@@ -169,10 +173,11 @@ final class FolderPickerTests: XCTestCase {
             let hasSourceFolder = entries.contains { $0.text == "app" }
             let hasManifestSibling = entries.contains { ["runtime.json","runtime","assets","modules"].contains($0.text) }
             if let open, hasSourceFolder || (atFixture && hasManifestSibling) {
-                tap(open)
+                coordinate(open).tap()
                 return
             }
-            if atFixture {
+            // A freshly launched provider initially draws Recents while resolving its start URL.
+            if atFixture || Date().timeIntervalSince(started) < 12 {
                 RunLoop.current.run(until:Date().addingTimeInterval(1))
                 continue
             }
@@ -180,7 +185,21 @@ final class FolderPickerTests: XCTestCase {
             let container = entries.first { $0.text == "void" }
             let location = entries.first { ["on my iphone","我的 iphone","我的iphone"].contains($0.text) }
             let browse = labels.first { ["browse","浏览"].contains($0.text) && ($0.point.x < 0.3 || $0.point.y > 0.9) }
-            if let destination = fixtureRow ?? container ?? location ?? browse { tap(destination) }
+            if let folder = fixtureRow ?? container {
+                // In folder-selection mode Files can select a grid item on the first tap.
+                // Enter the visible folder by double-tapping its icon if its title stays in place.
+                let showsItemCount = entries.contains {
+                    abs($0.point.x - folder.point.x) < 0.09 && $0.point.y > folder.point.y &&
+                        $0.point.y - folder.point.y < 0.075 && ($0.text.contains("item") || $0.text.contains("项"))
+                }
+                let tile = coordinate(folder,forThumbnail:showsItemCount)
+                if lastFolder == folder.text { tile.doubleTap() }
+                else { tile.tap() }
+                lastFolder = folder.text
+            } else if let place = location ?? browse {
+                coordinate(place).tap()
+                lastFolder = nil
+            }
             RunLoop.current.run(until:Date().addingTimeInterval(1))
         } while Date() < end
         let shot = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
@@ -194,7 +213,7 @@ final class FolderPickerTests: XCTestCase {
         try pickLocalProjectInFiles()
         let end = Date().addingTimeInterval(5)
         repeat {
-            if let allow = try pickerLabels().first(where:{ ["allow","允许"].contains($0.text) }) { tap(allow); break }
+            if let allow = try pickerLabels().first(where:{ ["allow","允许"].contains($0.text) }) { coordinate(allow).tap(); break }
         } while Date() < end
         let selected = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@","已找到「" + fixture + "」"),
                                                   object:app.staticTexts["folder.status"])
