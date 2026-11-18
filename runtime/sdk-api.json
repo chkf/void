@@ -183,6 +183,8 @@
   },
   "graphics": {
     "capabilities": "",
+    "showCanvas": "",
+    "hideCanvas": "",
     "imageInfo": "graphics",
     "processImage": "graphics",
     "execute": "database",

@@ -148,6 +148,8 @@ struct HostView: View {
 
 private struct RunningPage: View {
     @ObservedObject var page: ProjectPage
+    @ObservedObject private var sdk: SDKSession
+    init(page: ProjectPage) { self.page = page; self.sdk = page.sdk }
     var body: some View {
         VStack(spacing: 0) {
             NativeMediaPreview(sdk: page.sdk)
@@ -157,8 +159,9 @@ private struct RunningPage: View {
     @ViewBuilder private var content: some View {
         if page.product.mode == .web { ProjectSurface(page: page) }
         else {
-            ZStack {
-                ProjectSurface(page: page).frame(width: 1, height: 1).allowsHitTesting(false).accessibilityHidden(true)
+            VStack(spacing: 0) {
+                ProjectSurface(page: page).frame(height: sdk.canvasHeight)
+                    .clipped().allowsHitTesting(sdk.canvasHeight > 0).accessibilityHidden(sdk.canvasHeight == 0)
                 VStack(alignment: .leading) {
                     ForEach(page.nodes) { NativeNodeView(node: $0, page: page) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)

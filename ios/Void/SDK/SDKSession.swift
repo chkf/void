@@ -49,6 +49,7 @@ final class SDKSession: ObservableObject {
     var declared: Set<String>
     var networkHosts: Set<String>
     @Published var preview: CALayer?
+    @Published var canvasHeight: CGFloat = 0
     private var modules: [String: SDKModule] = [:]
     private var pending: [String: Task<Void, Never>] = [:]
     private var asking: Task<Void, Error>?
@@ -159,5 +160,6 @@ final class SDKSession: ObservableObject {
         for module in modules.values { module.close() }
         modules.removeAll()
         preview = nil
+        canvasHeight = 0
     }
 }

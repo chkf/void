@@ -23,7 +23,7 @@ final class HomeSDK: NSObject, SDKModule, HMHomeManagerDelegate, HMAccessoryDele
         default: return NSNull()
         }
     }
-    func accessory(_ accessory: HMAccessory, service: HMService, didUpdateValueForCharacteristic characteristic: HMCharacteristic) {
+    func accessory(_ accessory: HMAccessory, service: HMService, didUpdateValueFor characteristic: HMCharacteristic) {
         guard let id = watched[characteristic.uniqueIdentifier] else { return }
         events?.emit(id,"home.value",["characteristic":characteristic.uniqueIdentifier.uuidString,"value":json(characteristic.value)])
     }

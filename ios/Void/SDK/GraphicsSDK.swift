@@ -119,6 +119,10 @@ final class GraphicsSDK: SDKModule {
     private var database: ProjectDatabase?
 
     func call(_ method: String, _ a: SDKArgs, in s: SDKSession) async throws -> Any {
+        if method == "showCanvas" || method == "hideCanvas" {
+            s.canvasHeight = method == "showCanvas" ? CGFloat(try a.int("height", 240, range: 1...1200)) : 0
+            return NSNull()
+        }
         if ["execute","query","transaction"].contains(method) {
             let db = database ?? ProjectDatabase(s.storage.appendingPathComponent("Projects/" + s.record.id.uuidString + "/Database/project.sqlite"))
             database = db

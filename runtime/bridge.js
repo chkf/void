@@ -44,3 +44,34 @@ export const ios = Object.fromEntries(Object.entries(catalog).map(([group, metho
 ios.version = "1.1.0";
 ios.onEvent = listener => { listeners.add(listener); return () => listeners.delete(listener); };
 ios.stop = id => request("sdk.stop", { id });
+
+const nativeCapabilities = ios.graphics.capabilities;
+ios.graphics.capabilities = async (params, options) => {
+  const result = await nativeCapabilities(params, options);
+  if (!result.success) return result;
+  const canvas = () => globalThis.document?.createElement("canvas");
+  const gl = canvas()?.getContext("webgl2") ?? canvas()?.getContext("webgl");
+  const webgl2 = !!gl && typeof WebGL2RenderingContext !== "undefined" && gl instanceof WebGL2RenderingContext;
+  const webgl = !!gl;
+  gl?.getExtension("WEBGL_lose_context")?.loseContext();
+  return { success: true, data: { ...result.data, canvas2D: !!canvas()?.getContext("2d"), webgl, webgl2,
+    wasm: typeof WebAssembly === "object", animation: typeof globalThis.Element?.prototype.animate === "function" } };
+};
+let displayedCanvas;
+ios.graphics.showCanvas = async (canvas, height = 240) => {
+  if (!(canvas instanceof HTMLCanvasElement)) return {success:false,error:{code:"INVALID_PARAMS",message:"需要 HTMLCanvasElement"}};
+  const result = await request("graphics.showCanvas", { height });
+  if (result.success) {
+    if (displayedCanvas !== canvas) displayedCanvas?.remove();
+    displayedCanvas = canvas;
+    canvas.style.cssText = "display:block;width:100%;height:100%;object-fit:contain";
+    document.body.style.margin = "0";
+    document.body.append(canvas);
+  }
+  return result;
+};
+ios.graphics.hideCanvas = async () => {
+  const result = await request("graphics.hideCanvas", {});
+  if (result.success) { displayedCanvas?.remove(); displayedCanvas = undefined; }
+  return result;
+};
