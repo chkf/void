@@ -32,8 +32,13 @@ final class FolderPickerTests: XCTestCase {
         }
         XCTAssertTrue(openButton.waitForExistence(timeout:10),app.debugDescription)
         openButton.tap()
-        let allow = named(["Allow","允许"],in:app.alerts.buttons)
+        let allow = named(["Allow","允许"],in:app.buttons)
         if allow.waitForExistence(timeout:2) { allow.tap() }
+        else if browser.exists {
+            let alert = XCUIApplication(bundleIdentifier:"com.apple.springboard").alerts
+            let systemAllow = named(["Allow","允许"],in:alert.buttons)
+            if systemAllow.exists { systemAllow.tap() }
+        }
         awaitDismissal()
     }
     private func awaitDismissal() {
@@ -56,26 +61,39 @@ final class FolderPickerTests: XCTestCase {
         app.buttons["folder.clear"].tap()
     }
 
-    func testSystemPickerImportCancelOpenPreviewAndReconnect() {
+    private func openLibrary() {
         continueAfterFailure = false
         app.launch()
-        let importFolder = app.buttons["host.import"]
-        if !importFolder.waitForExistence(timeout:3) {
+        if !app.buttons["host.import"].waitForExistence(timeout:3) {
             app.buttons["host.manage"].tap(); app.buttons["host.switch"].tap()
         }
-        importFolder.tap(); cancelPicker()
-        importFolder.tap(); selectDirectory()
-        let native = app.switches["显示问候"].firstMatch
-        XCTAssertTrue(native.waitForExistence(timeout:70),app.debugDescription)
-        app.buttons["host.manage"].tap(); app.buttons["host.reconnect"].tap(); cancelPicker()
-        XCTAssertTrue(native.exists,app.debugDescription)
-        app.buttons["host.manage"].tap(); app.buttons["host.reconnect"].tap(); selectDirectory()
+    }
+    private func importAndPreview() {
+        app.buttons["host.import"].tap(); selectDirectory()
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
+    }
+    private func reconnect() {
+        app.buttons["host.manage"].tap(); app.buttons["host.reconnect"].tap()
+    }
+
+    func testSystemOpenImportsPreviewsAndReconnectsOriginal() {
+        openLibrary()
+        importAndPreview()
+        reconnect(); selectDirectory()
         expectation(for:NSPredicate(format:"label == %@", "已核验原项目目录"),evaluatedWith:app.staticTexts["folder.status"])
         waitForExpectations(timeout:25)
-        XCTAssertTrue(native.waitForExistence(timeout:30),app.debugDescription)
-        app.buttons["host.manage"].tap(); app.buttons["host.reconnect"].tap()
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:30),app.debugDescription)
+    }
+
+    func testSystemDismissalAndInterruptionKeepPreviousProject() {
+        openLibrary()
+        app.buttons["host.import"].tap(); cancelPicker()
+        importAndPreview()
+        reconnect(); cancelPicker()
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.exists,app.debugDescription)
+        reconnect()
         XCTAssertTrue(browser.waitForExistence(timeout:20),app.debugDescription)
         app.terminate(); app.launch()
-        XCTAssertTrue(native.waitForExistence(timeout:60),app.debugDescription)
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:60),app.debugDescription)
     }
 }

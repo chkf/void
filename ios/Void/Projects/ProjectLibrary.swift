@@ -26,8 +26,15 @@ actor ProjectLibrary {
     init(base: URL) { file = base.appendingPathComponent("projects.json") }
 
     func catalog() throws -> Catalog {
-        if !FileManager.default.fileExists(atPath: file.path) { return Catalog() }
-        return try JSONDecoder().decode(Catalog.self, from: Data(contentsOf: file))
+        let data: Data
+        do { data = try Data(contentsOf:file) }
+        catch {
+            let issue = DirectoryIssue.reading(error,item:"项目登记文件")
+            if issue.kind == .missing { return Catalog() }
+            throw issue
+        }
+        do { return try JSONDecoder().decode(Catalog.self,from:data) }
+        catch { throw DirectoryIssue(kind:.invalidJSON,item:"项目登记文件",underlying:error as NSError) }
     }
 
     private func save(_ catalog: Catalog) throws {
@@ -37,8 +44,9 @@ actor ProjectLibrary {
 
     static func directoryKey(_ url: URL) throws -> String {
         guard try ProjectSourceReader().kind(url,"登记目录") == .directory else { throw DirectoryIssue(kind:.wrongType,item:"登记目录") }
-        let attrs = try FileManager.default.attributesOfItem(atPath:url.path)
-        if let device = attrs[.systemNumber] as? NSNumber, let inode = attrs[.systemFileNumber] as? NSNumber, inode.uint64Value != 0 {
+        let attributes = Result { try FileManager.default.attributesOfItem(atPath:url.path) }
+        if case let .success(attrs) = attributes, let device = attrs[.systemNumber] as? NSNumber,
+           let inode = attrs[.systemFileNumber] as? NSNumber, inode.uint64Value != 0 {
             return device.stringValue + "/" + inode.stringValue
         }
         var item = stat()
@@ -47,6 +55,7 @@ actor ProjectLibrary {
         if let document = values.documentIdentifier, document > 0, let volume = values.volumeUUIDString {
             return "document/" + volume + "/" + String(document)
         }
+        if case let .failure(error) = attributes { throw DirectoryIssue.reading(error,item:"登记目录") }
         throw RuntimeIssue("文件服务商未提供可验证的目录标识")
     }
 

@@ -6,6 +6,13 @@ private enum Panel: String, Identifiable {
     var id: String { rawValue }
 }
 
+private struct ObservedFolder: Equatable {
+    let project: UUID?
+    let grant: FolderGrant?
+    let active: Bool
+    let workspace: Bool
+}
+
 struct HostView: View {
     @ObservedObject var model: HostModel
     @ObservedObject var folders: FolderRequests
@@ -142,7 +149,8 @@ struct HostView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in folders.updateProgress() }
         .task { await model.load() }
-        .task(id: (model.current?.id.uuidString ?? "") + (phase == .active ? "/active" : "/inactive") + (model.workspaceTemplate == nil ? "" : "/workspace")) {
+        .task(id:ObservedFolder(project:model.current?.id,grant:model.current?.grant,
+                                active:phase == .active,workspace:model.workspaceTemplate != nil)) {
             if phase == .active { await model.monitor() }
         }
         .sheet(item:$panel,onDismiss:{ folders.sheetClosed() }) { selection in

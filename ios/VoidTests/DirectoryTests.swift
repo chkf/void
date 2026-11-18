@@ -181,6 +181,17 @@ final class DirectoryTests: XCTestCase {
         XCTAssertFalse(fm.fileExists(atPath:parent.appendingPathComponent("取消创建").path))
     }
 
+    func testImportCannotOverwriteUnreadableCatalog() async throws {
+        try fm.createDirectory(at:store,withIntermediateDirectories:true)
+        let catalogFile = store.appendingPathComponent("projects.json")
+        let invalid = Data("{".utf8)
+        try invalid.write(to:catalogFile)
+        let library = ProjectLibrary(base:store)
+        do { _ = try await library.discover(root); XCTFail("应保留登记错误") }
+        catch { XCTAssertEqual((error as? DirectoryIssue)?.kind,.invalidJSON) }
+        XCTAssertEqual(try Data(contentsOf:catalogFile),invalid)
+    }
+
     func testLocalRescanRestoresMovedOriginalWithoutOpeningASameNameReplacement() async throws {
         let library = ProjectLibrary(base:store)
         let originalRecords = try await library.discover(root)
