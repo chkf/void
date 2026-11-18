@@ -8,6 +8,8 @@
 
 原生工程在 [Void.xcodeproj](ios/Void.xcodeproj)。最低部署版本为 iOS 17。首次打开后可创建项目或导入 Files 目录。模板使用 SwiftUI 表单、输入框和开关，入口源码在 [main.tsx](ios/StarterProject/app/src/main.tsx)。
 
+在 [GitHub Releases](https://github.com/chkf/void/releases) 的 Assets 中直接下载 **void-unsigned.ipa**。安装到 iPhone 前需要用自己的 Apple 签名。
+
 推送代码后，GitHub Actions 用 Xcode 构建 iPhone Release，运行模拟器测试，并保存未签名的 IPA、模拟器应用和测试报告。也可从工作流页面手动运行。[原生构建工作流](https://github.com/chkf/void/actions/workflows/ios.yml) · [构建与签名说明](docs/BUILD.md)
 
 在 Windows 或 macOS 上运行 `npm ci` 和 `npm test` 可构建离线工具链，检查 TSX、React 事件和 HTML 项目打包。应用运行、系统控件和文件夹授权在 iOS 上验证。

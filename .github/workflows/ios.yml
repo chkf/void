@@ -8,19 +8,11 @@ permissions:
   contents: read
 
 jobs:
-  native:
-    name: ${{ matrix.name }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: iPhone Release
-            target: device
-          - name: iPhone 模拟器测试
-            target: test
+  iphone:
+    name: iPhone Release
     runs-on: macos-15-intel
     concurrency:
-      group: ios-${{ github.ref }}-${{ matrix.target }}
+      group: ios-${{ github.ref }}-device
       cancel-in-progress: true
     timeout-minutes: 35
     env:
@@ -33,42 +25,102 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run openspec -- validate --all --strict
-        if: matrix.target == 'device'
       - name: 生成离线工具链并测试 TSX 模板
-        if: matrix.target == 'device'
         run: npm test
-      - name: 为模拟器准备离线资源
-        if: matrix.target == 'test'
-        run: npm run prepare:ios
-      - name: 运行 Xcode
-        env:
-          BUILD_TARGET: ${{ matrix.target }}
+      - name: 编译及校验 arm64 安装包
         run: |
           xcodebuild -version
-          bash scripts/ios-build.sh "$BUILD_TARGET"
+          bash scripts/ios-build.sh device
       - name: 保存未签名的 iPhone 包
-        if: matrix.target == 'device'
         uses: actions/upload-artifact@v4
         with:
           name: void-unsigned-iphone
           path: .build/ios/void-unsigned.ipa
           if-no-files-found: error
+
+  simulator:
+    name: iPhone 模拟器测试
+    runs-on: macos-26
+    timeout-minutes: 30
+    concurrency:
+      group: ios-${{ github.ref }}-test
+      cancel-in-progress: true
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.5.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          cache: npm
+      - run: npm ci
+      - run: npm run prepare:ios
+      - name: 编译模拟器应用与测试
+        run: bash scripts/ios-build.sh build-tests
+      - name: 运行原生单元测试与界面测试
+        run: bash scripts/ios-build.sh run-tests
       - name: 保存模拟器应用
-        if: matrix.target == 'test'
         uses: actions/upload-artifact@v4
         with:
           name: void-simulator
           path: .build/ios/void-simulator.zip
       - name: 保存 Xcode 测试报告
-        if: ${{ !cancelled() && matrix.target == 'test' }}
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           for result in .build/ios/*.xcresult; do
             if [[ -d "$result" ]]; then ditto -c -k --keepParent "$result" .build/ios/void-tests.zip; fi
           done
       - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() && matrix.target == 'test' }}
+        if: ${{ !cancelled() }}
         with:
           name: void-tests
           path: .build/ios/void-tests.zip
           if-no-files-found: ignore
+
+  release:
+    name: 发布 iPhone 安装包
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: iphone
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: void-unsigned-iphone
+          path: release
+      - name: 上传已验证的 IPA
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          ipa=release/void-unsigned.ipa
+          digest="sha256:$(sha256sum "$ipa" | cut -d' ' -f1)"
+          prerelease=()
+          if [[ "$tag" == *-* ]]; then prerelease=(--prerelease); fi
+          notes="$RUNNER_TEMP/void-release.md"
+          cat > "$notes" <<EOF
+          下载下方的 **void-unsigned.ipa**。适用于 iOS 17 及以上的 iPhone，安装前需要使用自己的 Apple 签名。
+
+          此包由 Xcode 编译，包含 SwiftUI 宿主、项目模板和设备端离线编译器。
+
+          SHA-256：${digest#sha256:}
+
+          [原生构建记录与模拟器测试状态](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
+          EOF
+          if ! gh release view "$tag" --json id >/dev/null 2>&1; then
+            gh release create "$tag" --verify-tag --draft "${prerelease[@]}" --title "void $tag" --notes-file "$notes"
+          fi
+          api=$(gh release view "$tag" --json apiUrl --jq .apiUrl)
+          asset_digest() {
+            gh api "$api" --jq '.assets[] | select(.name == "void-unsigned.ipa") | .digest'
+          }
+          if [[ -z "$(asset_digest)" ]]; then gh release upload "$tag" "$ipa"; fi
+          [[ "$(asset_digest)" == "$digest" ]]
+          if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft)" == true ]]; then
+            gh release edit "$tag" --draft=false
+          fi

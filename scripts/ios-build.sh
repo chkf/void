@@ -18,7 +18,11 @@ case "${1:-device}" in
     ditto -c -k --norsrc --keepParent "$staging/Payload" "$out/void-unsigned.ipa"
     unzip -tq "$out/void-unsigned.ipa"
     ;;
-  test)
+  build-tests)
+    xcodebuild "${args[@]}" -configuration Debug -destination 'generic/platform=iOS Simulator' build-for-testing
+    ;;
+  test|run-tests)
+    if [[ "$1" == test ]]; then bash scripts/ios-build.sh build-tests; fi
     sdk=$(xcrun --sdk iphonesimulator --show-sdk-version)
     device=$(xcrun simctl list devices available --json | python3 -c '
 import json, sys
@@ -29,16 +33,17 @@ for runtime, devices in json.load(sys.stdin)["devices"].items():
         continue
     version = tuple(map(int, runtime.split(".iOS-")[-1].split("-")))
     if (17, 0) <= version[:2] <= sdk:
-        choices.extend((version, d["name"] == "iPhone 16", d["name"], d["udid"]) for d in devices if d["name"].startswith("iPhone") and d["isAvailable"])
+        choices.extend((version, d["name"] in ("iPhone 17", "iPhone 16"), d["name"], d["udid"]) for d in devices if d["name"].startswith("iPhone") and d["isAvailable"])
 if not choices:
     sys.exit("缺少与 Xcode 匹配的 iPhone 模拟器")
 version, _, name, udid = max(choices)
 print(name, "iOS " + ".".join(map(str, version)), file=sys.stderr)
 print(udid)' "$sdk")
-    xcrun simctl bootstatus "$device" -b
+    python3 -c 'import subprocess, sys; subprocess.run(["xcrun", "simctl", "bootstatus", sys.argv[1], "-b"], timeout=480, check=True)' "$device"
     result="$out/tests-$(date +%s).xcresult"
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
-      -parallel-testing-enabled NO -resultBundlePath "$result" ONLY_ACTIVE_ARCH=NO ARCHS="arm64 x86_64" test
+      -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
+      -resultBundlePath "$result" test-without-building
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
   *) echo "用法：bash scripts/ios-build.sh device|test" >&2; exit 2 ;;
