@@ -136,6 +136,26 @@ final class FolderPickerTests: XCTestCase {
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:30),app.debugDescription)
     }
 
+    func testInterruptedFirstFrameReturnsToOriginalProjectList() {
+        app.launchEnvironment["VOID_TEST_SLOW_FIRST_FRAME"] = "1"
+        openLibrary()
+        app.buttons["host.local"].tap()
+        let status = app.staticTexts["folder.status"]
+        let found = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label BEGINSWITH %@", "已找到"),object:status)
+        XCTAssertEqual(XCTWaiter.wait(for:[found],timeout:45),.completed,app.debugDescription)
+        if status.label != "已找到「" + fixture + "」" { app.buttons["recent." + fixture].tap() }
+        let stage = app.staticTexts["preview.stage"]
+        let frame = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@", "正在等待项目首屏"),object:stage)
+        XCTAssertEqual(XCTWaiter.wait(for:[frame],timeout:100),.completed,app.debugDescription)
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.staticTexts["preview.interrupted"].waitForExistence(timeout:30),app.debugDescription)
+        let record = app.buttons["recent." + fixture]
+        XCTAssertTrue(record.exists)
+        record.tap()
+        XCTAssertTrue(app.staticTexts["预览已恢复"].waitForExistence(timeout:120),app.debugDescription)
+    }
+
     func testSystemDismissalAndInterruptionKeepPreviousProject() {
         openLibrary()
         app.buttons["host.import"].tap(); cancelPicker()

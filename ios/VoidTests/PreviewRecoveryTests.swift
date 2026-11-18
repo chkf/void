@@ -22,10 +22,9 @@ final class PreviewRecoveryTests: XCTestCase {
         await host.load()
         XCTAssertNil(host.current)
         XCTAssertEqual(host.records.map(\.id),[original.id])
-        XCTAssertTrue(host.notice?.contains("正在编译项目") == true)
+        XCTAssertTrue(host.recoveryMessage?.contains("正在编译项目") == true)
         let pending = try await recovery.pending()
         XCTAssertEqual(pending?.request,active)
-        host.notice = nil
         await host.open(original)
         let end = ContinuousClock.now + .seconds(115)
         while host.busy && ContinuousClock.now < end { try await Task.sleep(for:.milliseconds(100)) }

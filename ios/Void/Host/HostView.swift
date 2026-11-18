@@ -78,7 +78,7 @@ struct HostView: View {
                     HStack {
                         if model.busy {
                             ProgressView()
-                            Text(model.scanStatus ?? "正在准备预览").font(.caption)
+                            Text(model.scanStatus ?? "正在准备预览").font(.caption).accessibilityIdentifier("preview.stage")
                             Button("取消") { model.cancelScan() }.accessibilityIdentifier("scan.cancel")
                         } else if let status = model.scanStatus { Text(status).font(.caption) }
                         if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil {
@@ -98,6 +98,9 @@ struct HostView: View {
             } else {
                 NavigationStack {
                     List {
+                        if let recoveryMessage = model.recoveryMessage {
+                            Section("上次预览中断") { Text(verbatim:recoveryMessage).accessibilityIdentifier("preview.interrupted") }
+                        }
                         Section {
                             Button { projectName = ""; template = .swiftUI; panel = .create } label: { Label("创建项目", systemImage: "plus") }
                                 .accessibilityIdentifier("host.create")

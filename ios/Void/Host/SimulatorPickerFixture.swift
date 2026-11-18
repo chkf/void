@@ -22,6 +22,13 @@ enum SimulatorPickerFixture {
                         try io.check()
                         if !FileManager.default.fileExists(atPath:location.path) {
                             _ = try ProjectFiles.create(name,in:location.deletingLastPathComponent(),template:.tsx,io:io)
+                            if ProcessInfo.processInfo.environment["VOID_TEST_SLOW_FIRST_FRAME"] == "1" {
+                                let source = """
+                                import {render, Text} from "@runtime/ui";
+                                setTimeout(() => render(<Text value="预览已恢复"/>), 25000);
+                                """
+                                try Data(source.utf8).write(to:location.appendingPathComponent("app/src/main.tsx"),options:.atomic)
+                            }
                         }
                         let snapshot = try ProjectFiles.snapshot(at:location,io:io)
                         guard snapshot.info.name == name, snapshot.info.mode == .native else { throw RuntimeIssue("模拟器测试项目无效") }

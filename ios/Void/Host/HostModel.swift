@@ -24,6 +24,7 @@ final class HostModel: ObservableObject {
     @Published private(set) var candidate: ProjectPage?
     @Published private(set) var busy = false
     @Published var notice: String?
+    @Published private(set) var recoveryMessage: String?
     @Published private(set) var problem: String?
     @Published private(set) var waitingEntry: String?
     @Published private(set) var permissions: [String] = []
@@ -66,7 +67,7 @@ final class HostModel: ObservableObject {
             let catalog = try await list()
             if let id = catalog.last, let record = records.first(where:{ $0.id == id }) {
                 if let interrupted = try await previewRecovery.pending(), interrupted.project == id {
-                    notice = "上次预览在「" + interrupted.stage.title + "」时中断。已返回项目列表，可从原记录手动预览。"
+                    recoveryMessage = "上次预览在「" + interrupted.stage.title + "」时中断。可从下面的原项目记录重试。"
                     DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
                 } else { await open(record) }
             }
@@ -167,6 +168,7 @@ final class HostModel: ObservableObject {
     func open(_ record: ProjectRecord, from request: FolderRequest? = nil) async {
         if request?.id != folders.request?.id || request == nil { folders.changeProject(to:record.id) }
         clear()
+        recoveryMessage = nil
         current = record
         if let template = record.pendingTemplate {
             screen = .workspace(template)
@@ -268,7 +270,7 @@ final class HostModel: ObservableObject {
             let diagnostic = trace ?? DirectoryTrace("preview")
             let attemptID = diagnostic.id
             var marked = false
-            func stage(_ stage: PreviewStage) async throws {
+            @MainActor func stage(_ stage: PreviewStage) async throws {
                 try check(token)
                 let attempt = PreviewAttempt(request:attemptID,project:record.id,stage:stage)
                 try await previewRecovery.mark(attempt,starting:!marked)
@@ -278,7 +280,7 @@ final class HostModel: ObservableObject {
                 scanStatus = stage.title
                 diagnostic.event("preview." + stage.rawValue)
             }
-            func run() async {
+            @MainActor func run() async {
                 var scanned = false
                 do {
                     if force { try await stage(.scan) }
