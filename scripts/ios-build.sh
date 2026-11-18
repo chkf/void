@@ -83,15 +83,15 @@ case "${1:-device}" in
       touch "$container/tmp/void-sdk-fixtures"
     fi
     result="$out/tests-$(date +%s).xcresult"
+    test_status=0
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
-      -resultBundlePath "$result" test-without-building || {
-        if [[ "${CI:-}" == true ]]; then
-          xcrun simctl spawn "$device" log show --style compact --last 15m --info \
-            --predicate 'subsystem == "app.chkf.void" AND category == "directory"' || true
-        fi
-        exit 1
-      }
+      -resultBundlePath "$result" test-without-building || test_status=$?
+    if [[ "${CI:-}" == true ]]; then
+      xcrun simctl spawn "$device" log show --style compact --last 15m --info \
+        --predicate 'subsystem == "app.chkf.void" AND category == "directory"' || true
+    fi
+    if ((test_status != 0)); then exit "$test_status"; fi
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
   *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests" >&2; exit 2 ;;

@@ -42,8 +42,6 @@ final class HostModel: ObservableObject {
     private var work: Task<Void, Never>?
     private var watch: SourceWatcher?
     private var needsScan = false
-    private var requestedRestart = false
-    private var requestedPrevious = false
 
     init(storage: URL? = nil) {
         let base = storage ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("void")
@@ -145,8 +143,6 @@ final class HostModel: ObservableObject {
         mode = nil
         inspected = nil
         needsScan = false
-        requestedRestart = false
-        requestedPrevious = false
         busy = false
         scanStatus = nil
         scanTrace = nil
@@ -212,7 +208,7 @@ final class HostModel: ObservableObject {
 
     func cancelScan() {
         guard let work else { return }
-        userStoppedScanning = true; needsScan = false; requestedRestart = false
+        userStoppedScanning = true; needsScan = false
         scanTrace?.event("preview.cancel")
         work.cancel()
         candidate?.onFailure?("已取消预览")
@@ -222,10 +218,15 @@ final class HostModel: ObservableObject {
     func refresh(force: Bool = false, remember: Bool = false, previous: Bool = false, trace input: DirectoryTrace? = nil) {
         guard let record = current, force || (workspaceTemplate == nil && !userStoppedScanning) else { return }
         if force { userStoppedScanning = false }
-        if work != nil {
-            needsScan = true
-            if force { requestedRestart = true; requestedPrevious = previous }
-            return
+        if let pending = work {
+            guard force else { needsScan = true; return }
+            // A user-initiated build must take over even while a silent provider scan is waiting.
+            generation = UUID()
+            scanTrace?.event("preview.superseded")
+            pending.cancel()
+            candidate?.onFailure?("已开始新的预览请求")
+            candidate = nil
+            needsScan = false
         }
         let token = generation
         let trace = input ?? (force ? DirectoryTrace("preview") : nil)
@@ -241,11 +242,8 @@ final class HostModel: ObservableObject {
                     if !userStoppedScanning { scanStatus = nil }
                     scanTrace = nil
                     if needsScan && !userStoppedScanning {
-                        let restart = requestedRestart, rollback = requestedPrevious
                         needsScan = false
-                        requestedRestart = false
-                        requestedPrevious = false
-                        refresh(force: restart || workspaceTemplate != nil, previous: rollback)
+                        refresh(force:workspaceTemplate != nil)
                     }
                 }
             }

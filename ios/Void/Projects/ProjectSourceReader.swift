@@ -32,7 +32,16 @@ struct ProjectSourceReader {
                 if values.directory == true { return .directory }
                 if values.file == true { return .file }
             }
-            // Some providers omit URL resource type flags. Stat the item itself, without following its final link.
+            // Some providers omit resource type flags. Obtain the type without following the final link.
+            var item = stat()
+            if lstat(url.path,&item) == 0 {
+                switch item.st_mode & mode_t(S_IFMT) {
+                case mode_t(S_IFDIR): return .directory
+                case mode_t(S_IFREG): return .file
+                case mode_t(S_IFLNK): throw DirectoryIssue(kind:.link,item:key)
+                default: throw DirectoryIssue(kind:.wrongType,item:key)
+                }
+            }
             let type = try FileManager.default.attributesOfItem(atPath:url.path)[.type] as? FileAttributeType
             switch type {
             case .typeRegular: return .file

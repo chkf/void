@@ -250,7 +250,11 @@ final class DirectoryTests: XCTestCase {
         XCTAssertEqual(model.page?.nodes.first?.text("value"),"首次预览",model.problem ?? model.notice ?? "")
         let initial = try XCTUnwrap(model.page)
         try atomicEditorSave("export const title = '再次预览';","app/src/detail.ts")
-        model.refresh(force:true)
+        model.refresh()
+        let manual = DirectoryTrace("preview-test")
+        model.refresh(force:true,trace:manual)
+        XCTAssertTrue(model.busy)
+        XCTAssertTrue(DirectoryJournal.shared.recent().contains { $0.request == manual.id && $0.stage == "preview.begin" })
         try await wait { model.page?.id != initial.id || model.problem != nil }
         XCTAssertEqual(model.page?.nodes.first?.text("value"),"再次预览",model.problem ?? "")
         let previous = model.page?.id

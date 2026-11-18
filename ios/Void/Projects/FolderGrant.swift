@@ -87,6 +87,7 @@ struct FolderGrant: Codable, Equatable {
         let parent = try resolved(&stale)
         let reader = ProjectSourceReader()
         func descend(_ url: URL, _ parts: [String]) throws -> T {
+            guard try reader.kind(url,"登记目录") == .directory else { throw DirectoryIssue(kind:.wrongType,item:"登记目录") }
             var root = url
             for part in parts {
                 guard ProjectFiles.component(part) else { throw DirectoryIssue(kind:.outside,item:"登记目录") }
