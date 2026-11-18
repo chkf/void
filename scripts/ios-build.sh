@@ -78,9 +78,22 @@ case "${1:-device}" in
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
       -resultBundlePath "$result" test-without-building || test_status=$?
-    if [[ "${CI:-}" == true ]]; then
-      xcrun simctl spawn "$device" log show --style compact --last 15m --info \
-        --predicate 'subsystem == "app.chkf.void" AND category == "directory"' || true
+    if [[ "${CI:-}" == true ]] && container=$(xcrun simctl get_app_container "$device" app.chkf.void data); then
+      python3 - "$container/Library/Preferences/app.chkf.void.plist" <<'PY'
+import json, plistlib, sys
+
+try:
+    with open(sys.argv[1], "rb") as preferences:
+        events = json.loads(plistlib.load(preferences).get("void.directoryDiagnostics.v1", b"[]"))
+except (OSError, ValueError, plistlib.InvalidFileException):
+    events = []
+actual = {e["request"] for e in events if e["stage"] == "picker.willPresent" or
+          (e["stage"] == "picker.didPick" and "Void Picker " in e["detail"])}
+for e in events:
+    if e["request"] in actual or e["stage"] == "fixture.ready":
+        print(e["request"], e["purpose"], e["stage"], f'+{e["milliseconds"]}ms',
+              e["detail"], e.get("domain", ""), e.get("code", ""))
+PY
     fi
     if ((test_status != 0)); then exit "$test_status"; fi
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
