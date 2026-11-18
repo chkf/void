@@ -21,8 +21,10 @@ final class CompilerPage: NSObject, WKNavigationDelegate {
     private let loaded = SDKWait<Void>()
     private let output = SDKWait<[String:Any]>()
     private var closed = false
+    private let trace: DirectoryTrace?
 
-    override init() {
+    init(trace: DirectoryTrace? = nil) {
+        self.trace = trace
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
         view = WKWebView(frame:.zero,configuration:config)
@@ -70,13 +72,17 @@ final class CompilerPage: NSObject, WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { loaded.finish(.success(())) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { fail(error) }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { fail(error) }
-    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) { fail(RuntimeIssue("系统已终止编译进程，可返回项目列表重试")) }
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        trace?.event("compiler.processTerminated")
+        fail(RuntimeIssue("系统已终止编译进程，可返回项目列表重试"))
+    }
     private func fail(_ error: Error) { loaded.finish(.failure(error)); output.finish(.failure(error)) }
 }
 
 @MainActor
 enum BuildEngine {
-    static func build(_ snapshot: SourceSnapshot, willCompile: () async throws -> Void = {}) async throws -> Product {
+    static func build(_ snapshot: SourceSnapshot, trace: DirectoryTrace? = nil, showCompiler: @MainActor (CompilerPage?) -> Void = { _ in },
+                      willCompile: @MainActor () async throws -> Void = {}) async throws -> Product {
         guard snapshot.info.mode != .swiftui else { throw RuntimeIssue("SwiftUI 源码由 Xcode 随宿主编译") }
         let resources = try await Task.detached {
             var result = [String:Data]()
@@ -90,8 +96,9 @@ enum BuildEngine {
         let server = try ResourceServer(files:resources,compiler:true)
         defer { server.stop() }
         let base = try await server.start()
-        let page = CompilerPage()
-        defer { page.stop() }
+        let page = CompilerPage(trace:trace)
+        showCompiler(page)
+        defer { page.stop(); showCompiler(nil) }
         try await page.load(base.appendingPathComponent("index.html"))
         try await willCompile()
         let response = try await page.compile(["entry":snapshot.info.entry,"mode":snapshot.info.mode.rawValue,"paths":Array(snapshot.files.keys)])

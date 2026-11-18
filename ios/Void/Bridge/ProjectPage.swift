@@ -180,8 +180,11 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     }
 }
 
+@MainActor
 struct ProjectSurface: UIViewRepresentable {
-    let page: ProjectPage
-    func makeUIView(context: Context) -> WKWebView { page.view }
+    let webView: WKWebView
+    init(page: ProjectPage) { webView = page.view }
+    init(compiler: CompilerPage) { webView = compiler.view }
+    func makeUIView(context: Context) -> WKWebView { webView }
     func updateUIView(_ uiView: WKWebView, context: Context) {}
 }

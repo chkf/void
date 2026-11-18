@@ -65,9 +65,16 @@ struct HostView: View {
                             ContentUnavailableView("项目未能打开", systemImage: "folder.badge.questionmark", description: Text(verbatim: problem))
                         } else { ProgressView("正在打开" + record.name) }
                     }
-                    if let candidate = model.candidate {
-                        ProjectSurface(page: candidate).id(candidate.id).frame(width: 1, height: 1).opacity(0).accessibilityHidden(true)
+                }
+                .background {
+                    // Keep the staging web view attached to the foreground window while its worker
+                    // or first native render is running. The native page covers the staging surface.
+                    Group {
+                        if let compiler = model.compiler { ProjectSurface(compiler:compiler).id(ObjectIdentifier(compiler)) }
+                        else if let candidate = model.candidate { ProjectSurface(page:candidate).id(candidate.id) }
                     }
+                    .frame(width:4,height:4).overlay(Color(uiColor:.systemBackground))
+                    .clipped().allowsHitTesting(false).accessibilityHidden(true)
                 }
                 .safeAreaInset(edge: .bottom) {
                     VStack(alignment:.leading,spacing:4) {
@@ -209,7 +216,7 @@ private struct RunningPage: View {
         if page.product.mode == .web { ProjectSurface(page: page) }
         else {
             VStack(spacing: 0) {
-                ProjectSurface(page: page).frame(height: sdk.canvasHeight)
+                ProjectSurface(page: page).frame(height:max(1,sdk.canvasHeight))
                     .clipped().allowsHitTesting(sdk.canvasHeight > 0).accessibilityHidden(sdk.canvasHeight == 0)
                 VStack(alignment: .leading) {
                     ForEach(page.nodes) { NativeNodeView(node: $0, page: page) }

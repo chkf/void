@@ -3,6 +3,17 @@ import XCTest
 
 @MainActor
 final class PreviewRecoveryTests: XCTestCase {
+    func testUpgradeRecognizesIncompleteDev4PreviewOnly() {
+        let trace = DirectoryTrace("preview"), other = DirectoryTrace("preview")
+        trace.event("preview.begin"); trace.event("scan.end"); other.event("preview.result")
+        func events() -> [DirectoryEvent] { DirectoryJournal.shared.recent().filter { $0.request == trace.id || $0.request == other.id } }
+        XCTAssertEqual(PreviewRecovery.interruptedLegacyRequest(events()),trace.id)
+        trace.event("preview.result","OK")
+        XCTAssertNil(PreviewRecovery.interruptedLegacyRequest(events()))
+        other.event("preview.begin"); other.event("preview.cancel")
+        XCTAssertNil(PreviewRecovery.interruptedLegacyRequest(events()))
+    }
+
     func testInterruptedPreviewReturnsToLibraryAndManuallyOpensOriginal() async throws {
         let name = "Preview-" + UUID().uuidString
         let root = FolderGrant.documents.appendingPathComponent(name)

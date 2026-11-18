@@ -1,9 +1,10 @@
 import Foundation
 
 enum PreviewStage: String, Codable {
-    case scan, cache, compiler, compile, verify, firstFrame
+    case legacyPreparation, scan, cache, compiler, compile, verify, firstFrame
     var title: String {
         switch self {
+        case .legacyPreparation: return "旧版准备预览"
         case .scan: return "正在读取项目清单和源码"
         case .cache: return "正在检查可运行版本"
         case .compiler: return "正在启动离线编译器"
@@ -25,6 +26,15 @@ struct PreviewAttempt: Codable {
 actor PreviewRecovery {
     private let file: URL
     init(storage: URL) { file = storage.appendingPathComponent("preview-attempt.json") }
+
+    static func interruptedLegacyRequest(_ entries: [DirectoryEvent]) -> UUID? {
+        guard let begin = entries.lastIndex(where:{ $0.stage == "preview.begin" }) else { return nil }
+        let id = entries[begin].request
+        let terminal = ["preview.result","scan.result","preview.cancel","preview.superseded","preview.interrupted"]
+        // dev.5 has its own atomic marker, beginning at preview.scan.
+        let known = entries[begin...].contains { $0.request == id && (terminal.contains($0.stage) || $0.stage == "preview.scan") }
+        return known ? nil : id
+    }
 
     func pending() throws -> PreviewAttempt? {
         do { return try JSONDecoder().decode(PreviewAttempt.self,from:Data(contentsOf:file)) }

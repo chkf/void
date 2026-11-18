@@ -170,6 +170,10 @@ struct ProjectSourceReader {
         if !listedRequired.contains(manifest) { trace?.event("scan.enumerationOmitted","manifest") }
         if files[entry] != nil && !listedRequired.contains(entry) { trace?.event("scan.enumerationOmitted","entry") }
         try io?.check()
+        if let trace {
+            let size = files.values.reduce(into:Int64(0)) { $0 += Int64($1.count) }
+            trace.event("scan.sources","files=\(files.count) bytes=\(size)")
+        }
         return ProjectFiles.snapshot(info:info, files:files)
     }
 }

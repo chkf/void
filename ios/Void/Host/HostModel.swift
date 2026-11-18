@@ -22,6 +22,7 @@ final class HostModel: ObservableObject {
         return nil
     }
     @Published private(set) var candidate: ProjectPage?
+    @Published private(set) var compiler: CompilerPage?
     @Published private(set) var busy = false
     @Published var notice: String?
     @Published private(set) var recoveryMessage: String?
@@ -36,6 +37,7 @@ final class HostModel: ObservableObject {
     private let library: ProjectLibrary
     private let products: ProductStore
     private let previewRecovery: PreviewRecovery
+    private let usesAppCatalog: Bool
     private let storage: URL
     private var networkHosts: [String] = []
     private var loaded = false
@@ -50,6 +52,7 @@ final class HostModel: ObservableObject {
         library = ProjectLibrary(base: base)
         self.storage = base
         previewRecovery = PreviewRecovery(storage:base)
+        usesAppCatalog = storage == nil
         products = ProductStore(base: base.appendingPathComponent("Builds"))
         folders.process = { [weak self] request,url in
             guard let self else { throw CancellationError() }
@@ -66,7 +69,14 @@ final class HostModel: ObservableObject {
             #endif
             let catalog = try await list()
             if let id = catalog.last, let record = records.first(where:{ $0.id == id }) {
-                if let interrupted = try await previewRecovery.pending(), interrupted.project == id {
+                var interrupted = try await previewRecovery.pending()
+                if interrupted == nil, usesAppCatalog,
+                   let request = PreviewRecovery.interruptedLegacyRequest(DirectoryJournal.shared.recent()) {
+                    let previous = PreviewAttempt(request:request,project:id,stage:.legacyPreparation)
+                    try await previewRecovery.mark(previous,starting:true)
+                    interrupted = previous
+                }
+                if let interrupted, interrupted.project == id {
                     recoveryMessage = "上次预览在「" + interrupted.stage.title + "」时中断。可从下面的原项目记录重试。"
                     DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
                 } else { await open(record) }
@@ -143,6 +153,8 @@ final class HostModel: ObservableObject {
     private func clear() {
         generation = UUID()
         work?.cancel()
+        compiler?.stop()
+        compiler = nil
         work = nil
         watch?.stop()
         watch = nil
@@ -244,6 +256,8 @@ final class HostModel: ObservableObject {
             generation = UUID()
             scanTrace?.event("preview.superseded")
             pending.cancel()
+            compiler?.stop()
+            compiler = nil
             candidate?.onFailure?("已开始新的预览请求")
             candidate = nil
             needsScan = false
@@ -273,6 +287,7 @@ final class HostModel: ObservableObject {
             @MainActor func stage(_ stage: PreviewStage) async throws {
                 try check(token)
                 let attempt = PreviewAttempt(request:attemptID,project:record.id,stage:stage)
+                if !marked, trace == nil { diagnostic.event("preview.begin") }
                 try await previewRecovery.mark(attempt,starting:!marked)
                 marked = true
                 try check(token)
@@ -325,7 +340,9 @@ final class HostModel: ObservableObject {
                         product = cached
                     } else {
                         try await stage(.compiler)
-                        product = try await BuildEngine.build(snapshot) { try await stage(.compile) }
+                        product = try await BuildEngine.build(snapshot,trace:diagnostic,showCompiler:{ page in
+                            if self.generation == token { self.compiler = page }
+                        }) { try await stage(.compile) }
                         try await stage(.verify)
                         let latest = try await library.open(record.id,remember:false,trace:trace)
                         try check(token)
