@@ -6,14 +6,15 @@ mkdir -p "$out"
 args=(-project ios/Void.xcodeproj -scheme Void -derivedDataPath "$out/DerivedData")
 choose_simulator() {
   xcrun simctl list devices available --json | python3 -c '
-import json, sys
+import json, re, sys
 sdk = tuple(map(int, sys.argv[1].split(".")))[:2]
 requested = tuple(map(int, sys.argv[2].split("."))) if sys.argv[2] else None
 choices = []
 for runtime, devices in json.load(sys.stdin)["devices"].items():
-    if ".iOS-" not in runtime:
+    match = re.search(r"\.iOS-(\d+(?:-\d+)*)", runtime)
+    if not match:
         continue
-    version = tuple(map(int, runtime.split(".iOS-")[-1].split("-")))
+    version = tuple(map(int, match.group(1).split("-")))
     if (17, 0) <= version[:2] <= sdk and (not requested or version[:2] == requested):
         choices.extend((version, d["name"] in ("iPhone 17", "iPhone 16"), d["name"], d["udid"]) for d in devices if d["name"].startswith("iPhone") and d["isAvailable"])
 if not choices:

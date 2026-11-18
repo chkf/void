@@ -1,16 +1,16 @@
 # void
 
-用 TypeScript 开发原生 iOS 界面。void 是一个面向个人的 iPhone 应用运行时。用户授权一个 Files 文件夹，Agent 就能在其中编辑项目。设计目标是让已安装的宿主直接构建和加载这些更改。
+void 是一个面向个人的 iPhone 项目宿主。应用本身和默认项目页面都用 SwiftUI 编写。新建项目后可以直接试用系统表单、文本输入框和开关。[默认页面源码](ios/StarterProject/app/SwiftUI/ProjectContentView.swift)
 
-宿主和新项目的常用界面使用真实 SwiftUI 控件。项目用 React/TSX 组合列表、表单和导航，也可以打开使用 HTML、Canvas 或 WebGL 的 Web 页面。原生能力由已签名宿主通过类型化 SDK 提供。
+在仓库中修改 `ios/StarterProject/app/SwiftUI/`，再用 GitHub Actions 构建、签名并安装新版 IPA，即可运行修改后的 SwiftUI 页面。在 iPhone 的「文件」中编辑过同一项目的 Swift 源码时，需先将它同步回仓库。每个 IPA 包含一套已编译的项目视图。
+
+创建时也可选择 React / TSX 模板，在手机上加载脚本修改，由 SwiftUI 绘制控件。导入的 HTML 项目使用 WKWebView。[TSX 示例](ios/TSXProject/app/src/main.tsx) · [项目格式](docs/PROJECT_FORMAT.md)
 
 ## 开发与构建
 
-原生工程在 [Void.xcodeproj](ios/Void.xcodeproj)。最低部署版本为 iOS 17。首次打开后可创建项目或导入 Files 目录。模板使用 SwiftUI 表单、输入框和开关，入口源码在 [main.tsx](ios/StarterProject/app/src/main.tsx)。
+在 Releases 中下载 `void-unsigned.ipa`，用自己的 Apple 签名后即可安装到运行 iOS 17 及以上版本的 iPhone。[版本下载](https://github.com/chkf/void/releases)
 
-在 [GitHub Releases](https://github.com/chkf/void/releases) 的 Assets 中直接下载 **void-unsigned.ipa**。安装到 iPhone 前需要用自己的 Apple 签名。
-
-推送代码后，GitHub Actions 用 Xcode 构建 iPhone Release，运行模拟器测试，并保存未签名的 IPA、模拟器应用和测试报告。也可从工作流页面手动运行。[原生构建工作流](https://github.com/chkf/void/actions/workflows/ios.yml) · [构建与签名说明](docs/BUILD.md)
+推送代码后，GitHub Actions 用 Xcode 27.2 构建 iPhone Release，在 iOS 27.2 模拟器上测试。推送 `v` 开头的版本标签会将安装包发布到 Releases。[Xcode 工程](ios/Void.xcodeproj) · [构建记录](https://github.com/chkf/void/actions/workflows/ios.yml) · [构建与签名](docs/BUILD.md)
 
 在 Windows 或 macOS 上运行 `npm ci` 和 `npm test` 可构建离线工具链，检查 TSX、React 事件和 HTML 项目打包。应用运行、系统控件和文件夹授权在 iOS 上验证。
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Agent 修改源码后，用户可以直接在 iPhone 上得到可运行的产物与指向源码的错误报告。项目通过锁文件记录依赖，使离线重建、增量编译和版本恢复具有可复现的输入。
+SwiftUI 项目由 GitHub Actions 的 Xcode 编译并发布为 IPA。脚本项目在 iPhone 上构建和报告源码错误，通过锁文件记录依赖并复现离线构建。
 
 ## ADDED Requirements
 

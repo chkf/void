@@ -4,6 +4,7 @@
 | --- | --- |
 | ios/Void/Host | SwiftUI 项目列表、独立管理面板、恢复入口和会话切换。宿主持有当前页面与正在启动的候选页面。 |
 | ios/Void/Projects | 目录授权、协调读写、项目登记、目录身份校验、修订扫描和变更通知。 |
+| ios/StarterProject/app/SwiftUI | 默认项目的原生视图与交互状态。Xcode 将它编译进宿主，打开项目时核对 Swift 源码并直接呈现视图。 |
 | ios/Void/Build 与 runtime/compiler.mjs | 独立的 WebKit 构建会话运行 IPA 自带的 TypeScript 和 esbuild-wasm。构建输入取自一次目录快照。 |
 | runtime/ui.js 与 ios/Void/UI | React 自定义渲染器提交带稳定标识的控件树。Swift 在提交时校验整棵树，再交给 SwiftUI。 |
 | ios/Void/Bridge 与 runtime/bridge.js | 以原生 WebKit 会话、主框架和回环来源确定请求身份。当前开放控件提交、页面状态及读取系统信息。 |

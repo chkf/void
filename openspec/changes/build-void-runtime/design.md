@@ -2,11 +2,11 @@
 
 ## Context
 
-void 从空目录建立。原始计划以 React 页面和 WKWebView 为主要界面。本次讨论确定，宿主和项目的常用界面由真实 SwiftUI 控件绘制，项目继续使用 React/TypeScript 开发。Web 页面仍是受支持的项目内容。原始范围及十八组 SDK 能力见 [项目计划](../../../docs/PROJECT_PLAN.md)。
+void 从空目录建立。原始计划以 React 页面和 WKWebView 为主要界面。宿主和默认项目现在直接用 Swift 编写 SwiftUI 页面。React/TSX 项目继续使用原生控件渲染器，HTML 项目继续使用 WebKit。原始范围及十八组 SDK 能力见 [项目计划](../../../docs/PROJECT_PLAN.md)。
 
 ## Goals / Non-Goals
 
-已安装的 IPA 提供可组合的原生控件与系统能力。Agent 在 Files 中增改页面和业务逻辑即可更新项目。新增底层原生控件、原生方法或签名能力随新版宿主交付。项目决定业务界面与数据模型，宿主负责管理、授权和恢复。
+IPA 包含编译好的 SwiftUI 项目视图、可供脚本组合的原生控件与系统能力。Swift 源码变更通过新版 IPA 交付，脚本项目可在 Files 中增改页面和业务逻辑后直接更新。宿主负责管理、目录授权和恢复。
 
 ## Decisions
 
@@ -21,9 +21,13 @@ void 从空目录建立。原始计划以 React 页面和 WKWebView 为主要界
 
 列表与表单采用系统字型、语义色和标准间距。侧滑返回、取消手势、键盘、动态字体及 VoiceOver 纳入验收。系统导航栈可向业务层同步最终路径。[Apple 导航模型](https://developer.apple.com/documentation/swiftui/understanding-the-navigation-stack) · [SwiftUI 辅助功能](https://developer.apple.com/documentation/swiftui/view-accessibility)
 
-### TypeScript 如何驱动 SwiftUI
+### 默认项目如何运行 SwiftUI
 
-`@runtime/ui` 提供类型化 React 组件。新模板在清单中声明 `uiMode: "native"` 和 TSX 入口。显式 `web` 模式或缺少此字段且有有效 HTML 入口的既有项目沿用 React DOM。原生页面可把某条路由交给 Web Runtime。Web 页面进入和退出原生导航时使用同一项目权限。
+清单的 `uiMode` 为 `swiftui`，入口为 `SwiftUI/ProjectContentView.swift`。Xcode 将模板目录中的 Swift 文件编译进应用，GitHub Actions 将未签名的 arm64 IPA 发布到 Releases。宿主创建项目时复制同一套源码，打开时核对文件名和内容并显示 `ProjectContentView(projectName:)`。直接使用 SwiftUI 的状态绑定和系统导航，无需启动脚本会话。外部编辑的 Swift 源文件需要同步回仓库、重新构建并签名安装；源码与已安装版本不匹配时，宿主显示对应说明。
+
+### 可选的 TypeScript 项目如何驱动 SwiftUI
+
+`@runtime/ui` 提供类型化 React 组件。TSX 模板及旧项目在清单中声明 `uiMode: "native"` 和 TSX 入口。显式 `web` 模式或缺少此字段且有有效 HTML 入口的项目使用 WebKit。原生页面可把某条路由交给 Web Runtime。Web 页面进入和退出原生导航时使用同一项目权限。
 
 原生模式的 JS 逻辑由项目所属的 WebKit 内容会话执行。React 的自定义渲染器只提交可序列化的控件类型、稳定节点 ID、属性、子节点和事件 ID。Swift 侧按注册表校验类型、属性、协议版本与父子关系，在主线程把一次更新完整提交给 SwiftUI。React 和渲染器配套锁定版本。网页入口使用 React DOM 并继续支持 CSS。[React 自定义渲染器接口](https://github.com/react/react/blob/main/packages/react-reconciler/README.md)
 
@@ -46,7 +50,7 @@ void 从空目录建立。原始计划以 React 页面和 WKWebView 为主要界
 
 预置浏览器版 `esbuild-wasm` 和 TypeScript 编译器，在独立构建会话中处理受协调的输入快照。前者负责 TSX、CSS、资源、模块图和 Source Map，后者负责类型诊断。模块解析器只暴露当前快照及校验后的锁定模块。工具链及预置依赖的精确版本与摘要随宿主发布。构建工具和项目代码的执行上下文分开。[esbuild 浏览器 API](https://esbuild.github.io/api/#browser)
 
-按源码、工具链、锁文件生成构建标识。候选在独立目录写完并校验后，再核对当前源码修订。在一次原子提交中记录候选指针和上次成功指针。SwiftUI 模式须成功提交首棵有效控件树，Web 模式须完成入口启动握手，之后才标记可运行。冷启动时若上次候选尚未确认，恢复上个成功版本。首次构建失败则保留诊断，供用户修复或重新导入。
+脚本项目按源码、工具链、锁文件生成构建标识。候选在独立目录写完并校验后，再核对当前源码修订。在一次原子提交中记录候选指针和上次成功指针。原生 TSX 模式须提交首棵有效控件树，Web 模式须完成入口启动握手，之后才标记可运行。冷启动时若上次候选尚未确认，恢复上个成功版本。首次构建失败则保留诊断，供用户修复或重新导入。
 
 CSS 和声明了热替换边界的模块支持 HMR。逻辑模块按依赖图重载，入口、依赖及配置变化执行完整重载，进程失效时由 Swift 重启会话。构建产物、用户数据与日志不属于源码观察范围，避免更新循环。
 
@@ -73,4 +77,4 @@ Files 中的 `data/` 可保存用户选择共享的项目数据。项目私有 S
 
 ## Migration Plan
 
-首版没有宿主历史数据。导入原计划格式的 Web 项目时保留源码和数据，解释旧清单的 HTML 入口。新建项目选用原生 TSX 模板。以后每次升级分别检查项目格式、控件协议、原生 SDK 与数据模式版本，兼容性错误在激活候选前报告。
+新建项目默认选择 SwiftUI。已有原生 TSX 项目保留 `native` 模式、目录和身份，HTML 项目继续从旧清单的入口打开。升级时分别检查项目格式、控件协议、原生 SDK 与数据模式版本，兼容性错误在激活前报告。

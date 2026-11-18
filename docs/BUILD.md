@@ -1,6 +1,6 @@
 # 构建与签名
 
-GitHub Actions 使用 macOS 15、Xcode 16.4 和 Node.js 22.20.0 构建 arm64 iPhone 安装包，最低 iOS 17。模拟器使用 iOS 18.5 镜像，其测试构建按 Apple 提供的 WebKit 兼容方式设置 18.4 的模拟器部署目标。推送、拉取请求或手动运行工作流均可构建当前分支。[构建记录](https://github.com/chkf/void/actions/workflows/ios.yml) · [运行器镜像](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md) · [Apple 对 iOS 18.5 模拟器的说明](https://developer.apple.com/forums/thread/785964)
+GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.2 SDK，生成 arm64 iPhone 安装包，并在 iOS 27.2 模拟器上测试。最低安装版本设为 iOS 17。Node.js 22.20.0 负责打包 TSX/HTML 项目使用的离线工具链。[构建记录](https://github.com/chkf/void/actions/workflows/ios.yml) · [GitHub 镜像](https://github.com/actions/runner-images/blob/main/images/macos/xcode-27-arm64-Readme.md) · [Apple 版本说明](https://developer.apple.com/documentation/xcode-release-notes/xcode-27_2-release-notes)
 
 | Actions 产物 | 用途 |
 | --- | --- |
@@ -13,7 +13,8 @@ GitHub Actions 使用 macOS 15、Xcode 16.4 和 Node.js 22.20.0 构建 arm64 iPh
 在装有对应 Xcode 和 iOS Simulator 的 Mac 上，从仓库根目录执行以下命令可复现工作流。
 
 ```sh
-export DEVELOPER_DIR=/Applications/Xcode_16.4.app/Contents/Developer
+export DEVELOPER_DIR=/Applications/Xcode_27.2.app/Contents/Developer
+export VOID_IOS_SDK=27.2
 npm ci
 npm run openspec -- validate --all --strict
 npm test
@@ -21,6 +22,6 @@ bash scripts/ios-build.sh device
 bash scripts/ios-build.sh test
 ```
 
-`npm test` 根据锁文件生成 `ios/Toolchain` 并运行编译测试。Xcode 通过文件夹引用将工具链及模板复制进应用。开发时可以只运行 `npm run prepare:ios`，然后打开 `ios/Void.xcodeproj`，选择共享 scheme **Void**。构建脚本将产物写在 `.build/ios`。
+Xcode 将 `ios/StarterProject/app/SwiftUI/` 下的 Swift 文件直接编译进 VoidHost，并将同一份模板源码复制进安装包，供创建和核对项目。可在该目录添加其他 Swift 文件。保留入口 `ProjectContentView(projectName:)` 即可。开发时运行 `npm run prepare:ios` 生成工具链，在 Xcode 中打开 `ios/Void.xcodeproj` 并选择 **Void**。构建脚本将产物写入 `.build/ios`。
 
 要安装到自己的 iPhone，在 Xcode 的 VoidHost target → Signing & Capabilities 中选择有权限的 Team 和可用的 Bundle Identifier，然后选择已配对的设备运行。CI 的默认构建无需 Apple 签名凭据。[Apple 设备运行说明](https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices)

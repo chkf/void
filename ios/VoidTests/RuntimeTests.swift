@@ -59,6 +59,13 @@ final class RuntimeTests: XCTestCase {
         try await wait { host.page != nil || host.problem != nil || host.notice != nil }
         let original = try XCTUnwrap(host.page, host.problem ?? host.notice ?? "")
         XCTAssertEqual(original.nodes.first?.type, "Form")
+        let toggle = try XCTUnwrap(original.nodes.first?.children.first?.children.first { $0.type == "Toggle" })
+        let sequence = original.event(toggle.id, name: "onChange", value: false)
+        try await wait { original.acknowledged >= sequence || host.problem != nil }
+        XCTAssertNil(host.problem)
+        let children = try XCTUnwrap(original.nodes.first?.children.first?.children)
+        XCTAssertEqual(children.first { $0.type == "Toggle" }?.flag, false)
+        XCTAssertFalse(children.contains { $0.type == "Text" })
         let source = project.appendingPathComponent("app/src/main.tsx")
         let saved = try Data(contentsOf: source)
         try Data("const broken: number = '无效';".utf8).write(to: source, options: .atomic)

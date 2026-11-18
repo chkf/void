@@ -13,7 +13,7 @@
 #### Scenario: 再次启动已授权项目
 
 - **WHEN** 上次使用的目录仍可访问，用户重新启动宿主
-- **THEN** 宿主解析书签并打开原项目，显示用户在停用期间保存的源码版本。
+- **THEN** 宿主解析书签并打开原项目。脚本项目加载停用期间保存的源码，SwiftUI 项目核对源码与已安装的编译版本。
 
 #### Scenario: 用户撤销目录授权
 
@@ -27,7 +27,7 @@
 #### Scenario: 创建可供 Agent 编辑的项目
 
 - **WHEN** 用户在已选目录创建项目
-- **THEN** 生成可运行的原生界面模板，包含 `runtime.json`、`app/{manifest.json,package.json,index.html,src/}`、`assets/`、`modules/`、`data/`、`logs/` 和 `README.md`，入口 TSX 可以直接编辑。
+- **THEN** 默认模板包含 `runtime.json`、`app/manifest.json`、`app/SwiftUI/ProjectContentView.swift`、`assets/`、`modules/`、`data/`、`logs/` 和 `README.md`。选择 React/TSX 模板时生成 `app/package.json` 和 `app/src/main.tsx`。
 
 #### Scenario: 导入配置损坏或不兼容的项目
 
