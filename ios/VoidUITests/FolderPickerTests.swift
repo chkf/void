@@ -127,44 +127,75 @@ final class FolderPickerTests: XCTestCase {
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:30),app.debugDescription)
     }
 
-    // This exercises Apple's visible system button without waiting on the accessibility
-    // tree of the out-of-process Files extension. The host result and TSX frame are
-    // still asserted separately and the directory comes from the real picker delegate.
-    private func tapVisiblePickerText(_ labels: Set<String>, topRight: Bool, timeout: TimeInterval) throws -> Bool {
-        let end = Date().addingTimeInterval(timeout)
+    private struct VisiblePickerLabel {
+        let text: String
+        let point: CGPoint
+    }
+
+    private func pickerLabels() throws -> [VisiblePickerLabel] {
+        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        request.recognitionLanguages = ["en-US","zh-Hans"]
+        try VNImageRequestHandler(cgImage:image,options:[:]).perform([request])
+        return (request.results ?? []).compactMap { line in
+            guard let candidate = line.topCandidates(1).first else { return nil }
+            let text = candidate.string.trimmingCharacters(in:.whitespacesAndNewlines.union(.punctuationCharacters)).lowercased()
+            let box = line.boundingBox
+            return VisiblePickerLabel(text:text,point:CGPoint(x:box.midX,y:1-box.midY))
+        }
+    }
+
+    private func tap(_ label: VisiblePickerLabel) {
+        app.coordinate(withNormalizedOffset:CGVector(dx:label.point.x,dy:label.point.y)).tap()
+    }
+
+    // Files treats directoryURL as a hint. Navigate its visible folders and verify
+    // the app/ child before opening, even when the provider starts at another level.
+    private func pickLocalProjectInFiles() throws {
+        let end = Date().addingTimeInterval(90)
+        var lastScreen: [String] = []
         repeat {
-            let screenshot = XCUIScreen.main.screenshot()
-            let image = try XCTUnwrap(screenshot.image.cgImage)
-            let request = VNRecognizeTextRequest()
-            request.recognitionLevel = .accurate
-            request.usesLanguageCorrection = false
-            request.recognitionLanguages = ["en-US","zh-Hans"]
-            try VNImageRequestHandler(cgImage:image,options:[:]).perform([request])
-            for line in request.results ?? [] {
-                let box = line.boundingBox
-                if topRight && (box.midX < 0.60 || box.midY < 0.72) { continue }
-                let text = line.topCandidates(1).first?.string
-                    .trimmingCharacters(in:.whitespacesAndNewlines.union(.punctuationCharacters)).lowercased() ?? ""
-                if labels.contains(text) {
-                    app.coordinate(withNormalizedOffset:CGVector(dx:box.midX,dy:1-box.midY)).tap()
-                    return true
-                }
+            let labels = try pickerLabels()
+            let open = labels.first { ["open","打开"].contains($0.text) && $0.point.x > 0.6 && $0.point.y < 0.3 }
+            let entries = labels.filter { $0.point.y > 0.19 && $0.point.y < 0.9 }
+            let screen = labels.map(\.text)
+            if screen != lastScreen {
+                print("Files simulator screen",screen.prefix(40))
+                lastScreen = screen
             }
-            RunLoop.current.run(until:Date().addingTimeInterval(0.4))
+            let atFixture = labels.contains { $0.point.y < 0.19 && ($0.text.contains("void picker") || $0.text.contains(String(token.prefix(8)).lowercased())) }
+            let hasSourceFolder = entries.contains { $0.text == "app" }
+            let hasManifestSibling = entries.contains { ["runtime.json","runtime","assets","modules"].contains($0.text) }
+            if let open, hasSourceFolder || (atFixture && hasManifestSibling) {
+                tap(open)
+                return
+            }
+            if atFixture {
+                RunLoop.current.run(until:Date().addingTimeInterval(1))
+                continue
+            }
+            let fixtureRow = entries.first { $0.text.contains("void picker") || $0.text == String(token.prefix(8)).lowercased() }
+            let container = entries.first { $0.text == "void" }
+            let location = entries.first { ["on my iphone","我的 iphone","我的iphone"].contains($0.text) }
+            let browse = labels.first { ["browse","浏览"].contains($0.text) && ($0.point.x < 0.3 || $0.point.y > 0.9) }
+            if let destination = fixtureRow ?? container ?? location ?? browse { tap(destination) }
+            RunLoop.current.run(until:Date().addingTimeInterval(1))
         } while Date() < end
-        return false
+        let shot = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
+        shot.name = "本机 Files 导航最后画面"; shot.lifetime = .keepAlways; add(shot)
+        XCTFail("Files 尚未在测试项目目录显示 app 和 Open")
     }
 
     func testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory() throws {
         openLibrary()
         app.buttons["host.import"].tap()
-        guard try tapVisiblePickerText(["open","打开"],topRight:true,timeout:60) else {
-            let shot = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
-            shot.name = "系统选择器未显示可识别的 Open"; shot.lifetime = .keepAlways; add(shot)
-            XCTFail("等待系统 Files 的 Open 按钮超时")
-            return
-        }
-        _ = try tapVisiblePickerText(["allow","允许"],topRight:false,timeout:4)
+        try pickLocalProjectInFiles()
+        let end = Date().addingTimeInterval(5)
+        repeat {
+            if let allow = try pickerLabels().first(where:{ ["allow","允许"].contains($0.text) }) { tap(allow); break }
+        } while Date() < end
         let selected = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@","已找到「" + fixture + "」"),
                                                   object:app.staticTexts["folder.status"])
         XCTAssertEqual(XCTWaiter.wait(for:[selected],timeout:35),.completed,app.debugDescription)

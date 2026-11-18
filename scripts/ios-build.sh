@@ -123,12 +123,13 @@ case "${1:-device}" in
     xcrun simctl bootstatus "$device" -b
     xcrun simctl launch "$device" com.apple.DocumentsApp
     xcrun simctl terminate "$device" com.apple.DocumentsApp
+    local_test_status=0
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
       -only-testing:VoidUITests/FolderPickerTests/testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory \
-      -resultBundlePath "$out/local-picker.xcresult" test-without-building
+      -resultBundlePath "$out/local-picker.xcresult" test-without-building || local_test_status=$?
     container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
-    python3 - "$container/Library/Preferences/app.chkf.void.plist" <<'PY'
+    python3 - "$container/Library/Preferences/app.chkf.void.plist" "$local_test_status" <<'PY'
 import json, plistlib, sys, time
 
 events = []
@@ -141,6 +142,12 @@ for _ in range(30):
     if any(e["stage"] == "page.firstFrame" for e in events):
         break
     time.sleep(0.25)
+for event in events:
+    if event['purpose'] == 'import':
+        print(event['request'], event['stage'], event['milliseconds'], event['detail'],
+              event.get('domain', ''), event.get('code', ''), flush=True)
+if int(sys.argv[2]):
+    raise SystemExit(int(sys.argv[2]))
 picks = [e for e in events if e["stage"] == "picker.didPick"]
 assert len(picks) == 1, "本机 Files 必须只返回一次真实选中回调"
 picked = picks[0]
@@ -148,9 +155,6 @@ timeline = [e for e in events if e["request"] == picked["request"]]
 assert picked["detail"].startswith("count=1 "), "系统未返回唯一的目录"
 assert all(any(e["stage"] == step for e in timeline)
            for step in ["picker.present", "picker.dismiss", "import.result", "page.firstFrame"])
-for event in timeline:
-    if event["stage"] in ["picker.present","picker.didPick","picker.dismiss","import.result","page.firstFrame"]:
-        print(event["request"], event["stage"], event["milliseconds"], event["detail"])
 PY
     ;;
   run-tests)
