@@ -4,11 +4,27 @@ import Foundation
 
 struct ProjectSourceReader {
     static let configurationByteLimit = 1024 * 1024
+    static let maximumItems = 24_000
     var sourceByteLimit = 96 * 1024 * 1024
-    var itemLimit = 24_000
+    var itemLimit = Self.maximumItems
 
     enum Kind { case directory, file }
-    var children: (URL) throws -> [URL] = { try FileManager.default.contentsOfDirectory(at:$0,includingPropertiesForKeys:nil) }
+    var children: (URL) throws -> [URL] = { directory in
+        var failure: Error?
+        guard let listing = FileManager.default.enumerator(at:directory,includingPropertiesForKeys:[],
+            options:[.skipsSubdirectoryDescendants],errorHandler:{ _,error in failure = error; return false }) else {
+            throw DirectoryIssue(kind:.provider,item:"读取目录列表")
+        }
+        var entries: [URL] = []
+        for case let url as URL in listing where !url.lastPathComponent.hasPrefix(".") {
+            guard entries.count < ProjectSourceReader.maximumItems else {
+                throw DirectoryIssue(kind:.sourceLimit,item:"单个目录超过 " + String(ProjectSourceReader.maximumItems) + " 项")
+            }
+            entries.append(url)
+        }
+        if let failure { throw failure }
+        return entries
+    }
     var bytes: ((URL) throws -> Data)?
     struct Traits {
         var directory: Bool?
@@ -81,6 +97,7 @@ struct ProjectSourceReader {
                 urls = try children(directory)
             }
             return try urls.compactMap { url in
+                try io?.check()
                 let name = url.lastPathComponent
                 guard !name.hasPrefix(".") else { return nil }
                 guard ProjectFiles.component(name), Self.canonical(url.deletingLastPathComponent()) == parent else {

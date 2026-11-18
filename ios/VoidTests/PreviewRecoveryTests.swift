@@ -3,6 +3,18 @@ import XCTest
 
 @MainActor
 final class PreviewRecoveryTests: XCTestCase {
+    func testInterruptedLocalDiscoveryDoesNotOverrideANewerAction() {
+        let local = DirectoryTrace("local"), preview = DirectoryTrace("preview")
+        func events() -> [DirectoryEvent] { DirectoryJournal.shared.recent().filter { $0.request == local.id || $0.request == preview.id } }
+        local.event("local.request")
+        local.event("grant.accessor")
+        XCTAssertEqual(PreviewRecovery.interruptedLocalScan(events())?.0,local.id)
+        XCTAssertEqual(PreviewRecovery.interruptedLocalScan(events())?.1,"grant.accessor")
+        preview.event("preview.begin")
+        XCTAssertNil(PreviewRecovery.interruptedLocalScan(events()))
+        local.event("local.request"); local.event("local.result","OK")
+        XCTAssertNil(PreviewRecovery.interruptedLocalScan(events()))
+    }
     func testUpgradeRecognizesIncompleteDev4PreviewOnly() {
         let trace = DirectoryTrace("preview"), other = DirectoryTrace("preview")
         trace.event("preview.begin"); trace.event("scan.end"); other.event("preview.result")

@@ -23,7 +23,8 @@ final class HostModel: ObservableObject {
         return false
     }
     var shouldMonitor: Bool {
-        !showingOverview && workspaceTemplate == nil && (screen != nil || waitingEntry != nil)
+        !showingOverview && workspaceTemplate == nil && !userStoppedScanning &&
+            (screen != nil || waitingEntry != nil || problem != nil)
     }
     var page: ProjectPage? {
         if case let .script(value) = screen { return value }
@@ -86,6 +87,9 @@ final class HostModel: ObservableObject {
             if let interrupted, let original = records.first(where:{ $0.id == interrupted.project }) {
                 recoveryMessage = "「" + original.name + "」上次在「" + interrupted.stage.title + "」时中断。"
                 DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
+            } else if usesAppCatalog, let (id,stage) = PreviewRecovery.interruptedLocalScan(DirectoryJournal.shared.recent()) {
+                recoveryMessage = "上次本机目录检查中断，可在目录诊断查看最后一步。"
+                DirectoryTrace("local",id:id).event("local.interrupted",stage)
             } else if let id = catalog.last, let record = records.first(where:{ $0.id == id }) {
                 await open(record)
             }
@@ -264,7 +268,7 @@ final class HostModel: ObservableObject {
     }
 
     func refresh(force: Bool = false, remember: Bool = false, previous: Bool = false, trace input: DirectoryTrace? = nil) {
-        guard let record = current, force || (shouldMonitor && !userStoppedScanning) else { return }
+        guard let record = current, force || (!showingOverview && workspaceTemplate == nil && !userStoppedScanning) else { return }
         if force { userStoppedScanning = false }
         if let pending = work {
             guard force else { needsScan = true; return }

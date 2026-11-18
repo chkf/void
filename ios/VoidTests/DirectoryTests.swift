@@ -1,4 +1,5 @@
 import Darwin
+import SwiftUI
 import XCTest
 @testable import VoidHost
 
@@ -125,6 +126,14 @@ final class DirectoryTests: XCTestCase {
         XCTAssertTrue(events.contains("scan.configuration"))
         XCTAssertFalse(events.contains("scan.sources"))
         let host = HostModel(storage:store)
+        let scan = host.folders.begin(.local,origin:nil)
+        let scanLimit = ContinuousClock.now + .seconds(25)
+        while host.folders.active && ContinuousClock.now < scanLimit { try await Task.sleep(for:.milliseconds(50)) }
+        XCTAssertEqual(host.folders.phase,.succeeded,host.folders.message)
+        XCTAssertTrue(host.records.contains { $0.id == record.id })
+        XCTAssertNil(host.current)
+        XCTAssertFalse(host.busy)
+        XCTAssertFalse(DirectoryJournal.shared.recent().contains { $0.request == scan.id && $0.stage == "preview.begin" })
         await host.selectRecent(record)
         XCTAssertTrue(host.showingOverview)
         XCTAssertFalse(host.shouldMonitor)
@@ -370,12 +379,20 @@ final class DirectoryTests: XCTestCase {
         void start();
         ""","app/src/main.tsx")
         let host = HostModel(storage:store)
+        await host.load()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        let previousWindow = scene.windows.first(where:{ $0.isKeyWindow })
+        let window = UIWindow(windowScene:scene)
+        window.rootViewController = UIHostingController(rootView:HostView(model:host))
+        window.makeKeyAndVisible()
+        defer { window.isHidden = true; previousWindow?.makeKey() }
         await host.selectRecent(original)
         XCTAssertTrue(host.showingOverview)
         host.refresh(force:true,remember:true)
         let deadline = ContinuousClock.now + .seconds(110)
         while host.busy && ContinuousClock.now < deadline { try await Task.sleep(for:.milliseconds(100)) }
         XCTAssertEqual(host.page?.nodes.first?.children.first?.children.first?.text("value"),"原记录已读取",host.problem ?? "")
+        XCTAssertTrue(host.page?.view.window === window)
         XCTAssertEqual(host.current?.id,original.id)
         XCTAssertEqual(try Data(contentsOf:root.appendingPathComponent("runtime.json")),originalID)
         await host.showLibrary()

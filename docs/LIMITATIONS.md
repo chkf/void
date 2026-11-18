@@ -6,6 +6,8 @@
 
 本机发现现在只协调读取清单和目录身份。已预览过的最近记录先打开项目页，点「预览项目」才读源码、启动编译器或挂载项目页面。完整性核对分块计算摘要，每次读取至多 256 KiB。单份配置上限为 1 MiB，单次源码快照上限为 96 MiB 和 24,000 个可见条目。超出上限会在项目页显示原因。iOS 提供崩溃或卡顿报告时，诊断页在本机记录异常类别、信号或卡顿时长。[目录读取](../ios/Void/Projects/ProjectSourceReader.swift) · [Apple 系统诊断的交付条件](https://developer.apple.com/documentation/metrickit/mxmetricmanager)
 
+用相同的真实浏览器先后运行 dev.5 IPA 内的编译器和新版编译器。两次均能取消后重开，并编译带中文及空格相对导入的 TSX。对于同一个 3 MiB 原样媒体资源，dev.5 从本地服务读取了 1 次，新版读取了 0 次，并返回了正确的资源键。自动化也校验了 CSS 真正引用的二进制文件仍能打包。[编译器回归](../tests/compiler.test.mjs)
+
 ## v0.1.0-dev.5 预览卡住与中断恢复
 
 公开 arm64 IPA 共 6,043,439 字节，SHA-256 为 `a40f49f11772fa2eccada0b664cbe3aafc9e8966caa581ff1ab0d9d014868d8a`。首轮通过 32 项原生测试和 5 项界面测试，包括真正的 Files Open 和预览时结束进程再重开。另一项界面测试在 XCTest 读取系统选择器抓手时超时。[模拟器记录](https://github.com/chkf/void/actions/runs/44381000775/job/135072887562)

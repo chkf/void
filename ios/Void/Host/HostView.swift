@@ -120,7 +120,7 @@ struct HostView: View {
                 NavigationStack {
                     List {
                         if let recoveryMessage = model.recoveryMessage {
-                            Section("上次预览中断") { Text(verbatim:recoveryMessage).accessibilityIdentifier("preview.interrupted") }
+                            Section("上次操作中断") { Text(verbatim:recoveryMessage).accessibilityIdentifier("preview.interrupted") }
                         }
                         Section {
                             Button { projectName = ""; template = .swiftUI; panel = .create } label: { Label("创建项目", systemImage: "plus") }

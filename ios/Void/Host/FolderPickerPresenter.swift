@@ -115,7 +115,7 @@ struct DirectoryDiagnosticView: View {
         }.navigationTitle("目录诊断")
             .toolbar {
                 if let id = rows.last(where:{ ["picker.request","local.request","preview.begin","workspace.begin"].contains($0.stage) })?.request ?? rows.last?.request {
-                    let lines = rows.filter { $0.request == id }.map(\.line).joined(separator:"\n")
+                    let lines = rows.filter { $0.request == id || $0.purpose == "iOS" }.map(\.line).joined(separator:"\n")
                     ShareLink(item:lines) { Label("分享这次目录诊断",systemImage:"square.and.arrow.up") }
                 }
             }

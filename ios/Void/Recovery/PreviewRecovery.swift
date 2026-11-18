@@ -36,6 +36,15 @@ actor PreviewRecovery {
         return known ? nil : id
     }
 
+    static func interruptedLocalScan(_ entries: [DirectoryEvent]) -> (UUID,String)? {
+        let starts = ["local.request","picker.request","preview.begin","workspace.begin"]
+        guard let start = entries.last(where:{ starts.contains($0.stage) }), start.stage == "local.request" else { return nil }
+        let request = entries.filter { $0.request == start.request }
+        guard !request.contains(where:{ $0.stage == "local.result" || $0.stage == "local.interrupted" }) else { return nil }
+        let stage = request.last?.stage ?? start.stage
+        return (start.request,stage)
+    }
+
     func pending() throws -> PreviewAttempt? {
         do { return try JSONDecoder().decode(PreviewAttempt.self,from:Data(contentsOf:file)) }
         catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError { return nil }
