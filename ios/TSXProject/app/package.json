@@ -2,6 +2,7 @@
   "name": "void-tsx-project",
   "private": true,
   "dependencies": {
+    "@runtime/sdk": "1.1.0",
     "@runtime/ui": "1.0.0",
     "react": "18.3.1"
   }

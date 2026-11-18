@@ -8,7 +8,8 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const output = resolve(root, "ios/Toolchain");
 await mkdir(output, { recursive: true });
 const deps = JSON.parse(await readFile(join(root, "package.json"), "utf8")).devDependencies;
-const versions = { react: deps.react, "react-dom": deps["react-dom"], "@runtime/ui": "1.0.0", "@runtime/sdk": "1.0.0" };
+const versions = { react: deps.react, "react-dom": deps["react-dom"], "@runtime/ui": "1.0.0", "@runtime/sdk": "1.1.0" };
+await copyFile(join(root, "runtime/sdk-api.json"), join(output, "sdk-api.json"));
 const types = Object.create(null);
 async function declarations(dir, virtual, filter) {
   for (const entry of await readdir(dir, { withFileTypes: true })) {

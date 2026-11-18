@@ -24,6 +24,7 @@ struct ProjectInfo {
     let mode: UIMode
     let entry: String
     let permissions: [String]
+    let networkHosts: [String]
 }
 
 struct SourceSnapshot {
@@ -83,10 +84,12 @@ enum ProjectFiles {
         if manifest["permissions"] != nil && !(manifest["permissions"] is [String]) {
             throw RuntimeIssue("app/manifest.json · permissions 需要字符串数组")
         }
+        let networkHosts = manifest["networkHosts"] as? [String] ?? []
+        if manifest["networkHosts"] != nil && !(manifest["networkHosts"] is [String]) { throw RuntimeIssue("app/manifest.json · networkHosts 需要域名数组") }
         return ProjectInfo(declaredID: id ?? manifest["id"] as? String,
                            name: manifest["name"] as? String ?? folderName,
                            version: manifest["version"] as? String ?? "1.0.0", mode: mode,
-                           entry: entry, permissions: permissions)
+                           entry: entry, permissions: permissions, networkHosts: networkHosts)
     }
 
     private static func modeForManifest(_ manifest: [String: Any], entry: String) throws -> UIMode {

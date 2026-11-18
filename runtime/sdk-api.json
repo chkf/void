@@ -1,0 +1,192 @@
+{
+  "fs": {
+    "readFile": "files.read",
+    "readChunk": "files.read",
+    "readdir": "files.read",
+    "stat": "files.read",
+    "exists": "files.read",
+    "watch": "files.read",
+    "writeFile": "files.write",
+    "appendFile": "files.write",
+    "writeChunk": "files.write",
+    "deleteFile": "files.write",
+    "copyFile": "files.write",
+    "moveFile": "files.write",
+    "mkdir": "files.write",
+    "pick": "files.pick",
+    "importFile": "files.pick",
+    "exportFile": "files.share",
+    "share": "files.share"
+  },
+  "photos": {
+    "authorization": "",
+    "pick": "photos.pick",
+    "requestAccess": "photos.read",
+    "asset": "photos.read",
+    "thumbnail": "photos.read",
+    "save": "photos.write"
+  },
+  "camera": {
+    "authorization": "",
+    "available": "",
+    "open": "camera",
+    "switchCamera": "camera",
+    "configure": "camera",
+    "capturePhoto": "camera",
+    "startRecording": "camera",
+    "stopRecording": "camera",
+    "close": "camera"
+  },
+  "audio": {
+    "authorization": "",
+    "record": "audio.record",
+    "stopRecording": "audio.record",
+    "play": "audio.play",
+    "pause": "audio.play",
+    "resume": "audio.play",
+    "stop": "audio.play",
+    "volume": "audio.play",
+    "info": "audio.play",
+    "session": "audio.play",
+    "route": "audio.play",
+    "watchRoute": "audio.play",
+    "importFile": "files.pick",
+    "exportFile": "files.share"
+  },
+  "video": {
+    "play": "video",
+    "pause": "video",
+    "resume": "video",
+    "seek": "video",
+    "stop": "video",
+    "info": "video",
+    "thumbnail": "video",
+    "transcode": "video",
+    "importFile": "files.pick",
+    "exportFile": "files.share"
+  },
+  "location": {
+    "authorization": "",
+    "current": "location.whenInUse",
+    "watch": "location.whenInUse",
+    "heading": "location.whenInUse",
+    "geocode": "location.whenInUse",
+    "reverseGeocode": "location.whenInUse"
+  },
+  "calendar": {
+    "authorization": "",
+    "listCalendars": "calendar.read",
+    "events": "calendar.read",
+    "createEvent": "calendar.write",
+    "updateEvent": "calendar.write",
+    "deleteEvent": "calendar.write"
+  },
+  "reminders": {
+    "authorization": "",
+    "lists": "reminders",
+    "list": "reminders",
+    "create": "reminders",
+    "update": "reminders",
+    "remove": "reminders",
+    "createList": "reminders",
+    "updateList": "reminders",
+    "deleteList": "reminders"
+  },
+  "contacts": {
+    "authorization": "",
+    "search": "contacts.read",
+    "get": "contacts.read",
+    "create": "contacts.write",
+    "update": "contacts.write",
+    "remove": "contacts.write"
+  },
+  "notifications": {
+    "authorization": "",
+    "request": "notifications",
+    "schedule": "notifications",
+    "cancel": "notifications",
+    "pending": "notifications",
+    "categories": "notifications",
+    "setCategories": "notifications",
+    "responses": "notifications"
+  },
+  "bluetooth": {
+    "authorization": "",
+    "state": "bluetooth",
+    "scan": "bluetooth",
+    "connect": "bluetooth",
+    "disconnect": "bluetooth",
+    "services": "bluetooth",
+    "characteristics": "bluetooth",
+    "read": "bluetooth",
+    "write": "bluetooth",
+    "subscribe": "bluetooth"
+  },
+  "nfc": {
+    "available": "",
+    "read": "nfc",
+    "write": "nfc"
+  },
+  "health": {
+    "available": "",
+    "types": "",
+    "authorization": "",
+    "authorizeRead": "health.read",
+    "query": "health.read",
+    "authorizeWrite": "health.write",
+    "write": "health.write"
+  },
+  "home": {
+    "homes": "home.read",
+    "accessories": "home.read",
+    "read": "home.read",
+    "scenes": "home.read",
+    "subscribe": "home.read",
+    "write": "home.write",
+    "runScene": "home.write"
+  },
+  "security": {
+    "random": "",
+    "hash": "",
+    "setSecret": "",
+    "getSecret": "",
+    "deleteSecret": "",
+    "encrypt": "",
+    "decrypt": "",
+    "biometricType": "",
+    "authenticate": "biometrics"
+  },
+  "system": {
+    "info": "",
+    "appearance": "",
+    "battery": "",
+    "readClipboard": "clipboard.read",
+    "writeClipboard": "clipboard.write",
+    "share": "system.share",
+    "preview": "system.share",
+    "openURL": "system.links",
+    "openSettings": "system.links",
+    "brightness": "system.display",
+    "setBrightness": "system.display",
+    "orientation": "system.display",
+    "haptic": "system.haptics"
+  },
+  "network": {
+    "status": "",
+    "watchStatus": "",
+    "request": "network",
+    "download": "network",
+    "upload": "network",
+    "openSocket": "network",
+    "sendSocket": "network",
+    "closeSocket": "network"
+  },
+  "graphics": {
+    "capabilities": "",
+    "imageInfo": "graphics",
+    "processImage": "graphics",
+    "execute": "database",
+    "query": "database",
+    "transaction": "database"
+  }
+}

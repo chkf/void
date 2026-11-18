@@ -149,6 +149,12 @@ struct HostView: View {
 private struct RunningPage: View {
     @ObservedObject var page: ProjectPage
     var body: some View {
+        VStack(spacing: 0) {
+            NativeMediaPreview(sdk: page.sdk)
+            content
+        }
+    }
+    @ViewBuilder private var content: some View {
         if page.product.mode == .web { ProjectSurface(page: page) }
         else {
             ZStack {
@@ -175,10 +181,7 @@ private struct ManagementView: View {
                     Button("切换项目") { close(); Task { await model.showLibrary() } }.accessibilityIdentifier("host.switch")
                     Button("重命名") { name = model.current?.name ?? ""; rename = true }
                     NavigationLink("权限声明") {
-                        List {
-                            if model.permissions.isEmpty { Text("此项目没有声明权限") }
-                            ForEach(model.permissions, id: \.self) { Text(verbatim: $0) }
-                        }.navigationTitle("权限声明")
+                        ProjectPermissionView(model: model)
                     }
                     NavigationLink("运行日志") {
                         List(Array(model.log.enumerated()), id: \.offset) { Text(verbatim: $0.element) }.navigationTitle("运行日志")
@@ -212,8 +215,14 @@ private struct SettingsView: View {
             LabeledContent("宿主版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
             LabeledContent("构建号", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
             LabeledContent("原生控件协议", value: "1")
-            LabeledContent("SDK 版本", value: "1.0.0")
-            Section("已接入能力") { Text("SwiftUI 页面"); Text("本地 Web 页面"); Text("系统信息") }
+            LabeledContent("SDK 版本", value: "1.1.0")
+            Section("SDK 能力") {
+                ForEach(SDKSession.methods.keys.sorted(), id: \.self) { group in
+                    NavigationLink(group) {
+                        List((SDKSession.methods[group] ?? [:]).keys.sorted(), id: \.self) { Text(verbatim: $0) }.navigationTitle(group)
+                    }
+                }
+            }
         }.navigationTitle("设置")
     }
 }

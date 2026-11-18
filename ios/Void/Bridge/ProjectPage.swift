@@ -6,7 +6,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     let id = UUID()
     let product: Product
     let view: WKWebView
-    let projectID: UUID
+    let sdk: SDKSession
     @Published private(set) var nodes: [NativeNode] = []
     @Published private(set) var revision = 0
     private(set) var acknowledged = 0
@@ -19,9 +19,9 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
 
-    init(product: Product, projectID: UUID) throws {
+    init(product: Product, record: ProjectRecord, storage: URL, permissions: [String], networkHosts: [String]) throws {
         self.product = product
-        self.projectID = projectID
+        sdk = SDKSession(record: record, storage: storage, permissions: permissions, networkHosts: networkHosts)
         server = try ResourceServer(files: product.files)
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
@@ -40,6 +40,11 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         config.userContentController.addUserScript(WKUserScript(source: startup, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         view = WKWebView(frame: .zero, configuration: config)
         super.init()
+        sdk.ui.anchor = view
+        sdk.events.deliver = { [weak self] id, name, value in
+            guard let self, self.valid else { return }
+            self.view.callAsyncJavaScript("window.__voidNativeEvent?.(event)", arguments: ["event": ["id":id, "type":name, "data":value]], in: nil, in: .page) { _ in }
+        }
         view.navigationDelegate = self
         config.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "voidRPC")
     }
@@ -59,6 +64,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     func stop() {
         guard valid else { return }
         valid = false
+        sdk.close()
         timeout?.cancel()
         view.configuration.userContentController.removeScriptMessageHandler(forName: "voidRPC", contentWorld: .page)
         view.stopLoading()
@@ -124,11 +130,12 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         case "runtime.error":
             guard let message = params["message"] as? String else { fail("INVALID_PARAMS", "缺少错误消息"); return }
             onFailure?(String(message.prefix(2048)))
-        case "system.info":
-            guard params.isEmpty else { fail("INVALID_PARAMS", "system.info 没有参数"); return }
-            let device = UIDevice.current
-            data = ["name": device.systemName, "version": device.systemVersion, "model": device.model]
-        default: fail("UNKNOWN_METHOD", "未注册的方法 " + method); return
+        case "sdk.cancel":
+            guard let request = params["id"] as? String else { fail("INVALID_PARAMS", "缺少请求标识"); return }
+            sdk.cancel(request)
+        default:
+            sdk.start(id: id, method: method, params: params, reply: replyHandler)
+            return
         }
         replyHandler(["id": id, "result": ["success": true, "data": data]], nil)
     }

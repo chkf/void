@@ -29,6 +29,8 @@ final class HostModel: ObservableObject {
     @Published private(set) var log: [String] = []
     private let library: ProjectLibrary
     private let products: ProductStore
+    private let storage: URL
+    private var networkHosts: [String] = []
     private var loaded = false
     private var generation = UUID()
     private var inspected: String?
@@ -41,6 +43,7 @@ final class HostModel: ObservableObject {
     init(storage: URL? = nil) {
         let base = storage ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("void")
         library = ProjectLibrary(base: base)
+        self.storage = base
         products = ProductStore(base: base.appendingPathComponent("Builds"))
     }
 
@@ -110,6 +113,7 @@ final class HostModel: ObservableObject {
         requestedPrevious = false
         busy = false
         permissions = []
+        networkHosts = []
         problem = nil
         log = []
     }
@@ -187,6 +191,10 @@ final class HostModel: ObservableObject {
                 try check(token)
                 mode = snapshot.info.mode
                 permissions = snapshot.info.permissions
+                networkHosts = snapshot.info.networkHosts
+                if let sdk = page?.sdk, !sdk.declared.isSubset(of: Set(permissions)) || !sdk.networkHosts.isSubset(of: Set(networkHosts.map { $0.lowercased() })) {
+                    sdk.close()
+                }
                 if remember || current?.name != snapshot.info.name || current?.version != snapshot.info.version {
                     try await list()
                     try check(token)
@@ -256,7 +264,7 @@ final class HostModel: ObservableObject {
 
     private func activate(_ product: Product, record: ProjectRecord, token: UUID, expected: String?) async throws {
         try check(token)
-        let next = try ProjectPage(product: product, projectID: record.id)
+        let next = try ProjectPage(product: product, record: record, storage: storage, permissions: permissions, networkHosts: networkHosts)
         candidate = next
         defer {
             if candidate === next { candidate = nil }

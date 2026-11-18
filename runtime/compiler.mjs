@@ -85,6 +85,10 @@ function typecheck(files, declarations, roots) {
   }
 }
 
+function matchesBuiltin(name, requested, installed) {
+  return requested === installed || (name === "@runtime/sdk" && requested === "1.0.0" && installed === "1.1.0");
+}
+
 function resolver(files, versions, declared) {
   return {
     name: "void-project",
@@ -94,7 +98,7 @@ function resolver(files, versions, declared) {
         if (args.kind === "entry-point") return { path: specifier, namespace: "project" };
         if (builtins.has(specifier)) {
           const pkg = specifier.startsWith("react-dom/") ? "react-dom" : specifier.split("/jsx-runtime")[0];
-          if (declared[pkg] !== versions[pkg]) throw new Error("app/package.json 缺少匹配的依赖 " + pkg + "@" + versions[pkg]);
+          if (!matchesBuiltin(pkg, declared[pkg], versions[pkg])) throw new Error("app/package.json 缺少匹配的依赖 " + pkg + "@" + versions[pkg]);
           return { path: specifier, namespace: "host-library" };
         }
         let path;
@@ -156,7 +160,7 @@ export async function compileProject(esbuild, input, declarations, versions) {
   const pkg = files["app/package.json"] ? JSON.parse(decoder.decode(files["app/package.json"])) : {};
   const declared = pkg.dependencies || {};
   for (const [name, version] of Object.entries(declared)) {
-    if (versions[name] === version) continue;
+    if (matchesBuiltin(name, version, versions[name])) continue;
     const local = files["modules/" + name + "/package.json"];
     if (!local || JSON.parse(decoder.decode(local)).version !== version) throw new Error("app/package.json 缺少锁定依赖 " + name + "@" + version);
   }
