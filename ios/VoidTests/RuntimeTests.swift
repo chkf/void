@@ -49,6 +49,47 @@ final class RuntimeTests: XCTestCase {
         await host.showLibrary()
     }
 
+    func testTSXCanWriteAndReadItsFileAfterReopening() async throws {
+        let name = "TSXFiles-" + UUID().uuidString
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent(name)
+        let project = FolderGrant.documents.appendingPathComponent(name)
+        let host = HostModel(storage: storage)
+        defer { try? FileManager.default.removeItem(at: storage); try? FileManager.default.removeItem(at: project) }
+        await host.create(name, parent: nil, template: .tsx)
+        let record = try XCTUnwrap(host.current)
+        for key in ["files.read", "files.write"] { SDKConsent.shared.set(true, for: key, project: record.id) }
+        defer { for key in ["files.read", "files.write"] { SDKConsent.shared.set(nil, for:key, project: record.id) } }
+        let source = """
+        import {render, Text} from "@runtime/ui";
+        import {ios} from "@runtime/sdk";
+        async function start() {
+          const path = "data/notes/first.txt";
+          const before = await ios.fs.exists({path});
+          if (!before.success) throw Error(before.error.message);
+          if (!before.data) {
+            const response = await ios.fs.writeFile({path, data:"下次见"});
+            if (!response.success) throw Error(response.error.message);
+          }
+          const saved = await ios.fs.readFile({path});
+          if (!saved.success) throw Error(saved.error.message);
+          render(<Text value={(before.data ? "重开" : "创建") + saved.data} />);
+        }
+        start().catch(error => render(<Text value={String(error)} />));
+        """
+        try Data(source.utf8).write(to: project.appendingPathComponent("app/src/main.tsx"), options:.atomic)
+        host.refresh(force:true)
+        try await wait { host.page != nil || host.problem != nil }
+        XCTAssertEqual(host.page?.nodes.first?.text("value"), "创建下次见", host.problem ?? "")
+        XCTAssertEqual(try String(contentsOf:project.appendingPathComponent("data/notes/first.txt"), encoding:.utf8),"下次见")
+        await host.showLibrary()
+        let reopened = HostModel(storage:storage)
+        await reopened.load()
+        await reopened.open(try XCTUnwrap(reopened.records.first))
+        try await wait { reopened.page != nil || reopened.problem != nil }
+        XCTAssertEqual(reopened.page?.nodes.first?.text("value"), "重开下次见", reopened.problem ?? "")
+        await reopened.showLibrary()
+    }
+
     func testBrokenEditKeepsNativePageAndProjectCanBeReopened() async throws {
         let name = "RuntimeTests-" + UUID().uuidString
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent(name)

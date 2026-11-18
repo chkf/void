@@ -31,7 +31,7 @@ struct HostView: View {
                                         Label(model.busy ? "正在预览" : "预览项目", systemImage: "play.fill")
                                     }.disabled(model.busy).accessibilityIdentifier("project.preview")
                                 } header: { Text("开始开发") } footer: {
-                                    Text("项目文件夹已准备好。可以先用编辑器写页面，也可以预览自带的示例。")
+                                    Text("用编辑器打开项目文件夹。保存页面后，点「预览项目」查看效果。")
                                 }
                                 if let problem = model.problem {
                                     Section("预览提示") { Text(verbatim: problem).textSelection(.enabled) }

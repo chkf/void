@@ -18,7 +18,8 @@ export async function request(method, params, options = {}) {
       };
       cancel = () => stop(cancelled());
       options.signal?.addEventListener("abort", cancel, { once: true });
-      if (options.timeoutMs > 0) timer = setTimeout(() => stop({success: false, error: {code:"TIMEOUT", message:"请求超时"}}), options.timeoutMs);
+      const timeout = options.timeoutMs ?? (method.startsWith("ui.") ? 0 : 120000);
+      if (timeout > 0) timer = setTimeout(() => stop({success: false, error: {code:"TIMEOUT", message:"请求超时"}}), timeout);
     });
     const response = await Promise.race([transport.postMessage({ version: 1, id, method, params }), interrupt]);
     if (response.id !== id) throw new Error("请求标识不匹配");

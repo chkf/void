@@ -110,7 +110,6 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         guard body?["version"] as? Int == 1 else { fail("UNSUPPORTED_VERSION", "不支持的协议版本"); return }
         guard UUID(uuidString: id) != nil, let method = body?["method"] as? String, let params = body?["params"] as? [String: Any]
         else { fail("INVALID_PARAMS", "请求格式无效"); return }
-        var data: Any = NSNull()
         switch method {
         case "ui.commit":
             guard product.mode == .native else { fail("INVALID_SESSION", "此页面使用 Web 模式"); return }
@@ -137,7 +136,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
             sdk.start(id: id, method: method, params: params, reply: replyHandler)
             return
         }
-        replyHandler(["id": id, "result": ["success": true, "data": data]], nil)
+        replyHandler(["id": id, "result": ["success": true, "data": NSNull()]], nil)
     }
 
     @discardableResult

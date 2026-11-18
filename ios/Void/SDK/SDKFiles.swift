@@ -6,6 +6,7 @@ final class SDKFiles: @unchecked Sendable {
     private let caches: URL
     let temporary: URL
     static let maxChunk = 4 * 1024 * 1024
+    private static let ioLock = NSLock()
     private let fm = FileManager.default
 
     init(record: ProjectRecord, storage: URL) {
@@ -23,11 +24,18 @@ final class SDKFiles: @unchecked Sendable {
     }
 
     func access<T>(_ path: String, write: Bool = false, _ body: (URL) throws -> T) throws -> T {
-        guard ProjectFiles.safePath(path) else { throw SDKFailure.denied("需要项目内的相对路径") }
-        let components = path.components(separatedBy: "/")
-        let scope = components[0]
-        guard !write || components.count > 1 else { throw SDKFailure.denied("请选择目录内的文件") }
-        func resolve(_ base: URL, _ parts: [String]) throws -> T {
+        try withPaths([path], writing: write ? [0] : []) { try body($0[0]) }
+    }
+
+    private func withPaths<T>(_ paths: [String], writing: Set<Int>, _ body: ([URL]) throws -> T) throws -> T {
+        let parts = try paths.enumerated().map { index, path -> [String] in
+            guard ProjectFiles.safePath(path) else { throw SDKFailure.denied("需要项目内的相对路径") }
+            let components = path.components(separatedBy: "/")
+            guard ["data","project","private","cache"].contains(components[0]) else { throw SDKFailure.denied("请选择 data/、project/、private/ 或 cache/ 内的路径") }
+            guard !writing.contains(index) || components.count > 1 else { throw SDKFailure.denied("请选择目录内的文件") }
+            return components
+        }
+        func resolve(_ base: URL, _ parts: [String]) throws -> URL {
             var url = base
             for component in parts {
                 url.appendPathComponent(component)
@@ -36,20 +44,30 @@ final class SDKFiles: @unchecked Sendable {
                     guard attrs[.type] as? FileAttributeType != .typeSymbolicLink else { throw SDKFailure.denied("文件路径包含符号链接") }
                 } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError {}
             }
-            return try body(url)
+            return url
         }
-        switch scope {
-        case "data", "project":
-            return try record.grant.coordinated(write: write) { root in
-                guard try ProjectLibrary.directoryKey(root) == record.directoryKey else { throw SDKFailure.denied("项目文件夹已变更，请重新授权") }
-                return try resolve(root, scope == "data" ? components : Array(components.dropFirst()))
+        func use(_ shared: URL?) throws -> T {
+            Self.ioLock.lock()
+            defer { Self.ioLock.unlock() }
+            let urls = try parts.map { components -> URL in
+                let scope = components[0]
+                if scope == "data" || scope == "project" {
+                    guard let shared else { throw SDKFailure.denied("项目目录不可用") }
+                    return try resolve(shared, scope == "data" ? components : Array(components.dropFirst()))
+                }
+                let root = scope == "private" ? storage.appendingPathComponent("Files") : caches
+                try fm.createDirectory(at: root, withIntermediateDirectories: true)
+                return try resolve(root, Array(components.dropFirst()))
             }
-        case "private", "cache":
-            let root = scope == "private" ? storage.appendingPathComponent("Files") : caches
-            try fm.createDirectory(at: root, withIntermediateDirectories: true)
-            return try resolve(root, Array(components.dropFirst()))
-        default: throw SDKFailure.denied("请选择 data/、project/、private/ 或 cache/ 内的路径")
+            return try body(urls)
         }
+        if parts.contains(where: { $0[0] == "data" || $0[0] == "project" }) {
+            return try record.grant.coordinated(write: !writing.isEmpty) { root in
+                guard try ProjectLibrary.directoryKey(root) == record.directoryKey else { throw SDKFailure.denied("项目文件夹已变更，请重新授权") }
+                return try use(root)
+            }
+        }
+        return try use(nil)
     }
 
     func input(_ path: String) throws -> URL {
@@ -109,11 +127,14 @@ final class SDKFiles: @unchecked Sendable {
             }
         case "copyFile", "moveFile":
             let target = try a.string("to")
-            let same = try access(path) { $0.standardizedFileURL } == access(target) { $0.standardizedFileURL }
-            if same { return NSNull() }
-            let copy = try input(path)
-            try store(copy, at: target, replace: false)
-            if method == "moveFile" { try access(path, write: true) { try fm.removeItem(at: $0) } }
+            try withPaths([path,target], writing:method == "moveFile" ? [0,1] : [1]) { urls in
+                let from = urls[0], to = urls[1]
+                guard try from.resourceValues(forKeys:[.isRegularFileKey]).isRegularFile == true else { throw SDKFailure.invalid("path") }
+                if from.standardizedFileURL == to.standardizedFileURL { return }
+                try fm.createDirectory(at:to.deletingLastPathComponent(),withIntermediateDirectories:true)
+                if method == "moveFile" { try fm.moveItem(at:from,to:to) }
+                else { try fm.copyItem(at:from,to:to) }
+            }
         case "readFile", "readChunk":
             let encoding = try a.choice("encoding", ["utf8", "base64"], method == "readChunk" ? "base64" : "utf8")
             return try access(path) { url in

@@ -26,6 +26,9 @@ struct SDKFailure: LocalizedError {
             }
         }
         if error is FolderAccessIssue { return Self("PERMISSION_DENIED", e.localizedDescription) }
+        if e.domain == "com.apple.healthkit", e.localizedDescription.localizedCaseInsensitiveContains("entitlement") {
+            return Self("MISSING_ENTITLEMENT", "当前签名没有所需的 HealthKit 能力")
+        }
         return Self("NATIVE_ERROR", e.localizedDescription)
     }
 

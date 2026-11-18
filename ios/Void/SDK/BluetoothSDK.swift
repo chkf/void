@@ -56,7 +56,12 @@ final class BluetoothSDK: NSObject, SDKModule, CBCentralManagerDelegate, CBPerip
         try await check(central)
         if method == "scan" {
             guard scanID == nil else { throw SDKFailure("BUSY","扫描已开始") }
-            let filters = try a.strings("services").map { CBUUID(string:$0) }, id = UUID().uuidString
+            let filters = try a.strings("services").map { text -> CBUUID in
+                let short = [4, 8].contains(text.count) && text.unicodeScalars.allSatisfy { "0123456789ABCDEFabcdef".unicodeScalars.contains($0) }
+                guard short || UUID(uuidString:text) != nil else { throw SDKFailure.invalid("services") }
+                return CBUUID(string:text)
+            }
+            let id = UUID().uuidString
             scanID = id
             central.scanForPeripherals(withServices:filters.isEmpty ? nil : filters,options:[CBCentralManagerScanOptionAllowDuplicatesKey:false])
             return s.events.add(id) { [weak self] in self?.central?.stopScan(); self?.scanID = nil }

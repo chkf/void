@@ -128,7 +128,18 @@ final class SystemSDK: SDKModule {
             guard let scene else { throw SDKFailure.unavailable("窗口不可用") }
             let value = try a.choice("value", ["portrait","landscapeLeft","landscapeRight","automatic"])
             let orientations: UIInterfaceOrientationMask = ["portrait":.portrait,"landscapeLeft":.landscapeLeft,"landscapeRight":.landscapeRight][value] ?? .allButUpsideDown
-            try await scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations))
+            let wait = SDKWait<Bool>()
+            scene.requestGeometryUpdate(.iOS(interfaceOrientations: orientations)) { error in wait.finish(.failure(error)) }
+            let observation = Task { @MainActor in
+                for _ in 0..<40 {
+                    let current = UIInterfaceOrientationMask(rawValue: 1 << scene.interfaceOrientation.rawValue)
+                    if !orientations.intersection(current).isEmpty { wait.finish(.success(true)); return }
+                    do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
+                }
+                wait.finish(.failure(SDKFailure.unavailable("当前窗口未切换到指定方向")))
+            }
+            defer { observation.cancel() }
+            _ = try await wait.value()
         default: throw SDKFailure("UNKNOWN_METHOD", method)
         }
         return NSNull()

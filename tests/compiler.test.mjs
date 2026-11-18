@@ -4,6 +4,7 @@ import vm from "node:vm";
 import { webcrypto } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import * as esbuild from "esbuild-wasm";
+import ts from "typescript";
 import { compileProject } from "../runtime/compiler.mjs";
 
 const root = new URL("../ios/", import.meta.url);
@@ -62,4 +63,50 @@ test("已有 HTML 项目编译模块、CSS 和资源，并隔离共享数据", a
 test("缺失或不兼容的依赖会中止构建", async () => {
   const files = { ...nativeFiles, "app/package.json": Buffer.from('{"dependencies":{"react":"99"}}') };
   await assert.rejects(compile({ ...template, files }), /react@99/);
+});
+
+test("18 组原生接口的 TypeScript、运行时和 IPA 注册表逐项一致", async () => {
+  const catalog = JSON.parse(await read("Toolchain/sdk-api.json"));
+  const context = vm.createContext({ setTimeout, clearTimeout, console, crypto: webcrypto });
+  vm.runInContext(libraries.toString(), context);
+  const sdk = context.__voidLibraries["@runtime/sdk"].ios;
+  const source = ts.createSourceFile("sdk.d.ts", types["/node_modules/@runtime/sdk/index.d.ts"], ts.ScriptTarget.Latest, true);
+  const declaration = source.statements.find(node => ts.isInterfaceDeclaration(node) && node.name.text === "NativeSDK");
+  assert.equal(Object.keys(catalog).length, 18);
+  for (const [group, methods] of Object.entries(catalog)) {
+    const names = Object.keys(methods).sort();
+    const field = declaration.members.find(node => node.name.text === group);
+    assert.deepEqual(field.type.members.map(node => node.name.text).sort(), names, group);
+    assert.deepEqual(Object.keys(sdk[group]).sort(), names, group);
+  }
+  assert.equal(sdk.version, versions["@runtime/sdk"]);
+  const files = { ...nativeFiles, "app/src/main.tsx": Buffer.from('import {ios} from "@runtime/sdk"; async function save(){ const res = await ios.fs.writeFile({path:"data/name.txt",data:"名字"}); if (!res.success) throw Error(res.error.code); } void save();') };
+  assert.ok((await compile({ ...template, files })).files["bundle/main.js"]);
+  files["app/package.json"] = Buffer.from('{"dependencies":{"@runtime/sdk":"1.0.0"}}');
+  assert.ok((await compile({ ...template, files })).files["bundle/main.js"]);
+  files["app/src/main.tsx"] = Buffer.from('import {ios} from "@runtime/sdk"; ios.fs.writeFile({path:9,data:"x"});');
+  await assert.rejects(compile({ ...template, files }), /TS2322/);
+});
+
+test("中止、超时与事件退订使用所属页面的桥接会话", async () => {
+  const messages = [];
+  const context = vm.createContext({ setTimeout, clearTimeout, console, crypto:webcrypto,
+    webkit:{messageHandlers:{voidRPC:{postMessage(message) {
+      messages.push(message);
+      return message.method === "sdk.cancel" ? Promise.resolve({id:message.id}) : new Promise(() => {});
+    }}}} });
+  vm.runInContext(libraries.toString(), context);
+  const sdk = context.__voidLibraries["@runtime/sdk"].ios;
+  const controller = new AbortController();
+  const running = sdk.fs.readFile({path:"data/x"},{signal:controller.signal});
+  controller.abort();
+  assert.equal((await running).error.code, "CANCELLED");
+  assert.equal(messages[1].params.id, messages[0].id);
+  assert.equal((await sdk.fs.readFile({path:"data/x"},{timeoutMs:5})).error.code,"TIMEOUT");
+  const events = [];
+  const unsubscribe = sdk.onEvent(event => events.push(event.id));
+  context.__voidNativeEvent({id:"local"});
+  unsubscribe();
+  context.__voidNativeEvent({id:"ended"});
+  assert.deepEqual(events, ["local"]);
 });
