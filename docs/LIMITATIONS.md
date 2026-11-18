@@ -1,5 +1,9 @@
 # 验证范围
 
+已重新下载并校验 `v0.1.0-dev.3` 的未签名 arm64 IPA。附件为 5,857,892 字节，SHA-256 为 `7dcbf919cea7ede902814f9b3b3f21073242ff3aa20db62b2787d742ab45b3f3`。包内记录为 Xcode 27.2（27B52）、iOS 27.2 SDK、最低 iOS 17.0、构建号 3。归档内包含 SwiftUI 和 TSX 模板、18 组 156 个注册方法、类型定义及离线开发手册。[Release 附件](https://github.com/chkf/void/releases/tag/v0.1.0-dev.3) · [发布构建](https://github.com/chkf/void/actions/runs/44338862849)
+
+`v0.1.0-dev.3` 的同一提交在 iPhone 17、iOS 27.2 模拟器通过 15 项单元与运行时测试及 1 项界面测试。测试从 TSX 写入中文文件，关闭项目后读回原值，并检查文件隔离、权限拒绝、SQLite 事务回滚、Keychain 存取、加密解密和 HTTP 下载。测试在临时模拟器上增删改了联系人、日历事件和提醒，保存并回读照片，还取得了预设的位置。音视频和图像测试使用生成的媒体文件。界面测试覆盖新建后手动预览、重启和滑动移除最近记录。[模拟器测试记录](https://github.com/chkf/void/actions/runs/44335111783/job/134909575787)
+
 `v0.1.0-dev.2` 的默认项目使用 SwiftUI 源码。已从 Release 重新下载 IPA 并校验归档、arm64 可执行文件、SwiftUI 源文件和 TSX 兼容模板。包内记录为 Xcode 27.2（27B52）、iOS 27.2 SDK、最低 iOS 17.0、构建号 2。5,385,735 字节的附件 SHA-256 为 `e795af0f8c574591d23aa707bd1f889d1ca99a74db86761cb0d306ffa9303927`。[SwiftUI 版下载](https://github.com/chkf/void/releases/tag/v0.1.0-dev.2) · [构建和测试](https://github.com/chkf/void/actions/runs/44318674826)
 
 同一提交在 iPhone 17、iOS 27.2 模拟器上通过 7 项单元与运行时测试及 1 项界面测试。界面测试从默认模板创建项目，操作开关并输入名字，结束进程后重新打开原项目，再进入管理面板。运行时测试覆盖 Swift 源码不匹配提示、TSX 控件事件和失败后保留页面。[模拟器测试记录](https://github.com/chkf/void/actions/runs/44318674826/job/134851477091)
