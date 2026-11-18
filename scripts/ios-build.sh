@@ -121,6 +121,8 @@ case "${1:-device}" in
   local-picker)
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
+    xcrun simctl launch "$device" com.apple.DocumentsApp
+    xcrun simctl terminate "$device" com.apple.DocumentsApp
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
       -only-testing:VoidUITests/FolderPickerTests/testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory \

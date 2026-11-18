@@ -13,32 +13,22 @@ enum SimulatorPickerFixture {
         guard let target = directory else { return }
         let name = target.lastPathComponent
         try await DirectoryIO.run { io in
-            let coordinator = NSFileCoordinator()
-            try io.withCoordinator(coordinator) {
-                var failure: NSError?
-                var result: Result<Void,Error>?
-                coordinator.coordinate(writingItemAt:target,options:[],error:&failure) { location in
-                    result = Result {
-                        try io.check()
-                        if !FileManager.default.fileExists(atPath:location.path) {
-                            _ = try ProjectFiles.create(name,in:location.deletingLastPathComponent(),template:.tsx,io:io)
-                            if ProcessInfo.processInfo.environment["VOID_TEST_SLOW_FIRST_FRAME"] == "1" {
-                                let source = """
-                                import {render, Text} from "@runtime/ui";
-                                setTimeout(() => render(<Text value="预览已恢复"/>), 25000);
-                                """
-                                try Data(source.utf8).write(to:location.appendingPathComponent("app/src/main.tsx"),options:.atomic)
-                            }
-                        }
-                        let snapshot = try ProjectFiles.snapshot(at:location,io:io)
-                        guard snapshot.info.name == name, snapshot.info.mode == .native else { throw RuntimeIssue("模拟器测试项目无效") }
-                        DirectoryTrace("ui-test").event("fixture.ready")
-                    }
+            // This is a new fixture in this test app's own sandbox, created before
+            // the Files picker opens. ProjectFiles publishes it with an atomic rename.
+            try io.check()
+            if !FileManager.default.fileExists(atPath:target.path) {
+                _ = try ProjectFiles.create(name,in:target.deletingLastPathComponent(),template:.tsx,io:io)
+                if ProcessInfo.processInfo.environment["VOID_TEST_SLOW_FIRST_FRAME"] == "1" {
+                    let source = """
+                    import {render, Text} from "@runtime/ui";
+                    setTimeout(() => render(<Text value="预览已恢复"/>), 25000);
+                    """
+                    try Data(source.utf8).write(to:target.appendingPathComponent("app/src/main.tsx"),options:.atomic)
                 }
-                if let failure { throw failure }
-                guard let result else { throw RuntimeIssue("模拟器未能准备界面测试目录") }
-                try result.get()
             }
+            let snapshot = try ProjectFiles.snapshot(at:target,io:io)
+            guard snapshot.info.name == name, snapshot.info.mode == .native else { throw RuntimeIssue("模拟器测试项目无效") }
+            DirectoryTrace("ui-test").event("fixture.ready")
         }
     }
 }

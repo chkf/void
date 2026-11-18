@@ -71,8 +71,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run prepare:ios
-      - run: bash scripts/ios-build.sh start-simulator
       - run: bash scripts/ios-build.sh build-tests
+      - run: bash scripts/ios-build.sh start-simulator
       - run: bash scripts/ios-build.sh local-picker
       - name: 保存系统选择与首屏结果
         if: ${{ !cancelled() }}
@@ -135,8 +135,8 @@ jobs:
   release:
     name: 发布 iPhone 安装包
     if: >-
-      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.iphone.result == 'success' && needs.preview-release.result == 'success' && needs.local-picker.result == 'success' &&
-          (needs.simulator.result == 'success' || contains(github.ref_name, '-dev.')) }}
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.iphone.result == 'success' && needs.preview-release.result == 'success' &&
+          ((needs.simulator.result == 'success' && needs.local-picker.result == 'success') || contains(github.ref_name, '-dev.')) }}
     needs: [iphone, simulator, preview-release, local-picker]
     runs-on: ubuntu-latest
     permissions:
@@ -152,6 +152,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           SIMULATOR_RESULT: ${{ needs.simulator.result }}
+          LOCAL_PICKER_RESULT: ${{ needs.local-picker.result }}
         run: |
           set -euo pipefail
           tag="$GITHUB_REF_NAME"
@@ -160,7 +161,7 @@ jobs:
           prerelease=()
           if [[ "$tag" == *-* ]]; then prerelease=(--prerelease); fi
           simulator_note='同一提交的 iPhone 模拟器测试已通过。'
-          if [[ "$SIMULATOR_RESULT" != success ]]; then
+          if [[ "$SIMULATOR_RESULT" != success || "$LOCAL_PICKER_RESULT" != success ]]; then
             simulator_note='同一提交的模拟器测试尚未全部通过，具体执行结果见下方测试记录。'
           fi
           notes="$RUNNER_TEMP/void-release.md"
