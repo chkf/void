@@ -24,6 +24,30 @@ print(name, "iOS " + ".".join(map(str, version)), file=sys.stderr)
 print(udid)' "$(xcrun --sdk iphonesimulator --show-sdk-version)" "${VOID_IOS_SDK:-}"
 }
 
+# This second, simulator-only Files container exercises an external security-scoped
+# selection. Its real Documents root contains the checked-in TSX regression fixture.
+install_picker_fixture() {
+  local device="$1" staging fixture_app fixture_id data
+  fixture_id=app.chkf.void.pickerfixture
+  staging=$(mktemp -d "$out/files-fixture.XXXXXX")
+  fixture_app="$staging/VoidFilesQA.app"
+  ditto "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$fixture_app"
+  /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $fixture_id" "$fixture_app/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Void Files QA' "$fixture_app/Info.plist"
+  /usr/libexec/PlistBuddy -c 'Set :CFBundleName VoidFilesQA' "$fixture_app/Info.plist"
+  codesign --force --sign - --timestamp=none "$fixture_app"
+  xcrun simctl install "$device" "$fixture_app"
+  data=$(xcrun simctl get_app_container "$device" "$fixture_id" data)
+  if [[ ! -e "$data/Documents/runtime.json" && ! -e "$data/Documents/app" ]]; then
+    ditto ios/TSXProject/app "$data/Documents/app"
+    cp ios/TSXProject/runtime.json "$data/Documents/runtime.json"
+  fi
+  cmp ios/TSXProject/runtime.json "$data/Documents/runtime.json"
+  cmp ios/TSXProject/app/manifest.json "$data/Documents/app/manifest.json"
+  xcrun simctl launch "$device" "$fixture_id"
+  xcrun simctl terminate "$device" "$fixture_id"
+}
+
 case "${1:-device}" in
   device)
     xcodebuild "${args[@]}" -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
@@ -64,6 +88,7 @@ case "${1:-device}" in
   run-tests)
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
+    install_picker_fixture "$device"
     if [[ "${VOID_SIMULATOR_FIXTURES:-}" == 1 ]]; then
       xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
       container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
@@ -87,8 +112,7 @@ try:
         events = json.loads(plistlib.load(preferences).get("void.directoryDiagnostics.v1", b"[]"))
 except (OSError, ValueError, plistlib.InvalidFileException):
     events = []
-actual = {e["request"] for e in events if e["stage"] == "picker.willPresent" or
-          (e["stage"] == "picker.didPick" and "Void Picker " in e["detail"])}
+actual = {e["request"] for e in events if e["stage"] in ("picker.willPresent", "picker.didPick", "local.request")}
 for e in events:
     if e["request"] in actual or e["stage"] == "fixture.ready":
         print(e["request"], e["purpose"], e["stage"], f'+{e["milliseconds"]}ms',
