@@ -110,12 +110,46 @@ case "${1:-device}" in
       -only-testing:VoidTests/DirectoryTests/testLocalScanAndRecentSelectionDoNotReadOrStartAProject \
       -only-testing:VoidTests/DirectoryTests/testFingerprintMatchesFullContentsWithoutRetainingAssetsAndBoundsGrowingSources \
       -only-testing:VoidTests/DirectoryTests/testRecentTSXPreviewsExistingSQLiteThroughNativeFirstFrame \
+      -only-testing:VoidTests/PreviewRecoveryTests/testNewWorkspaceRemainsSelectedAfterADifferentInterruptedPreview \
       -resultBundlePath "$out/release-preview.xcresult" test
     ;;
   test)
     bash scripts/ios-build.sh build-tests
     bash scripts/ios-build.sh start-simulator
     bash scripts/ios-build.sh run-tests
+    ;;
+  local-picker)
+    device=$(choose_simulator)
+    xcrun simctl bootstatus "$device" -b
+    xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+      -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
+      -only-testing:VoidUITests/FolderPickerTests/testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory \
+      -resultBundlePath "$out/local-picker.xcresult" test-without-building
+    container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
+    python3 - "$container/Library/Preferences/app.chkf.void.plist" <<'PY'
+import json, plistlib, sys, time
+
+events = []
+for _ in range(30):
+    try:
+        with open(sys.argv[1], "rb") as stream:
+            events = json.loads(plistlib.load(stream).get("void.directoryDiagnostics.v1", b"[]"))
+    except (OSError, ValueError):
+        pass
+    if any(e["stage"] == "page.firstFrame" for e in events):
+        break
+    time.sleep(0.25)
+picks = [e for e in events if e["stage"] == "picker.didPick"]
+assert len(picks) == 1, "本机 Files 必须只返回一次真实选中回调"
+picked = picks[0]
+timeline = [e for e in events if e["request"] == picked["request"]]
+assert picked["detail"].startswith("count=1 "), "系统未返回唯一的目录"
+assert all(any(e["stage"] == step for e in timeline)
+           for step in ["picker.present", "picker.dismiss", "import.result", "page.firstFrame"])
+for event in timeline:
+    if event["stage"] in ["picker.present","picker.didPick","picker.dismiss","import.result","page.firstFrame"]:
+        print(event["request"], event["stage"], event["milliseconds"], event["detail"])
+PY
     ;;
   run-tests)
     device=$(choose_simulator)
@@ -132,6 +166,9 @@ case "${1:-device}" in
     fi
     result="$out/tests-$(date +%s).xcresult"
     test_status=0
+    if [[ "${VOID_SEPARATE_LOCAL_PICKER:-}" == 1 ]]; then
+      args+=(-skip-testing:VoidUITests/FolderPickerTests/testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory)
+    fi
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
       -resultBundlePath "$result" test-without-building || test_status=$?
@@ -154,5 +191,5 @@ PY
     if ((test_status != 0)); then exit "$test_status"; fi
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
-  *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests|release-preview" >&2; exit 2 ;;
+  *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests|release-preview|local-picker" >&2; exit 2 ;;
 esac

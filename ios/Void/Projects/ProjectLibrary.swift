@@ -133,6 +133,7 @@ actor ProjectLibrary {
         }
         try Task.checkCancellation()
         try commit?.begin()
+        if template != nil, let created = found.first { catalog.last = created.id }
         try save(catalog)
         return found
     }

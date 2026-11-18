@@ -56,6 +56,37 @@ jobs:
       - run: npm run prepare:ios
       - run: bash scripts/ios-build.sh release-preview
 
+  local-picker:
+    name: 独立模拟器的本机 Files Open
+    runs-on: xcode-27
+    timeout-minutes: 35
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
+      VOID_IOS_SDK: '27.2'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.20.0
+          cache: npm
+      - run: npm ci
+      - run: npm run prepare:ios
+      - run: bash scripts/ios-build.sh start-simulator
+      - run: bash scripts/ios-build.sh build-tests
+      - run: bash scripts/ios-build.sh local-picker
+      - name: 保存系统选择与首屏结果
+        if: ${{ !cancelled() }}
+        run: |
+          if [[ -d .build/ios/local-picker.xcresult ]]; then
+            ditto -c -k --keepParent .build/ios/local-picker.xcresult .build/ios/local-picker.zip
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: void-local-picker-tests
+          path: .build/ios/local-picker.zip
+          if-no-files-found: ignore
+
   simulator:
     name: iPhone 模拟器测试
     runs-on: xcode-27
@@ -67,6 +98,7 @@ jobs:
       DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
       VOID_IOS_SDK: '27.2'
       VOID_SIMULATOR_FIXTURES: '1'
+      VOID_SEPARATE_LOCAL_PICKER: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -103,9 +135,9 @@ jobs:
   release:
     name: 发布 iPhone 安装包
     if: >-
-      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.iphone.result == 'success' && needs.preview-release.result == 'success' &&
+      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.iphone.result == 'success' && needs.preview-release.result == 'success' && needs.local-picker.result == 'success' &&
           (needs.simulator.result == 'success' || contains(github.ref_name, '-dev.')) }}
-    needs: [iphone, simulator, preview-release]
+    needs: [iphone, simulator, preview-release, local-picker]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -135,7 +167,7 @@ jobs:
           cat > "$notes" <<EOF
           下载下方的 **void-unsigned.ipa**。适用于 iOS 17 及以上的 iPhone，安装前需要使用自己的 Apple 签名。
 
-          本机扫描仅读取项目清单。点最近记录先显示项目页，点「预览项目」后才开始读取源码。新版分块校验文件并减少编译时占用的内存，系统提供的退出或卡顿摘要可从「目录诊断」查看。请沿用原来的签名团队和实际 Bundle ID 覆盖安装。
+          本机扫描仅读取项目清单。点最近记录先显示项目页，点「预览项目」后才开始读取源码。新版分块校验文件并减少编译时占用的内存，中断后进入其他工作区，重启后会回到新选择。系统提供的退出或卡顿摘要可从「目录诊断」查看。请沿用原来的签名团队和实际 Bundle ID 覆盖安装。
 
           $simulator_note 原 iPhone 上的系统 Open、原「健身记录」预览和训练保存仍待真机验证。
 

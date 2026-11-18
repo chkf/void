@@ -113,6 +113,9 @@ struct HostView: View {
                         Spacer()
                         Button { panel = .manage } label: { Label("管理", systemImage: "slider.horizontal.3") }
                             .accessibilityIdentifier("host.manage")
+                            #if DEBUG && targetEnvironment(simulator)
+                            .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
+                            #endif
                     }
                     }.padding(.horizontal).padding(.vertical, 8).background(.bar)
                 }
@@ -127,6 +130,9 @@ struct HostView: View {
                                 .accessibilityIdentifier("host.create")
                             Button { begin(.importFolder) } label: { Label("导入文件夹", systemImage:"folder") }
                                 .accessibilityIdentifier("host.import")
+                                #if DEBUG && targetEnvironment(simulator)
+                                .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
+                                #endif
                             Button { begin(.local) } label: { Label("扫描本机项目",systemImage:"iphone") }
                                 .accessibilityIdentifier("host.local")
                             Button { panel = .diagnostics } label: { Label("目录诊断",systemImage:"list.bullet.rectangle") }

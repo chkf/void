@@ -61,6 +61,36 @@ final class PreviewRecoveryTests: XCTestCase {
         await host.showLibrary()
     }
 
+    func testNewWorkspaceRemainsSelectedAfterADifferentInterruptedPreview() async throws {
+        let prefix = "恢复-" + UUID().uuidString
+        let storage = FileManager.default.temporaryDirectory.appendingPathComponent(prefix)
+        let firstName = prefix + "-A", nextName = prefix + "-B"
+        defer {
+            for name in [firstName,nextName] { try? FileManager.default.removeItem(at:FolderGrant.documents.appendingPathComponent(name)) }
+            try? FileManager.default.removeItem(at:storage)
+        }
+        let library = ProjectLibrary(base:storage)
+        let first = try await library.create(name:firstName,parent:nil,template:.tsx)
+        let recovery = PreviewRecovery(storage:storage)
+        try await recovery.mark(PreviewAttempt(request:UUID(),project:first.id,stage:.firstFrame),starting:true)
+        let host = HostModel(storage:storage)
+        await host.load()
+        XCTAssertNil(host.current)
+        XCTAssertNotNil(host.recoveryMessage)
+        await host.create(nextName,parent:nil)
+        let next = try XCTUnwrap(host.current)
+        let catalog = try await library.catalog()
+        XCTAssertEqual(catalog.last,next.id)
+        XCTAssertEqual(Set(catalog.records.map(\.id)),[first.id,next.id])
+        let acknowledged = try await recovery.pending()
+        XCTAssertNil(acknowledged)
+        let relaunched = HostModel(storage:storage)
+        await relaunched.load()
+        XCTAssertEqual(relaunched.current?.id,next.id)
+        XCTAssertEqual(relaunched.workspaceTemplate,.swiftUI)
+        XCTAssertNil(relaunched.recoveryMessage)
+    }
+
     func testCompilerTimeoutAndCancellationReleaseARealWebKitWait() async throws {
         let resources = [
             "index.html":Data("<script src='compiler-client.js'></script>".utf8),

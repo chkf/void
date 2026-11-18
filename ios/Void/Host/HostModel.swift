@@ -46,10 +46,14 @@ final class HostModel: ObservableObject {
     private let library: ProjectLibrary
     private let products: ProductStore
     private let previewRecovery: PreviewRecovery
+    private var recoveredAttempt: PreviewAttempt?
     private let usesAppCatalog: Bool
     private let storage: URL
     private var networkHosts: [String] = []
     private var loaded = false
+    #if DEBUG && targetEnvironment(simulator)
+    @Published private(set) var simulatorFixtureReady = false
+    #endif
     private var generation = UUID()
     private var inspected: String?
     private var work: Task<Void, Never>?
@@ -75,6 +79,7 @@ final class HostModel: ObservableObject {
         do {
             #if DEBUG && targetEnvironment(simulator)
             try await SimulatorPickerFixture.prepareIfRequested()
+            defer { simulatorFixtureReady = SimulatorPickerFixture.directory != nil }
             #endif
             let catalog = try await list()
             var interrupted = try await previewRecovery.pending()
@@ -85,6 +90,7 @@ final class HostModel: ObservableObject {
                 interrupted = previous
             }
             if let interrupted, let original = records.first(where:{ $0.id == interrupted.project }) {
+                recoveredAttempt = interrupted
                 recoveryMessage = "「" + original.name + "」上次在「" + interrupted.stage.title + "」时中断。"
                 DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
             } else if usesAppCatalog, let (id,stage) = PreviewRecovery.interruptedLocalScan(DirectoryJournal.shared.recent()) {
@@ -195,6 +201,20 @@ final class HostModel: ObservableObject {
         clear()
         current = record
         screen = .overview
+        await acknowledgeOtherInterruption(choosing:record.id)
+    }
+
+    private func acknowledgeOtherInterruption(choosing id: UUID) async {
+        guard let previous = recoveredAttempt, previous.project != id else { return }
+        do {
+            // Only acknowledge the interruption the library actually showed the user.
+            // A newer in-flight preview owns its own marker.
+            try await previewRecovery.finish(previous.request)
+            if recoveredAttempt?.request == previous.request {
+                recoveredAttempt = nil
+                recoveryMessage = nil
+            }
+        } catch { DirectoryTrace("recovery",id:previous.request).event("preview.recoveryWriteFailed",error:error) }
     }
 
     func open(_ record: ProjectRecord, from request: FolderRequest? = nil) async {
@@ -202,6 +222,9 @@ final class HostModel: ObservableObject {
         clear()
         recoveryMessage = nil
         current = record
+        let token = generation
+        await acknowledgeOtherInterruption(choosing:record.id)
+        guard generation == token, current?.id == record.id else { return }
         if let template = record.pendingTemplate {
             screen = .workspace(template)
             mode = template == .swiftUI ? .swiftui : .native

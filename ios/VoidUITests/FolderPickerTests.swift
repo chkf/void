@@ -1,3 +1,4 @@
+import Vision
 import XCTest
 
 final class FolderPickerTests: XCTestCase {
@@ -10,9 +11,6 @@ final class FolderPickerTests: XCTestCase {
     }
     private var navigation: XCUIElement { app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].firstMatch }
     private var openButton: XCUIElement { app.buttons["DOCPicker.actionButton"].firstMatch }
-    private func documentFolder(_ name: String) -> XCUIElement {
-        app.cells.matching(NSPredicate(format:"label BEGINSWITH[c] %@ OR identifier BEGINSWITH[c] %@",name + ",",name + ",")).firstMatch
-    }
     private func selectExternalDirectory() {
         XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
         let title = "Void Files QA"
@@ -82,6 +80,11 @@ final class FolderPickerTests: XCTestCase {
         executionTimeAllowance = 360
         if localFixture { app.launchEnvironment["VOID_PICKER_TEST_PROJECT"] = token }
         app.launch()
+        if localFixture {
+            let ready = app.buttons.matching(NSPredicate(format:"identifier IN %@ AND value == %@",
+                                                          ["host.import","host.manage"],"fixture-ready")).firstMatch
+            XCTAssertTrue(ready.waitForExistence(timeout:40),app.debugDescription)
+        }
         if !app.buttons["host.import"].waitForExistence(timeout:3) {
             app.buttons["host.manage"].tap(); app.buttons["host.switch"].tap()
         }
@@ -124,25 +127,44 @@ final class FolderPickerTests: XCTestCase {
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:30),app.debugDescription)
     }
 
-    func testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory() {
+    // This exercises Apple's visible system button without waiting on the accessibility
+    // tree of the out-of-process Files extension. The host result and TSX frame are
+    // still asserted separately and the directory comes from the real picker delegate.
+    private func tapVisiblePickerText(_ labels: Set<String>, topRight: Bool, timeout: TimeInterval) throws -> Bool {
+        let end = Date().addingTimeInterval(timeout)
+        repeat {
+            let screenshot = XCUIScreen.main.screenshot()
+            let image = try XCTUnwrap(screenshot.image.cgImage)
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = false
+            request.recognitionLanguages = ["en-US","zh-Hans"]
+            try VNImageRequestHandler(cgImage:image,options:[:]).perform([request])
+            for line in request.results ?? [] {
+                let box = line.boundingBox
+                if topRight && (box.midX < 0.60 || box.midY < 0.72) { continue }
+                let text = line.topCandidates(1).first?.string
+                    .trimmingCharacters(in:.whitespacesAndNewlines.union(.punctuationCharacters)).lowercased() ?? ""
+                if labels.contains(text) {
+                    app.coordinate(withNormalizedOffset:CGVector(dx:box.midX,dy:1-box.midY)).tap()
+                    return true
+                }
+            }
+            RunLoop.current.run(until:Date().addingTimeInterval(0.4))
+        } while Date() < end
+        return false
+    }
+
+    func testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory() throws {
         openLibrary()
         app.buttons["host.import"].tap()
-        XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
-        // Wait for Files to finish listing the actual directory. The action and the
-        // containing sheet can appear before its remote directory view responds.
-        let manifestDirectory = documentFolder("app")
-        if !manifestDirectory.waitForExistence(timeout:10) {
-            let target = documentFolder(fixture)
-            if !target.waitForExistence(timeout:5) {
-                let documents = documentFolder("void")
-                XCTAssertTrue(documents.waitForExistence(timeout:30),app.debugDescription)
-                documents.tap()
-            }
-            XCTAssertTrue(target.waitForExistence(timeout:30),app.debugDescription)
-            target.tap()
+        guard try tapVisiblePickerText(["open","打开"],topRight:true,timeout:60) else {
+            let shot = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
+            shot.name = "系统选择器未显示可识别的 Open"; shot.lifetime = .keepAlways; add(shot)
+            XCTFail("等待系统 Files 的 Open 按钮超时")
+            return
         }
-        XCTAssertTrue(manifestDirectory.waitForExistence(timeout:45),app.debugDescription)
-        pressSystemOpen()
+        _ = try tapVisiblePickerText(["allow","允许"],topRight:false,timeout:4)
         let selected = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@","已找到「" + fixture + "」"),
                                                   object:app.staticTexts["folder.status"])
         XCTAssertEqual(XCTWaiter.wait(for:[selected],timeout:35),.completed,app.debugDescription)

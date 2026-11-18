@@ -1,5 +1,11 @@
 # 验证范围
 
+## v0.1.0-dev.7 选择另一个工作区后的恢复
+
+dev.6 后续模拟器验证发现，旧项目中断提示可能跨过用户后来创建的工作区，导致重启后回到旧提示。新版在保存创建登记时同时保存选中项。用户选择其他项目后，仅结束已展示的旧恢复标记；原请求的诊断仍可查看。[发现问题的运行记录](https://github.com/chkf/void/actions/runs/44393162887/job/135115935974) · [恢复回归](../ios/VoidTests/PreviewRecoveryTests.swift)
+
+同次运行还记录到本机 Files 已经显示，XCTest 遍历系统文件列表时超时，尚未按下 Open。该用例拆到全新的模拟器，等待测试目录就绪，从屏幕识别系统 Open 并实际点击，再核验真实选择回调、关闭、登记和 TSX 首屏。[系统选择器回归](../ios/VoidUITests/FolderPickerTests.swift)
+
 ## v0.1.0-dev.6 本机扫描、旧记录与显式预览
 
 原 iPhone 的用户报告，dev.5 点本机扫描和旧记录都会退出。源码确认，本机发现原先为每个目录建立完整源码快照，仅发现一个项目时还会立即打开它。旧记录同样自动启动预览。缺少该次系统退出报告，尚无法确定手机上的具体终止原因。
@@ -10,7 +16,7 @@
 
 标签提交单独以 Release 配置通过了三项 iPhone 模拟器回归。目录里即使有不能读取的源码链接，本机扫描仍能返回原登记并停在列表，点旧记录可打开项目页，主动预览会给出链接错误。分块校验产生的修订与完整快照一致。在真实 SwiftUI 窗口内，另一项测试从旧记录启动 TSX，通过原生桥接读回已有 SQLite 行，检查了首屏、WebKit 挂载窗口、宿主 UUID 和原 runtime.json 字节。[Release 模式回归记录](https://github.com/chkf/void/actions/runs/44388657465/job/135100024522)
 
-已从 GitHub Release 重新下载构建号 6 的 IPA，大小为 6,063,098 字节，SHA-256 为 `398c1c0e17fa8895893d7f6c7ade41f34e590500b23679d71a3185f0af809dd3`。归档及 arm64 二进制均已校验，应用标识为 `app.chkf.void`，最低 iOS 17.0，SDK 为 27.2。[下载 IPA](https://github.com/chkf/void/releases/download/v0.1.0-dev.6/void-unsigned.ipa) · [源码](https://github.com/chkf/void/tree/v0.1.0-dev.6)
+已从 GitHub Release 重新下载构建号 6 的 IPA，大小为 6,063,098 字节，SHA-256 为 `398c1c0e17fa8895893d7f6c7ade41f34e590500b23679d71a3185f0af809dd3`。归档及 arm64 二进制均已校验，应用标识为 `app.chkf.void`，最低 iOS 17.0，SDK 为 27.2。可执行文件的 Mach-O UUID 为 `A558D0AC-E15F-3861-94DB-595BC6FCAB54`，可用来核对 iOS 报告中的 VoidHost 映像。[下载 IPA](https://github.com/chkf/void/releases/download/v0.1.0-dev.6/void-unsigned.ipa) · [源码](https://github.com/chkf/void/tree/v0.1.0-dev.6)
 
 标签上的 36 项原生回归与 8 项离线工具链测试通过。6 项界面用例中有 5 项通过，包括本机扫描后打开原记录、等首屏时强制结束再恢复、外部 Files 目录实际 Open 并预览、管理重授权、系统取消以及 SwiftUI 冷启动。剩余一项本机 Files 打开用例在自动化等待 Open 可操作时超时。该请求已记录 `picker.present`，测试尚未按下 Open。另一项外部 Files 用例中实际收到一次选择回调，从登记和原书签分别成功预览。原 iPhone 的退出原因、原项目首屏和训练保存仍待真机验证。[完整界面测试记录](https://github.com/chkf/void/actions/runs/44388657465/job/135100025701) · [离线工具链及 arm64 构建](https://github.com/chkf/void/actions/runs/44388657465/job/135100025250)
 
