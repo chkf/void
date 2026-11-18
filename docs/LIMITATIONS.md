@@ -1,10 +1,20 @@
 # 验证范围
 
-## v0.1.0-dev.7 选择另一个工作区后的恢复
+## v0.1.0-dev.7 本机扫描、旧记录预览与中断恢复
 
-dev.6 后续模拟器验证发现，旧项目中断提示可能跨过用户后来创建的工作区，导致重启后回到旧提示。新版在保存创建登记时同时保存选中项。用户选择其他项目后，仅结束已展示的旧恢复标记；原请求的诊断仍可查看。[发现问题的运行记录](https://github.com/chkf/void/actions/runs/44393162887/job/135115935974) · [恢复回归](../ios/VoidTests/PreviewRecoveryTests.swift)
+dev.6 后续模拟器验证发现，旧项目中断提示可能跨过用户后来创建的工作区，导致重启后回到旧提示。新版在保存创建登记时同时保存选中项。用户选择其他项目后，仅结束已展示的旧恢复标记。原请求的诊断仍可查看。[发现问题的运行记录](https://github.com/chkf/void/actions/runs/44393162887/job/135115935974) · [恢复回归](../ios/VoidTests/PreviewRecoveryTests.swift)
 
 同次运行还记录到本机 Files 已经显示，XCTest 遍历系统文件列表时超时，尚未按下 Open。该用例拆到全新的模拟器，等待测试目录就绪，从屏幕识别系统 Open 并实际点击，再核验真实选择回调、关闭、登记和 TSX 首屏。[系统选择器回归](../ios/VoidUITests/FolderPickerTests.swift)
+
+构建号 7 的公开 IPA 大小为 6,065,265 字节，重新下载后的 SHA-256 为 `7b45fc3db97db7c465b81daa38e26e1d071d937068c418c8200396a66ec12ae6`。已核对 arm64、应用标识 `app.chkf.void`、最低 iOS 17.0 和 Xcode 27.2。VoidHost 的 Mach-O UUID 为 `3C85EA2F-12EE-3C38-B065-177EC9F8EB05`。此包需要用原签名团队和已安装版本的实际应用标识签名后覆盖安装。[下载 dev.7](https://github.com/chkf/void/releases/download/v0.1.0-dev.7/void-unsigned.ipa) · [构建记录](https://github.com/chkf/void/actions/runs/44402903032/job/135150390966)
+
+标签提交通过了四项 Release 模式回归，包括点旧记录后预览 TSX、首屏读回已有 SQLite 行，以及在项目 A 中断后新建项目 B、重启仍回到 B。两条项目登记均保留。8 项离线编译测试、37 项原生回归和常规模拟器的 5 项界面用例均通过。界面测试中，从本机发现项目后可以从原记录预览，外部 Files 的实际导入和管理重授权分别只回调一次，选中后 18 毫秒和 65 毫秒记录到选择器关闭。系统取消及等待首屏时结束进程再启动也通过。[Release 模式记录](https://github.com/chkf/void/actions/runs/44402903032/job/135150389269) · [原生及界面记录](https://github.com/chkf/void/actions/runs/44402903032/job/135150389621)
+
+独立模拟器在标签提交上识别并实际点了 Open，随后选择器关闭。宿主显示「项目列表 · 此目录没有可识别的项目」。该次没有验证成功选中了指定的测试目录。[本机 Files 首轮记录](https://github.com/chkf/void/actions/runs/44402903032/job/135150384810)
+
+随后在独立模拟器中先创建未登记的原目录、退出宿主，再从 Files 导入。系统显示「我的 iPhone」中的 `void` 文件夹，截图和 XCTest 均识别到了该文件夹。实际点击其图标或系统文件夹控件后，Files 仍停在这一级。该请求只有 `picker.present`，尚未送出 `picker.didPick`，也未开始授权或扫描。这个本机 Files 用例仍未通过。从宿主的「扫描本机项目」发现同类目录、点旧记录再预览的界面用例已通过。补验仅调整了测试和脚本，正式 IPA 沿用构建号 7。[系统 Files 截图及运行记录](https://github.com/chkf/void/actions/runs/44408604483/job/135170397204) · [预置原目录后的回调记录](https://github.com/chkf/void/actions/runs/44411689463/job/135181211620)
+
+当前没有可访问的已配对原 iPhone。模拟器使用自己的测试目录和 SQLite 数据库。原「健身记录」的实际退出原因、原目录首屏及训练保存尚待真机验证。
 
 ## v0.1.0-dev.6 本机扫描、旧记录与显式预览
 
