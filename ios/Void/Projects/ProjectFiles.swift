@@ -9,9 +9,12 @@ struct RuntimeIssue: LocalizedError {
 
 enum UIMode: String, Codable { case swiftui, native, web }
 
-enum ProjectTemplate: String {
+enum ProjectTemplate: String, Codable {
     case swiftUI = "StarterProject"
     case tsx = "TSXProject"
+
+    var entry: String { self == .swiftUI ? "app/" + CompiledProject.entry : "app/src/main.tsx" }
+    var title: String { self == .swiftUI ? "SwiftUI" : "React / TSX" }
 }
 
 struct ProjectInfo {

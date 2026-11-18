@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 
 enum HostPage {
+    case workspace(ProjectTemplate)
     case swiftUI(UUID)
     case script(ProjectPage)
 }
@@ -12,6 +13,10 @@ final class HostModel: ObservableObject {
     @Published private(set) var current: ProjectRecord?
     @Published private(set) var screen: HostPage?
     @Published private(set) var mode: UIMode?
+    var workspaceTemplate: ProjectTemplate? {
+        if case let .workspace(template) = screen { return template }
+        return nil
+    }
     var page: ProjectPage? {
         if case let .script(value) = screen { return value }
         return nil
@@ -44,19 +49,19 @@ final class HostModel: ObservableObject {
         loaded = true
         do {
             let catalog = try await list()
-            if let id = catalog.last, let record = records.first(where: { $0.id == id }) { open(record) }
+            if let id = catalog.last, let record = records.first(where: { $0.id == id }) { await open(record) }
         } catch { notice = error.localizedDescription }
     }
 
     @discardableResult
     private func list() async throws -> Catalog {
         let value = try await library.catalog()
-        records = value.records.sorted { $0.opened > $1.opened }
+        records = value.recent
         return value
     }
 
     func create(_ name: String, parent: URL?, template: ProjectTemplate = .swiftUI) async {
-        do { let record = try await library.create(name: name, parent: parent, template: template); try await list(); open(record) }
+        do { let record = try await library.create(name: name, parent: parent, template: template); try await list(); await open(record) }
         catch { notice = error.localizedDescription }
     }
 
@@ -64,7 +69,7 @@ final class HostModel: ObservableObject {
         do {
             let result = try await library.discover(url)
             try await list()
-            if result.count == 1 { open(result[0]) }
+            if result.count == 1 { await open(result[0]) }
         } catch { notice = error.localizedDescription }
     }
 
@@ -73,7 +78,7 @@ final class HostModel: ObservableObject {
         do {
             try await library.reconnect(id, url: url)
             try await list()
-            if let record = records.first(where: { $0.id == id }) { open(record) }
+            if let record = records.first(where: { $0.id == id }) { await open(record) }
         } catch { notice = error.localizedDescription }
     }
 
@@ -109,10 +114,25 @@ final class HostModel: ObservableObject {
         log = []
     }
 
-    func open(_ record: ProjectRecord) {
+    func open(_ record: ProjectRecord) async {
         clear()
         current = record
-        refresh(force: true, remember: true)
+        if let template = record.pendingTemplate {
+            screen = .workspace(template)
+            mode = template == .swiftUI ? .swiftui : .native
+            do { try await library.selectWorkspace(record.id); try await list() }
+            catch { if current?.id == record.id { notice = error.localizedDescription } }
+        } else {
+            refresh(force: true, remember: true)
+        }
+    }
+
+    func removeRecent(_ id: UUID) async {
+        do {
+            try await library.removeRecent(id)
+            if current?.id == id { clear(); current = nil }
+            try await list()
+        } catch { notice = error.localizedDescription }
     }
 
     func showLibrary() async {
@@ -125,7 +145,7 @@ final class HostModel: ObservableObject {
     }
 
     func monitor() async {
-        guard let record = current else { return }
+        guard let record = current, workspaceTemplate == nil else { return }
         let observer = try? record.grant.withRoot { url in
             SourceWatcher(root: url) { [weak self] in
                 Task { @MainActor in if self?.current?.id == record.id { self?.refresh() } }
@@ -140,13 +160,14 @@ final class HostModel: ObservableObject {
     }
 
     func refresh(force: Bool = false, remember: Bool = false, previous: Bool = false) {
-        guard let record = current else { return }
+        guard let record = current, force || workspaceTemplate == nil else { return }
         if work != nil {
             needsScan = true
             if force { requestedRestart = true; requestedPrevious = previous }
             return
         }
         let token = generation
+        if force { busy = true }
         work = Task {
             defer {
                 if generation == token {
@@ -157,7 +178,7 @@ final class HostModel: ObservableObject {
                         needsScan = false
                         requestedRestart = false
                         requestedPrevious = false
-                        refresh(force: restart, previous: rollback)
+                        refresh(force: restart || workspaceTemplate != nil, previous: rollback)
                     }
                 }
             }
@@ -178,6 +199,7 @@ final class HostModel: ObservableObject {
                 if snapshot.info.mode == .swiftui {
                     try await Task.detached { try CompiledProject.validate(snapshot) }.value
                     try check(token)
+                    try await finishFirstPreview(record, token: token)
                     if force || screen == nil || page != nil {
                         page?.stop()
                         screen = .swiftUI(UUID())
@@ -206,7 +228,7 @@ final class HostModel: ObservableObject {
                 let code = (error as NSError)
                 if error is FolderAccessIssue || (code.domain == NSCocoaErrorDomain && code.code == NSFileReadNoPermissionError) {
                     page?.stop()
-                    screen = nil
+                    if workspaceTemplate == nil { screen = nil }
                     inspected = nil
                     permissions = []
                     return
@@ -222,6 +244,14 @@ final class HostModel: ObservableObject {
     private func check(_ token: UUID) throws {
         try Task.checkCancellation()
         guard generation == token else { throw CancellationError() }
+    }
+
+    private func finishFirstPreview(_ record: ProjectRecord, token: UUID) async throws {
+        guard record.pendingTemplate != nil else { return }
+        try await library.finishFirstPreview(record.id)
+        try await list()
+        try check(token)
+        current = records.first { $0.id == record.id }
     }
 
     private func activate(_ product: Product, record: ProjectRecord, token: UUID, expected: String?) async throws {
@@ -253,6 +283,7 @@ final class HostModel: ObservableObject {
         }
         try await products.confirm(product, project: record.id)
         try check(token)
+        try await finishFirstPreview(record, token: token)
         page?.stop()
         next.onReady = nil
         next.onFailure = { [weak self, weak next] message in

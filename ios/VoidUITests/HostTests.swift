@@ -16,6 +16,13 @@ final class HostTests: XCTestCase {
         let name = "Test-" + String(UUID().uuidString.prefix(8))
         field.typeText(name)
         app.buttons["project.createLocal"].tap()
+        let preview = app.buttons["project.preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertFalse(app.staticTexts["项目未能打开"].exists)
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(preview.waitForExistence(timeout: 15))
+        preview.tap()
         let toggle = app.switches["显示问候"].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 90), app.debugDescription)
         XCTAssertTrue(app.navigationBars[name].waitForExistence(timeout: 10))
@@ -38,5 +45,17 @@ final class HostTests: XCTestCase {
         app.buttons["host.manage"].tap()
         XCTAssertTrue(app.buttons["host.switch"].exists)
         XCTAssertTrue(app.buttons["重新授权文件夹"].exists)
+        app.buttons["host.switch"].tap()
+        let row = app.buttons["recent." + name]
+        XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        row.swipeLeft()
+        let remove = app.buttons["recent.remove"]
+        if remove.exists { remove.tap() }
+        expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: row)
+        waitForExpectations(timeout: 8)
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(create.waitForExistence(timeout: 15))
+        XCTAssertFalse(row.exists)
     }
 }

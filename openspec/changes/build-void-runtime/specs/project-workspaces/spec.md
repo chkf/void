@@ -29,7 +29,17 @@
 - **WHEN** 用户在已选目录创建项目
 - **THEN** 默认模板包含 `runtime.json`、`app/manifest.json`、`app/SwiftUI/ProjectContentView.swift`、`assets/`、`modules/`、`data/`、`logs/` 和 `README.md`。选择 React/TSX 模板时生成 `app/package.json` 和 `app/src/main.tsx`。
 
-#### Scenario: 导入配置损坏或不兼容的项目
+#### Scenario: 创建后从工作区开始
+
+- **WHEN** 用户创建一个项目但尚未预览
+- **THEN** 显示项目名称、模板、编辑入口和预览按钮。离开或重启后仍可从这里开始，首次成功预览后进入普通运行流程。
+
+#### Scenario: 左滑移除最近记录
+
+- **WHEN** 用户从最近项目左滑移除一条记录并重启
+- **THEN** 该记录从列表和自动恢复选择中移除，文件夹与项目数据保留。重新导入原目录恢复原项目身份。
+
+#### Scenario: 打开损坏的项目
 
 - **WHEN** 用户导入的项目清单格式错误、版本不受支持或缺少依赖
 - **THEN** 项目显示具体问题和文件位置，用户可以修复并重试，已有文件得到保留。

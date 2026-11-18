@@ -18,6 +18,27 @@ struct HostView: View {
             if let record = model.current {
                 ZStack {
                     switch model.screen {
+                    case .workspace(let template):
+                        NavigationStack {
+                            List {
+                                Section {
+                                    LabeledContent("项目模板", value: template.title)
+                                    VStack(alignment: .leading, spacing: 5) {
+                                        Text("编辑这个入口文件")
+                                        Text(verbatim: template.entry).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                                    }
+                                    Button { model.refresh(force: true) } label: {
+                                        Label(model.busy ? "正在预览" : "预览项目", systemImage: "play.fill")
+                                    }.disabled(model.busy).accessibilityIdentifier("project.preview")
+                                } header: { Text("开始开发") } footer: {
+                                    Text("项目文件夹已准备好。可以先用编辑器写页面，也可以预览自带的示例。")
+                                }
+                                if let problem = model.problem {
+                                    Section("预览提示") { Text(verbatim: problem).textSelection(.enabled) }
+                                }
+                            }
+                            .navigationTitle(record.name)
+                        }
                     case .swiftUI(let id): ProjectContentView(projectName: record.name).id(id)
                     case .script(let page): RunningPage(page: page).id(page.id)
                     case nil:
@@ -32,9 +53,13 @@ struct HostView: View {
                 .safeAreaInset(edge: .bottom) {
                     HStack {
                         if model.busy { ProgressView().accessibilityLabel("正在构建") }
-                        if model.problem != nil && model.screen != nil {
+                        if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil {
                             Label(model.mode == .swiftui ? "查看构建说明" : "更新失败", systemImage: "exclamationmark.circle")
                                 .foregroundStyle(.secondary)
+                        }
+                        if model.workspaceTemplate != nil {
+                            Button { Task { await model.showLibrary() } } label: { Label("项目列表", systemImage: "list.bullet") }
+                                .accessibilityIdentifier("project.library")
                         }
                         Spacer()
                         Button { panel = .manage } label: { Label("管理", systemImage: "slider.horizontal.3") }
@@ -51,12 +76,21 @@ struct HostView: View {
                         }
                         if !model.records.isEmpty {
                             Section("最近项目") { ForEach(model.records) { record in
-                                Button { model.open(record) } label: {
+                                Button { Task { await model.open(record) } } label: {
                                     VStack(alignment: .leading) {
                                         Text(verbatim: record.name)
-                                        if !record.version.isEmpty { Text(verbatim: record.version).font(.caption).foregroundStyle(.secondary) }
+                                        if let template = record.pendingTemplate {
+                                            Text(template.title + " · 待预览").font(.caption).foregroundStyle(.secondary)
+                                        } else if let date = record.opened {
+                                            Text(date, style: .relative).font(.caption).foregroundStyle(.secondary)
+                                        }
                                     }
-                                }
+                                }.accessibilityIdentifier("recent." + record.name)
+                                    .swipeActions(edge: .trailing) {
+                                        Button(role: .destructive) { Task { await model.removeRecent(record.id) } } label: {
+                                            Label("移除记录", systemImage: "trash")
+                                        }.accessibilityIdentifier("recent.remove")
+                                    }
                             } }
                         }
                     }
@@ -66,7 +100,7 @@ struct HostView: View {
             }
         }
         .task { await model.load() }
-        .task(id: (model.current?.id.uuidString ?? "") + (phase == .active ? "/active" : "/inactive")) {
+        .task(id: (model.current?.id.uuidString ?? "") + (phase == .active ? "/active" : "/inactive") + (model.workspaceTemplate == nil ? "" : "/workspace")) {
             if phase == .active { await model.monitor() }
         }
         .sheet(item: $panel) { selection in
@@ -155,7 +189,7 @@ private struct ManagementView: View {
                     Button(model.mode == .swiftui ? "重新打开 SwiftUI 页面" : "重新构建并打开") {
                         close(); model.refresh(force: true)
                     }.disabled(model.busy)
-                    if model.mode != .swiftui {
+                    if model.mode != .swiftui && model.workspaceTemplate == nil {
                         Button("恢复上一可运行版本") { close(); model.refresh(force: true, previous: true) }.disabled(model.busy)
                     }
                     Button("重新授权文件夹", action: reconnect)

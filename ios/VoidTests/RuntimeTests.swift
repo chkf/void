@@ -21,7 +21,10 @@ final class RuntimeTests: XCTestCase {
         }
         let host = HostModel(storage: storage)
         await host.create(name, parent: nil)
-        try await wait { host.screen != nil || host.problem != nil || host.notice != nil }
+        XCTAssertEqual(host.workspaceTemplate, .swiftUI)
+        XCTAssertNil(host.problem)
+        host.refresh(force: true)
+        try await wait { (host.workspaceTemplate == nil && host.screen != nil) || host.problem != nil || host.notice != nil }
         guard case let .swiftUI(original)? = host.screen else { return XCTFail(host.problem ?? host.notice ?? "缺少 SwiftUI 页面") }
         XCTAssertNil(host.page)
         XCTAssertNil(host.candidate)
@@ -34,7 +37,7 @@ final class RuntimeTests: XCTestCase {
         guard case let .swiftUI(current)? = host.screen else { return XCTFail("已打开的页面应保留") }
         XCTAssertEqual(current, original)
         await host.showLibrary()
-        host.open(try XCTUnwrap(host.records.first))
+        await host.open(try XCTUnwrap(host.records.first))
         try await wait { host.problem != nil }
         XCTAssertNil(host.screen)
         try source.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\n", with: "\r\n")
@@ -56,6 +59,8 @@ final class RuntimeTests: XCTestCase {
         }
         let host = HostModel(storage: storage)
         await host.create(name, parent: nil, template: .tsx)
+        XCTAssertEqual(host.workspaceTemplate, .tsx)
+        host.refresh(force: true)
         try await wait { host.page != nil || host.problem != nil || host.notice != nil }
         let original = try XCTUnwrap(host.page, host.problem ?? host.notice ?? "")
         XCTAssertEqual(original.nodes.first?.type, "Form")
@@ -76,7 +81,7 @@ final class RuntimeTests: XCTestCase {
         try saved.write(to: source, options: .atomic)
         await host.showLibrary()
         XCTAssertNil(host.current)
-        host.open(try XCTUnwrap(host.records.first))
+        await host.open(try XCTUnwrap(host.records.first))
         try await wait { host.page != nil || host.problem != nil }
         XCTAssertEqual(host.page?.product.revision, original.product.revision, host.problem ?? "")
         await host.showLibrary()

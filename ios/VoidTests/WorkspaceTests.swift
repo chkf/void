@@ -86,4 +86,28 @@ final class WorkspaceTests: XCTestCase {
         let data = Data(#"{"revision":1,"eventSequence":0,"nodes":[{"type":"Toggle","id":"a","props":{"label":"显示","value":"yes"},"children":[]}]}"#.utf8)
         XCTAssertThrowsError(try JSONDecoder().decode(NativeCommit.self, from: data).validate())
     }
+
+    func testRemovingHistoryPreservesFilesAndProjectIdentity() async throws {
+        let manager = FileManager.default
+        let parent = FolderGrant.documents.appendingPathComponent(UUID().uuidString)
+        let registry = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try manager.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? manager.removeItem(at: parent); try? manager.removeItem(at: registry) }
+        let library = ProjectLibrary(base: registry)
+        let a = try await library.create(name: "笔记", parent: parent)
+        let b = try await library.create(name: "日程", parent: parent)
+        let path = parent.appendingPathComponent("笔记/data/saved.txt")
+        try Data("保留".utf8).write(to: path)
+        try await library.selectWorkspace(a.id)
+        try await library.removeRecent(a.id)
+        let saved = try await ProjectLibrary(base: registry).catalog()
+        XCTAssertEqual(saved.recent.map(\.id), [b.id])
+        XCTAssertNil(saved.last)
+        XCTAssertEqual(try Data(contentsOf: path), Data("保留".utf8))
+        let restored = try await library.discover(parent.appendingPathComponent("笔记"))
+        XCTAssertEqual(restored.first?.id, a.id)
+        XCTAssertEqual(restored.first?.pendingTemplate, .swiftUI)
+        let reopened = try await library.catalog()
+        XCTAssertEqual(reopened.recent.count, 2)
+    }
 }
