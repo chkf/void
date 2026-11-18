@@ -8,7 +8,7 @@ case "${1:-device}" in
   device)
     xcodebuild "${args[@]}" -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
     app="$out/DerivedData/Build/Products/Release-iphoneos/VoidHost.app"
-    xcrun lipo -verify_arch arm64 "$app/VoidHost"
+    xcrun lipo "$app/VoidHost" -verify_arch arm64
     test -s "$app/Toolchain/esbuild.wasm"
     test -s "$app/StarterProject/app/src/main.tsx"
     test "$(plutil -extract MinimumOSVersion raw "$app/Info.plist")" = 17.0
@@ -38,7 +38,7 @@ print(udid)' "$sdk")
     xcrun simctl bootstatus "$device" -b
     result="$out/tests-$(date +%s).xcresult"
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
-      -parallel-testing-enabled NO -resultBundlePath "$result" test
+      -parallel-testing-enabled NO -resultBundlePath "$result" ONLY_ACTIVE_ARCH=NO ARCHS="arm64 x86_64" test
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
   *) echo "用法：bash scripts/ios-build.sh device|test" >&2; exit 2 ;;

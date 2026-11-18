@@ -1,6 +1,6 @@
 # 构建与签名
 
-GitHub Actions 使用 macOS 15、Xcode 16.4 和 Node.js 22.20.0。目标为 iPhone，最低 iOS 17。推送、拉取请求或在工作流页面选择 Run workflow 均可构建当前分支。[构建记录](https://github.com/chkf/void/actions/workflows/ios.yml) · [运行器镜像](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-arm64-Readme.md)
+GitHub Actions 使用 macOS 15、Xcode 16.4 和 Node.js 22.20.0。目标为 iPhone，最低 iOS 17。iPhone 安装包与模拟器测试独立运行。推送、拉取请求或在工作流页面选择 Run workflow 均可构建当前分支。[构建记录](https://github.com/chkf/void/actions/workflows/ios.yml) · [运行器镜像](https://github.com/actions/runner-images/blob/main/images/macos/macos-15-Readme.md)
 
 | Actions 产物 | 用途 |
 | --- | --- |

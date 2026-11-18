@@ -16,11 +16,9 @@ jobs:
         include:
           - name: iPhone Release
             target: device
-            runner: macos-15-intel
           - name: iPhone 模拟器测试
             target: test
-            runner: macos-15
-    runs-on: ${{ matrix.runner }}
+    runs-on: macos-15-intel
     concurrency:
       group: ios-${{ github.ref }}-${{ matrix.target }}
       cancel-in-progress: true

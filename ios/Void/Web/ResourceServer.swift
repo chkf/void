@@ -10,6 +10,7 @@ final class ResourceServer {
     private let files: [String: Data]
     private let compiler: Bool
     private var connections: [ObjectIdentifier: NWConnection] = [:]
+    private var startup: CheckedContinuation<URL, Error>?
 
     init(files: [String: Data], compiler: Bool = false) throws {
         self.files = files
@@ -21,27 +22,31 @@ final class ResourceServer {
 
     func start() async throws -> URL {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-            var waiting = true
-            listener.stateUpdateHandler = { [weak self] state in
-                guard let self, waiting else { return }
-                switch state {
-                case .ready:
-                    waiting = false
-                    guard let port = self.listener.port,
-                          let url = URL(string: "http://127.0.0.1:" + String(port.rawValue) + "/" + self.token + "/")
-                    else { continuation.resume(throwing: RuntimeIssue("无法分配本地资源地址")); return }
-                    continuation.resume(returning: url)
-                case .failed(let error):
-                    waiting = false
-                    continuation.resume(throwing: error)
-                case .cancelled:
-                    waiting = false
-                    continuation.resume(throwing: CancellationError())
-                default: break
-                }
+            queue.async {
+                self.startup = continuation
+                self.listener.stateUpdateHandler = { [weak self] state in self?.stateChanged(state) }
+                self.listener.newConnectionHandler = { [weak self] connection in self?.accept(connection) }
+                self.listener.start(queue: self.queue)
             }
-            listener.newConnectionHandler = { [weak self] in self?.accept($0) }
-            listener.start(queue: queue)
+        }
+    }
+
+    private func stateChanged(_ state: NWListener.State) {
+        guard let startup else { return }
+        switch state {
+        case .ready:
+            self.startup = nil
+            guard let port = listener.port,
+                  let url = URL(string: "http://127.0.0.1:" + String(port.rawValue) + "/" + token + "/")
+            else { startup.resume(throwing: RuntimeIssue("无法分配本地资源地址")); return }
+            startup.resume(returning: url)
+        case .failed(let error), .waiting(let error):
+            self.startup = nil
+            startup.resume(throwing: error)
+        case .cancelled:
+            self.startup = nil
+            startup.resume(throwing: CancellationError())
+        default: break
         }
     }
 
