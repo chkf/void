@@ -24,40 +24,9 @@ final class NativeNavigationTests: XCTestCase {
         return (Double(pixel[0]) + Double(pixel[1]) + Double(pixel[2])) / 765
     }
 
-    // These two host controls contain monochrome text on a solid background.
-    // Measure their rendered glyphs when AX reports a contrast issue, excluding
-    // isolated pixels at the ends of the histogram. Project findings stay in the report.
-    private func hostContrast(_ element: XCUIElement) throws -> Double {
-        let image = try XCTUnwrap(element.screenshot().image.cgImage)
-        let count = image.width * image.height
-        XCTAssertGreaterThan(count, 0)
-        var pixels = [UInt8](repeating: 0, count: count * 4)
-        try pixels.withUnsafeMutableBytes { bytes in
-            let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
-            let bitmap = CGBitmapInfo.byteOrder32Big.rawValue | CGImageAlphaInfo.premultipliedLast.rawValue
-            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: image.width, height: image.height, bitsPerComponent: 8,
-                bytesPerRow: image.width * 4, space: space, bitmapInfo: bitmap))
-            context.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(image.width), height: CGFloat(image.height)))
-        }
-        let linear = (0...255).map { channel -> Double in
-            let x = Double(channel) / 255
-            return x <= 0.04045 ? x / 12.92 : pow((x + 0.055) / 1.055, 2.4)
-        }
-        let tones = stride(from: 0, to: pixels.count, by: 4).map { offset in
-            0.2126 * linear[Int(pixels[offset])] + 0.7152 * linear[Int(pixels[offset + 1])] + 0.0722 * linear[Int(pixels[offset + 2])]
-        }.sorted()
-        return (tones[(count - 1) * 97 / 100] + 0.05) / (tones[(count - 1) * 3 / 100] + 0.05)
-    }
-
     @MainActor private func audit(_ app: XCUIApplication) throws -> [String] {
         var findings = [String]()
         try app.performAccessibilityAudit(for: [.contrast, .sufficientElementDescription]) { issue in
-            if issue.auditType == .contrast, let control = issue.element,
-               ["folder.clear", "host.manage"].contains(control.identifier) {
-                let ratio = try self.hostContrast(control)
-                print("Host control contrast", control.identifier, ratio)
-                if ratio >= 4.5 { return true }
-            }
             findings.append("\(issue.element?.label ?? "") · \(issue.detailedDescription)")
             return true
         }
@@ -84,7 +53,8 @@ final class NativeNavigationTests: XCTestCase {
         row.tap()
         app.buttons["project.preview"].tap()
 
-        let components = app.buttons["组件"], appearance = app.buttons["外观"], rows = app.buttons["列表"]
+        // iPadOS exposes a floating tab cell and its nested button with the same title.
+        let components = app.buttons["组件"].firstMatch, appearance = app.buttons["外观"].firstMatch, rows = app.buttons["列表"].firstMatch
         let manage = app.buttons["host.manage"]
         XCTAssertTrue(components.waitForExistence(timeout: 100), app.debugDescription)
         // iPadOS exposes its top tab as a button without XCTest's phone-only
@@ -161,10 +131,14 @@ final class NativeNavigationTests: XCTestCase {
         attach(app, "Dark-Landscape")
         manage.tap()
         XCTAssertTrue(app.buttons["host.switch"].isHittable)
-        let restore = app.buttons["恢复上一可运行版本"]
-        for _ in 0..<4 where !restore.isHittable { app.swipeUp() }
+        let recovery = app.buttons["host.recovery"]
+        XCTAssertTrue(recovery.isHittable)
+        recovery.tap()
+        let restore = app.buttons["host.restore"]
+        XCTAssertTrue(restore.waitForExistence(timeout: 8))
         XCTAssertTrue(restore.isHittable)
-        app.buttons["完成"].tap()
+        attach(app, "Host-Recovery-Landscape")
+        app.buttons["host.recoveryDone"].tap()
 
         device.orientation = .portrait
         app.terminate()
@@ -172,6 +146,7 @@ final class NativeNavigationTests: XCTestCase {
         app.launch()
         XCTAssertTrue(components.waitForExistence(timeout: 90), app.debugDescription)
         XCTAssertTrue(manage.isHittable)
+        XCTAssertTrue(heading.waitForExistence(timeout: 12))
         XCTAssertGreaterThan(heading.frame.height, standardHeight * 1.3)
         attach(app, "Accessibility-XXXL")
         XCTAssertTrue(appearance.isHittable)

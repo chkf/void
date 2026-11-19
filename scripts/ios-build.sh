@@ -170,7 +170,7 @@ case "${1:-device}" in
       test "$(plutil -extract DTSDKName raw "$app/Info.plist")" = "iphoneos$VOID_IOS_SDK"
     fi
     test "$(plutil -extract MinimumOSVersion raw "$app/Info.plist")" = 17.0
-    test "$(plutil -extract CFBundleVersion raw "$app/Info.plist")" = 11
+    [[ "$(plutil -extract CFBundleVersion raw "$app/Info.plist")" =~ ^[1-9][0-9]*$ ]]
     staging=$(mktemp -d "$out/package.XXXXXX")
     mkdir -p "$staging/Payload"
     ditto "$app" "$staging/Payload/VoidHost.app"

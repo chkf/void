@@ -312,31 +312,54 @@ private struct ManagementView: View {
                         List(Array(model.log.enumerated()), id: \.offset) { Text(verbatim: $0.element) }.navigationTitle("运行日志")
                     }
                 }
-                Section("恢复") {
-                    if let message = model.problem { Text(verbatim: message).textSelection(.enabled) }
-                    if model.busy {
-                        Button("取消当前构建") { model.cancelScan() }.accessibilityIdentifier("host.cancelBuild")
+                if model.page?.hasTabNavigation != true {
+                    Section("恢复") {
+                        if let message = model.problem { Text(verbatim: message).textSelection(.enabled) }
+                        recoveryControls
                     }
-                    Button(model.mode == .swiftui ? "重新打开 SwiftUI 页面" : "重新构建并打开") {
-                        close(); model.refresh(force: true)
-                    }.disabled(model.busy)
-                    if model.mode != .swiftui && model.workspaceTemplate == nil {
-                        Button("恢复上一可运行版本") { close(); model.refresh(force: true, previous: true) }.disabled(model.busy)
-                    }
-                    Button("重新扫描并预览") { close(); model.refresh(force:true,remember:true) }
-                        .accessibilityIdentifier("host.rescan")
-                    Button("重新授权文件夹",action:reconnect).accessibilityIdentifier("host.reconnect")
-                    NavigationLink("目录诊断") { DirectoryDiagnosticView() }
                 }
                 NavigationLink("设置") { SettingsView() }
             }
-            .navigationTitle("项目管理").toolbar { Button("完成", action: close) }
+            .navigationTitle("项目管理")
+            .toolbar {
+                if model.page?.hasTabNavigation == true {
+                    ToolbarItem(placement: .topBarLeading) {
+                        NavigationLink("恢复") {
+                            List {
+                                recoveryControls
+                                if let message = model.problem { Section("错误详情") { Text(verbatim: message).textSelection(.enabled) } }
+                            }
+                            .navigationTitle("预览与恢复")
+                            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成", action: close).accessibilityIdentifier("host.recoveryDone") } }
+                        }.accessibilityIdentifier("host.recovery")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) { Button("完成", action: close) }
+            }
             .alert("重命名项目", isPresented: $rename) {
                 TextField("名称", text: $name)
                 Button("保存") { Task { await model.rename(name) } }
                 Button("取消", role: .cancel) {}
             }
         }
+    }
+
+    @ViewBuilder private var recoveryControls: some View {
+        if model.busy {
+            Button("取消当前构建") { model.cancelScan() }.accessibilityIdentifier("host.cancelBuild")
+        }
+        Button(model.mode == .swiftui ? "重新打开 SwiftUI 页面" : "重新构建并打开") {
+            close(); model.refresh(force: true)
+        }.disabled(model.busy)
+        if model.mode != .swiftui && model.workspaceTemplate == nil {
+            Button("恢复上一可运行版本") { close(); model.refresh(force: true, previous: true) }
+                .disabled(model.busy).accessibilityIdentifier("host.restore")
+        }
+        Button("重新扫描并预览") { close(); model.refresh(force: true, remember: true) }
+            .accessibilityIdentifier("host.rescan")
+        Button("重新授权文件夹", action: reconnect).accessibilityIdentifier("host.reconnect")
+        NavigationLink("目录诊断") { DirectoryDiagnosticView() }
     }
 }
 
