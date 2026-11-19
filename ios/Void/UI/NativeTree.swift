@@ -209,6 +209,7 @@ private struct TreeDecoder {
                 throw RuntimeIssue("TabView 需要作为唯一页面容器并包含 2～5 个 Tab")
             }
             if (type == "Tab") != (parent == "TabView") { throw RuntimeIssue("Tab 只能作为 TabView 的直接子项") }
+            if type == "Tab" && children.isEmpty { throw RuntimeIssue("Tab 需要页面内容") }
             let scrolls = type == "ScrollView" || type == "Form" || type == "List"
             if version == 2 && scrolling && scrolls { throw RuntimeIssue("\(type) 不能嵌入另一纵向滚动容器") }
             let id = try string(row["id"], "\(type).id")

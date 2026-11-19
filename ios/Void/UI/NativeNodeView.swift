@@ -66,7 +66,9 @@ struct NativeNodeView: View {
         case "HStack": HStack(alignment: vertical, spacing: points("spacing")) { children }
         case "Form", "List": collection
         case "Section": Section(node.text("title")) { children }
-        case "Text": NativeText(node: node)
+        case "Text":
+            if page.uiVersion == 1 { Text(verbatim: node.text("value")) }
+            else { NativeText(node: node) }
         case "Image":
             if page.uiVersion == 1 {
                 Image(systemName: node.text("systemName")).accessibilityLabel(node.text("label"))
@@ -134,8 +136,11 @@ private struct NativeImage: View {
     @Environment(\.nativePalette) private var palette
     @ScaledMetric(relativeTo: .body) private var scale: CGFloat = 1
     var body: some View {
-        Image(uiImage: NativeSymbol.image(node.text("systemName"))).renderingMode(.template)
-            .font(node.number("size").map { .system(size: $0 * scale) })
+        let symbol = NativeSymbol.image(node.text("systemName"))
+        let sized = node.number("size").flatMap {
+            symbol.applyingSymbolConfiguration(UIImage.SymbolConfiguration(pointSize: CGFloat($0) * scale))
+        }
+        Image(uiImage: sized ?? symbol).renderingMode(.template)
             .foregroundColor(palette.color(named: node.text("color")))
             .accessibilityLabel(Text(verbatim: node.text("label")))
     }

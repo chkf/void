@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 final class NativeNavigationTests: XCTestCase {
     private func attach(_ app: XCUIApplication, _ name: String) {
@@ -9,6 +10,18 @@ final class NativeNavigationTests: XCTestCase {
     }
     private func becomes(_ element: XCUIElement, _ predicate: String, timeout: TimeInterval = 12) -> Bool {
         XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: NSPredicate(format: predicate), object: element)], timeout: timeout) == .completed
+    }
+
+    private func brightness(_ app: XCUIApplication) throws -> Double {
+        let image = try XCTUnwrap(app.screenshot().image.cgImage)
+        var pixel = [UInt8](repeating: 0, count: 4)
+        try pixel.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                bytesPerRow: 4, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.interpolationQuality = .high
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        return (Double(pixel[0]) + Double(pixel[1]) + Double(pixel[2])) / 765
     }
 
     func testNativeTabsPreserveDraftScrollThemeAndHostAccess() throws {
@@ -36,7 +49,12 @@ final class NativeNavigationTests: XCTestCase {
         XCTAssertTrue(becomes(components, "selected == true"))
         XCTAssertTrue(becomes(app.buttons["scan.cancel"], "exists == false", timeout: 30))
         XCTAssertTrue(manage.isHittable)
+        XCTAssertLessThan(manage.frame.midY, app.frame.midY)
+        if app.buttons["folder.clear"].exists { XCTAssertLessThan(app.buttons["folder.clear"].frame.midY, app.frame.midY) }
+        if UIDevice.current.userInterfaceIdiom == .phone { XCTAssertGreaterThan(components.frame.midY, app.frame.midY) }
         let reset = app.buttons["复位"], plus = app.buttons["增加"]
+        let heading = app.staticTexts["原生控件"]
+        let standardHeight = heading.frame.height
         XCTAssertFalse(reset.isEnabled)
         XCTAssertGreaterThanOrEqual(plus.frame.height, 44)
         XCTAssertGreaterThanOrEqual(manage.frame.height, 44)
@@ -55,6 +73,7 @@ final class NativeNavigationTests: XCTestCase {
         XCTAssertFalse(input.exists)
         app.buttons["浅色"].tap()
         XCTAssertTrue(app.staticTexts["模式 light"].waitForExistence(timeout: 8))
+        let light = try brightness(app)
         components.tap()
         XCTAssertEqual(input.value as? String, "abc")
         XCTAssertTrue(app.staticTexts["1 / 4"].exists)
@@ -69,6 +88,7 @@ final class NativeNavigationTests: XCTestCase {
         appearance.tap()
         app.buttons["深色"].tap()
         XCTAssertTrue(app.staticTexts["模式 dark"].waitForExistence(timeout: 8))
+        XCTAssertGreaterThan(light - (try brightness(app)), 0.3)
         let third = app.switches["第三个标签"].firstMatch
         third.tap()
         XCTAssertTrue(rows.waitForExistence(timeout: 8))
@@ -96,6 +116,7 @@ final class NativeNavigationTests: XCTestCase {
         app.launch()
         XCTAssertTrue(components.waitForExistence(timeout: 90), app.debugDescription)
         XCTAssertTrue(manage.isHittable)
+        XCTAssertGreaterThan(heading.frame.height, standardHeight * 1.3)
         attach(app, "Accessibility-XXXL")
         XCTAssertTrue(appearance.isHittable)
     }

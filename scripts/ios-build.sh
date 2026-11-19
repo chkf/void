@@ -176,6 +176,8 @@ case "${1:-device}" in
     ditto "$app" "$staging/Payload/VoidHost.app"
     ditto -c -k --norsrc --keepParent "$staging/Payload" "$out/void-unsigned.ipa"
     unzip -tq "$out/void-unsigned.ipa"
+    ditto -c -k --norsrc --keepParent examples/native-ui "$out/native-ui-example.zip"
+    unzip -tq "$out/native-ui-example.zip"
     ;;
   start-simulator)
     device=$(choose_simulator)
@@ -208,6 +210,7 @@ case "${1:-device}" in
       -only-testing:VoidTests/WorkspaceTests/testBuildStoreWritesRawResourcesAndCanRestoreLegacyVersion \
       -only-testing:VoidTests/WorkspaceTests/testRejectsInvalidNativeTree \
       -only-testing:VoidTests/NativeContractTests \
+      -only-testing:VoidTests/NativeTabEventTests \
       -only-testing:VoidTests/PreviewRecoveryTests/testRecoveryUsesTheInterruptedRequestEvenAfterNewerFolderScan \
       -only-testing:VoidTests/PreviewRecoveryTests/testNewWorkspaceRemainsSelectedAfterADifferentInterruptedPreview \
       -resultBundlePath "$out/release-preview.xcresult" test-without-building
@@ -284,7 +287,8 @@ PY
     bash scripts/ios-build.sh build-tests
     prepare_native_ui_test "$device"
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
-      -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidUITests/NativeNavigationTests \
+      -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidTests/NativeTabEventTests \
+      -only-testing:VoidUITests/NativeNavigationTests \
       -resultBundlePath "$out/layout.xcresult" test-without-building
     ;;
   run-tests)

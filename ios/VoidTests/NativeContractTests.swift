@@ -33,6 +33,7 @@ final class NativeContractTests: XCTestCase {
             [node("TabView", ["selection":"a"], [tab("a"),tab("a")])],
             [node("TabView", ["selection":"missing"], [tab("a"),tab("b")])],
             [node("TabView", ["selection":"a"], [tab("a"),node("Text", ["value":"b"])])],
+            [node("TabView", ["selection":"a"], [tab("a"),node("Tab", ["id":"b", "title":"B", "systemName":"circle"])])],
             [node("Theme", [:], [node("Theme")])], [node("ScrollView", [:], [node("Card", [:], [node("Form")])])],
             [node("Button")], [node("Image", ["systemName":"circle", "label":" "])],
             [node("Button", ["label":"x", "disabled":1])], [node("Text", ["value":"x", "weight":"thicker"])],

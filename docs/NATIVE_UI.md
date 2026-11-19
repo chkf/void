@@ -40,7 +40,7 @@ render(<App />);
 | --- | --- | --- |
 | Theme | — | `mode` 为 system（默认）、light、dark。`light`、`dark` 各为一层语义色表，缺项回落到对应模式的默认值。Theme 只可作为唯一根节点。 |
 | TabView | `selection: string`、`onChange(id)` | 作为唯一根节点，或 Theme 的唯一直接子节点。只接受 2～5 个直接 Tab，可用数组、Fragment 和条件组合。 |
-| Tab | `id`、`title`、`systemName` 均为字符串 | id 唯一，selection 必须存在。id 和图标名最多 128 个 UTF-8 字节，标题最多 256 个，均须非空且无控制字符。 |
+| Tab | `id`、`title`、`systemName` 均为字符串，至少一个内容节点 | id 唯一，selection 必须存在。id 和图标名最多 128 个 UTF-8 字节，标题最多 256 个，均须非空且无控制字符。 |
 | Screen | — | `title` 缺省时只显示内容区。标题使用动态字号并标为辅助功能标题。内容占满可用安全区，容器自身不滚动。 |
 | ScrollView | — | 原生纵向滚动，可交互式收起键盘。协议 2 拒绝 ScrollView、Form 和 List 互相嵌套或嵌入自身。 |
 | Card | — | `background` 默认 surface。`border` 默认无边框，指定颜色后 `borderWidth` 默认 1（0～8）。`cornerRadius`、`padding` 均默认 12（0～64）。 |
@@ -75,7 +75,7 @@ render(<App />);
 
 ## 标签生命周期与宿主布局
 
-React 首次提交时挂载全部 Tab 的子树，原生为每个稳定 id 持有一个 UIHostingController。UIKit 按需装载视图，将当前页交给系统标签栏控制器管理。离开页保留控制器、SwiftUI 状态与滚动视图，切换时结束离开页的编辑并移出其辅助功能遍历。标签自身的直接子内容可使用自定义 React 组件。动态调整顺序保留相同 id 的状态；实际移除 id 会卸载该页，再加回时重新初始化。删除当前页时，在同一次 React 提交中给出有效的新 selection。应用根组件和项目 WKWebView 的生命周期跨标签共享。
+React 首次提交时挂载全部 Tab 的子树，原生为每个稳定 id 持有一个 UIHostingController。子视图的具体装载时机由 UIKit 和 SwiftUI 决定，系统标签栏控制器呈现当前页。离开页保留控制器、SwiftUI 状态与滚动视图，切换时结束离开页的编辑并移出其辅助功能遍历。标签自身的直接子内容可使用自定义 React 组件。动态调整顺序保留相同 id 的状态；实际移除 id 会卸载该页，再加回时重新初始化。删除当前页时，在同一次 React 提交中给出有效的新 selection。应用根组件和项目 WKWebView 的生命周期跨标签共享。
 
 系统点击先更新当前页，并携带显示修订和递增序列发往 React。宿主等对应的 React 确认后再采用受控值，应用可以拒绝选择。程序设置 selection 不会再触发 onChange。桥上最多一份 ui.commit 在途，忙时合并，保留当前和前一修订的回调。禁用按钮同时受原生控件与事件分发校验。
 

@@ -162,17 +162,26 @@ export const legacyUI = { VStack, HStack, List, Form, Section, Text, Image, Butt
 export const nativeUI = { ...legacyUI, Theme, TabView, Tab, Screen, ScrollView, Card, Spacer, ProgressView, render };
 
 globalThis.__voidEvent = ({ id, name, value, sequence, revision: displayedRevision }) => {
-  if (sequence <= eventSequence || (displayedRevision != null && displayedRevision !== revision && displayedRevision !== revision - 1)) return;
+  if (!Number.isSafeInteger(sequence) || sequence <= eventSequence) return;
+  const key = id + "/" + name;
+  if (displayedRevision != null && displayedRevision !== revision && displayedRevision !== revision - 1) {
+    if (callbacks.get(key)?.node.type === "TabView") {
+      // A late selection cannot call its expired closure. Release the matching
+      // native optimistic selection by acknowledging the current controlled value.
+      eventSequence = sequence;
+      publish();
+    }
+    return;
+  }
   eventSequence = sequence;
   const handlers = displayedRevision === revision - 1 ? previousCallbacks : callbacks;
-  const key = id + "/" + name;
   const handler = handlers.get(key);
   if (!handler || !callbacks.has(key) || (handler.node.type === Button && handler.node.props.disabled === true)) return;
   if (handler.node.type === "TabView" && !handler.node.children.some(tab => !tab.hidden && tab.props.id === value)) {
     if (sentSequence < sequence) publish();
     return;
   }
-  handler.callback(value);
+  reconciler.batchedUpdates(handler.callback, value);
   // Even a controlled selection that the application declines needs an ACK.
   if (handler.node.type === "TabView" && sentSequence < sequence) publish();
 };

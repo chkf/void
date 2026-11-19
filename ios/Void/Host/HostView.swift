@@ -104,18 +104,21 @@ struct HostView: View {
                             .frame(width:4,height:4).clipped().allowsHitTesting(false).accessibilityHidden(true)
                     }
                 }
-                .onPreferenceChange(ProjectTabsKey.self) { projectTabs = $0 }
                 .safeAreaInset(edge: projectTabs ? .top : .bottom, spacing: 0) {
                     VStack(alignment:.leading,spacing:4) {
                     if let problem = model.problem, model.page != nil || model.mode == .swiftui && model.workspaceTemplate == nil {
-                        Text(verbatim:problem).font(.caption).lineLimit(3).textSelection(.enabled)
+                        Text(verbatim:problem).font(.caption).lineLimit(projectTabs ? 1 : 3).textSelection(.enabled)
                             .accessibilityIdentifier("preview.error")
                     }
                     HStack {
+                        if projectTabs && folders.phase != .idle && (!model.busy || folders.active) {
+                            folderFeedback
+                        }
                         if model.busy {
                             ProgressView()
-                            Text(model.scanStatus ?? "正在准备预览").font(.caption).accessibilityIdentifier("preview.stage")
-                            Button("取消") { model.cancelScan() }.frame(minWidth: 44, minHeight: 44).accessibilityIdentifier("scan.cancel")
+                            Text(model.scanStatus ?? "正在准备预览").font(.caption).lineLimit(2).accessibilityIdentifier("preview.stage")
+                            Button { model.cancelScan() } label: { Text("取消").frame(minWidth: 44, minHeight: 44) }
+                                .fixedSize(horizontal: true, vertical: false).accessibilityIdentifier("scan.cancel")
                         } else if let status = model.scanStatus { Text(status).font(.caption) }
                         if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil && !model.showingOverview {
                             Label(model.mode == .swiftui ? "查看构建说明" : "更新失败", systemImage: "exclamationmark.circle")
@@ -128,13 +131,14 @@ struct HostView: View {
                         Spacer()
                         Button { panel = .manage } label: {
                             Label("管理", systemImage: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
-                        }
+                        }.fixedSize(horizontal: true, vertical: false)
                             .accessibilityIdentifier("host.manage")
                             #if DEBUG && targetEnvironment(simulator)
                             .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
                             #endif
                     }
-                    }.padding(.horizontal).padding(.vertical, projectTabs ? 0 : 4).background(.bar)
+                    }.padding(.horizontal).padding(.vertical, projectTabs ? 0 : 4)
+                        .tint(projectTabs ? Color.primary : nil).background(.bar)
                 }
             } else {
                 NavigationStack {
@@ -185,19 +189,11 @@ struct HostView: View {
                 }
             }
         }
+        .onPreferenceChange(ProjectTabsKey.self) { projectTabs = $0 }
         .background { FolderPickerPresenter(flow:folders).frame(width:0,height:0) }
-        .safeAreaInset(edge:.bottom) {
-            if folders.phase != .idle {
-                HStack {
-                    if folders.phase == .processing { ProgressView() }
-                    Text(verbatim:folders.message).font(.footnote).accessibilityIdentifier("folder.status")
-                    Spacer()
-                    if let request = folders.request, folders.active {
-                        Button("取消") { folders.cancel(request.id) }.accessibilityIdentifier("folder.cancel")
-                    } else {
-                        Button("关闭") { folders.clearResult() }.accessibilityIdentifier("folder.clear")
-                    }
-                }.padding(.horizontal).padding(.vertical,6).background(.bar)
+        .safeAreaInset(edge:.bottom, spacing: 0) {
+            if folders.phase != .idle && (!projectTabs || model.current == nil) {
+                folderFeedback.padding(.horizontal).padding(.vertical,6).background(.bar)
             }
         }
         .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in folders.updateProgress() }
@@ -245,6 +241,21 @@ struct HostView: View {
         if let current = model.page { pages.append(current) }
         if let next = model.candidate, next !== model.page { pages.append(next) }
         return pages
+    }
+
+    private var folderFeedback: some View {
+        HStack {
+            if folders.phase == .processing { ProgressView() }
+            Text(verbatim: folders.message).font(.footnote).lineLimit(projectTabs ? 2 : nil).accessibilityIdentifier("folder.status")
+            Spacer(minLength: 0)
+            if let request = folders.request, folders.active {
+                Button { folders.cancel(request.id) } label: { Text("取消").frame(minWidth: 44, minHeight: 44) }
+                    .accessibilityIdentifier("folder.cancel")
+            } else {
+                Button { folders.clearResult() } label: { Text("关闭").frame(minWidth: 44, minHeight: 44) }
+                    .accessibilityIdentifier("folder.clear")
+            }
+        }
     }
 
     private func begin(_ purpose: FolderPurpose, afterSheet: Bool = false) {
@@ -299,6 +310,9 @@ private struct ManagementView: View {
                 }
                 Section("恢复") {
                     if let message = model.problem { Text(verbatim: message).textSelection(.enabled) }
+                    if model.busy {
+                        Button("取消当前构建") { model.cancelScan() }.accessibilityIdentifier("host.cancelBuild")
+                    }
                     Button(model.mode == .swiftui ? "重新打开 SwiftUI 页面" : "重新构建并打开") {
                         close(); model.refresh(force: true)
                     }.disabled(model.busy)

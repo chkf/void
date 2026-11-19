@@ -9,8 +9,8 @@ export type Horizontal = "leading" | "center" | "trailing";
 type Container<Props = {}> = ComponentType<Props & { children?: ReactNode }>;
 
 export const Theme: Container<{ mode?: "system" | "light" | "dark"; light?: Palette; dark?: Palette }>;
-export const TabView: Container<{ selection: string; onChange: (id: string) => void }>;
-export const Tab: Container<{ id: string; title: string; systemName: string }>;
+export const TabView: ComponentType<{ selection: string; onChange: (id: string) => void; children: ReactNode }>;
+export const Tab: ComponentType<{ id: string; title: string; systemName: string; children: ReactNode }>;
 export const Screen: Container<{ title?: string }>;
 export const ScrollView: Container;
 export const Card: Container<{ background?: ColorRole; border?: ColorRole; borderWidth?: number; cornerRadius?: number; padding?: number }>;
