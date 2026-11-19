@@ -120,6 +120,11 @@ final class WorkspaceTests: XCTestCase {
         try await store.confirm(try XCTUnwrap(prior),project:id)
         let restored = try JSONDecoder().decode(BuildHistory.self,from:Data(contentsOf:history))
         XCTAssertEqual(restored.current,oldKey)
+        let cancelled = DirectoryCommit()
+        XCTAssertTrue(cancelled.cancel())
+        do { try await store.confirm(next,project:id,commit:cancelled); XCTFail("中断页不能取代原可运行版本") }
+        catch is CancellationError { }
+        XCTAssertEqual(try JSONDecoder().decode(BuildHistory.self,from:Data(contentsOf:history)).current,oldKey)
         XCTAssertEqual(try Data(contentsOf:legacy),oldBytes)
         XCTAssertTrue(FileManager.default.fileExists(atPath:directory.path))
     }

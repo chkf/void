@@ -467,6 +467,7 @@ final class HostModel: ObservableObject {
         try check(token)
         let next = try ProjectPage(product:product,record:record,storage:storage,permissions:permissions,networkHosts:networkHosts,trace:trace)
         candidate = next
+        let confirmation = DirectoryCommit()
         defer {
             if presentingPage === next { presentingPage = nil }
             if candidate === next { candidate = nil }
@@ -480,7 +481,10 @@ final class HostModel: ObservableObject {
                 continuation.resume(with: result)
             }
             next.onReady = { finish(.success(())) }
-            next.onFailure = { finish(.failure(RuntimeIssue($0))) }
+            next.onFailure = { message in
+                _ = confirmation.cancel()
+                finish(.failure(RuntimeIssue(message)))
+            }
             Task {
                 do { try await next.start() } catch { finish(.failure(error)) }
             }
@@ -499,7 +503,11 @@ final class HostModel: ObservableObject {
         try check(token)
         if let failure = next.failure { throw RuntimeIssue(failure) }
         try await stage(.saveBuild)
-        try await products.confirm(product, project: record.id)
+        do { try await products.confirm(product,project:record.id,commit:confirmation) }
+        catch {
+            if let failure = next.failure { throw RuntimeIssue(failure) }
+            throw error
+        }
         try check(token)
         try await finishFirstPreview(record, token: token)
         page?.stop()

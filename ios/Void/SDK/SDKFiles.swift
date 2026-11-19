@@ -23,11 +23,11 @@ final class SDKFiles: @unchecked Sendable {
         return dir.appendingPathComponent(ProjectFiles.component(name) ? name : "file")
     }
 
-    func access<T>(_ path: String, write: Bool = false, _ body: (URL) throws -> T) throws -> T {
-        try withPaths([path], writing: write ? [0] : []) { try body($0[0]) }
+    func access<T>(_ path: String, write: Bool = false, io: DirectoryIO? = nil, _ body: (URL) throws -> T) throws -> T {
+        try withPaths([path], writing: write ? [0] : [], io:io) { try body($0[0]) }
     }
 
-    private func withPaths<T>(_ paths: [String], writing: Set<Int>, _ body: ([URL]) throws -> T) throws -> T {
+    private func withPaths<T>(_ paths: [String], writing: Set<Int>, io: DirectoryIO? = nil, _ body: ([URL]) throws -> T) throws -> T {
         let parts = try paths.enumerated().map { index, path -> [String] in
             guard ProjectFiles.safePath(path) else { throw SDKFailure.denied("需要项目内的相对路径") }
             let components = path.components(separatedBy: "/")
@@ -52,6 +52,7 @@ final class SDKFiles: @unchecked Sendable {
         func use(_ shared: URL?) throws -> T {
             Self.ioLock.lock()
             defer { Self.ioLock.unlock() }
+            try io?.check()
             try Task.checkCancellation()
             let urls = try parts.map { components -> URL in
                 let scope = components[0]
@@ -66,7 +67,7 @@ final class SDKFiles: @unchecked Sendable {
             return try body(urls)
         }
         if parts.contains(where: { $0[0] == "data" || $0[0] == "project" }) {
-            return try record.grant.coordinated(write: !writing.isEmpty) { root in
+            return try record.grant.coordinated(write: !writing.isEmpty,io:io) { root in
                 guard try ProjectLibrary.directoryKey(root) == record.directoryKey else { throw SDKFailure.denied("项目文件夹已变更，请重新授权") }
                 return try use(root)
             }
@@ -103,13 +104,18 @@ final class SDKFiles: @unchecked Sendable {
         return ["name": url.lastPathComponent, "type": type == .typeDirectory ? "directory" : (type == .typeSymbolicLink ? "link" : "file"),
                 "size": attrs[.size] as? NSNumber ?? 0, "modified": (attrs[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0]
     }
-    func signature(_ path: String) throws -> Data {
-        try access(path) { url in
-            guard fm.fileExists(atPath: url.path) else { return Data() }
-            let entry = try info(url)
-            let children = (entry["type"] as? String == "directory") ? try fm.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)
-                .sorted { $0.lastPathComponent < $1.lastPathComponent }.map(info) : []
-            return try JSONSerialization.data(withJSONObject: [entry] + children, options: [.sortedKeys])
+    func signature(_ path: String) async throws -> Data {
+        try await DirectoryIO.run { io in
+            try self.access(path,io:io) { url in
+                guard self.fm.fileExists(atPath:url.path) else { return Data() }
+                let entry = try self.info(url)
+                let children = (entry["type"] as? String == "directory") ? try self.fm.contentsOfDirectory(at:url,includingPropertiesForKeys:nil)
+                    .sorted { $0.lastPathComponent < $1.lastPathComponent }.map { child in
+                        try io.check()
+                        return try self.info(child)
+                    } : []
+                return try JSONSerialization.data(withJSONObject:[entry] + children,options:[.sortedKeys])
+            }
         }
     }
 

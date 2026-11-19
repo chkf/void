@@ -110,6 +110,7 @@ case "${1:-device}" in
       -only-testing:VoidTests/DirectoryTests/testLocalScanAndRecentSelectionDoNotReadOrStartAProject \
       -only-testing:VoidTests/DirectoryTests/testFingerprintMatchesFullContentsWithoutRetainingAssetsAndBoundsGrowingSources \
       -only-testing:VoidTests/DirectoryTests/testRecentTSXPreviewsExistingSQLiteThroughNativeFirstFrame \
+      -only-testing:VoidTests/DirectoryTests/testStartupFileWatchCanBeCancelledWhileProviderHoldsDirectory \
       -only-testing:VoidTests/WorkspaceTests/testBuildStoreWritesRawResourcesAndCanRestoreLegacyVersion \
       -only-testing:VoidTests/WorkspaceTests/testRejectsInvalidNativeTree \
       -only-testing:VoidTests/PreviewRecoveryTests/testRecoveryUsesTheInterruptedRequestEvenAfterNewerFolderScan \

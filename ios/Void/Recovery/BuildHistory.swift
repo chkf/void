@@ -58,7 +58,7 @@ actor ProductStore {
         return try accepted(id)
     }
 
-    func confirm(_ product: Product, project id: UUID) throws {
+    func confirm(_ product: Product, project id: UUID, commit: DirectoryCommit? = nil) throws {
         let folder = directory(id)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let key = try product.storedKey ?? buildKey(product.revision)
@@ -86,6 +86,7 @@ actor ProductStore {
         }
         try Task.checkCancellation()
         var pointer = try history(id)
+        try commit?.begin()
         if pointer.current != key {
             pointer.previous = pointer.current
             pointer.current = key

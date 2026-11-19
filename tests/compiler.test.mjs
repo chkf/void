@@ -41,7 +41,9 @@ test("连续更新首屏时只发送一个未确认的原生树，最终状态�
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(commits.length, 2);
   assert.equal(commits[1].nodes[0].props.label, "59");
-  context.__voidEvent({ id: commits[1].nodes[0].id, name:"onPress", value:null, sequence:2 });
+  context.__voidEvent({ id: commits[0].nodes[0].id, name:"onPress", value:null, sequence:2, revision:commits[0].revision });
+  assert.equal(clicked, 0);
+  context.__voidEvent({ id: commits[1].nodes[0].id, name:"onPress", value:null, sequence:3, revision:commits[1].revision });
   assert.equal(clicked, 59);
   replies.shift()();
 });

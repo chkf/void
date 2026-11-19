@@ -56,15 +56,18 @@ final class FileSDK: SDKModule {
         case "watch":
             let path = try a.string("path")
             let id = UUID().uuidString
-            var previous = try s.files.signature(path)
+            var previous = try await s.files.signature(path)
+            try Task.checkCancellation()
             let task = Task { @MainActor [weak s] in
                 while !Task.isCancelled {
                     do { try await Task.sleep(for: .milliseconds(500)) } catch { break }
                     guard let s, s.valid else { break }
                     do {
-                        let value = try s.files.signature(path)
+                        let value = try await s.files.signature(path)
+                        guard !Task.isCancelled, s.valid else { break }
                         if value != previous { previous = value; s.events.emit(id, "files.changed", ["path":path]) }
-                    } catch { s.events.emit(id, "error", ["message":error.localizedDescription]); break }
+                    } catch is CancellationError { break }
+                    catch { s.events.emit(id, "error", ["message":error.localizedDescription]); break }
                 }
             }
             return s.events.add(id) { task.cancel() }

@@ -105,7 +105,7 @@ export function render(view) {
 }
 
 globalThis.__voidEvent = ({ id, name, value, sequence, revision: displayedRevision }) => {
-  if (sequence <= eventSequence) return;
+  if (sequence <= eventSequence || (displayedRevision != null && displayedRevision !== revision && displayedRevision !== revision - 1)) return;
   eventSequence = sequence;
   const handlers = displayedRevision === revision - 1 ? previousCallbacks : callbacks;
   handlers.get(id + "/" + name)?.(value);

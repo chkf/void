@@ -107,10 +107,10 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         decisionHandler(action.targetFrame?.isMainFrame == true && contains(action.request.url) ? .allow : .cancel)
     }
 
-    private func progress(_ stage: String) {
+    private func progress(_ stage: String, _ detail: String = "") {
         guard valid, !ready else { return }
         lastProgress = .now
-        trace?.event(stage)
+        trace?.event(stage,detail)
     }
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) { progress("page.navigationCommitted") }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { progress("page.navigationFinished") }
@@ -134,11 +134,12 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         onFailure?(detail)
     }
 
-    func didDisplay() {
-        guard valid, ready, !displayed, failure == nil else { return }
+    func didDisplay(in window: UIWindow) -> Bool {
+        guard valid, ready, !displayed, failure == nil, view.window === window else { return displayed }
         displayed = true
         trace?.event("page.firstFrame")
         mounted.finish(.success(()))
+        return true
     }
 
     func waitForDisplay() async throws {
@@ -220,11 +221,20 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
             sdk.cancel(request)
         default:
             let parts = method.split(separator:".")
-            let first = !ready && firstSDKMethod == nil && parts.count == 2 &&
-                SDKSession.methods[String(parts[0])]?[String(parts[1])] != nil
-            if first { firstSDKMethod = method; progress("page.sdkBegin"); trace?.event("page.sdkMethod",method) }
+            let scope = parts.count == 2 ? SDKSession.methods[String(parts[0])]?[String(parts[1])] : nil
+            let first = !ready && firstSDKMethod == nil && scope != nil
+            if first {
+                firstSDKMethod = method
+                progress("page.sdkMethod",method)
+                if let scope, !scope.isEmpty, sdk.declared.contains(scope), sdk.access.decision(scope,project:sdk.record.id) == nil {
+                    progress("page.sdkConsentPending")
+                }
+            }
             sdk.start(id:id,method:method,params:params) { [weak self] value,error in
-                if first { self?.progress("page.sdkReturned") }
+                if first {
+                    let result = (value as? [String:Any])?["result"] as? [String:Any]
+                    self?.progress("page.sdkReturned",result?["success"] as? Bool == true ? "成功" : "失败")
+                }
                 replyHandler(value,error)
             }
             return
@@ -233,10 +243,10 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     }
 
     @discardableResult
-    func event(_ id: String, name: String, value: Any) -> Int {
+    func event(_ id: String, name: String, value: Any, displayedRevision: Int? = nil) -> Int {
         guard valid else { return eventSequence }
         eventSequence += 1
-        let event: [String: Any] = ["id": id, "name": name, "value": value, "sequence": eventSequence, "revision":revision]
+        let event: [String: Any] = ["id":id,"name":name,"value":value,"sequence":eventSequence,"revision":displayedRevision ?? revision]
         view.callAsyncJavaScript("window.__voidEvent(event)", arguments: ["event": event], in: nil, in: .page) { [weak self] result in
             if case let .failure(error) = result, self?.valid == true { self?.onFailure?(error.localizedDescription) }
         }
@@ -265,9 +275,9 @@ struct PageDisplayProbe: UIViewRepresentable {
             next.add(to:.main,forMode:.common)
         }
         @objc private func tick() {
-            guard window != nil, !bounds.isEmpty else { disarm(); return }
-            ticks += 1
-            if ticks == 2 { disarm(); page?.didDisplay() }
+            guard let window, let page, !bounds.isEmpty else { disarm(); return }
+            ticks = min(2,ticks + 1)
+            if ticks == 2, page.didDisplay(in:window) { disarm() }
         }
         func disarm() { link?.invalidate(); link = nil; ticks = 0 }
     }
@@ -278,6 +288,13 @@ struct ProjectSurface: UIViewRepresentable {
     let webView: WKWebView
     init(page: ProjectPage) { webView = page.view }
     init(compiler: CompilerPage) { webView = compiler.view }
-    func makeUIView(context: Context) -> WKWebView { webView }
-    func updateUIView(_ uiView: WKWebView, context: Context) {}
+    // SwiftUI owns each holder. Moving the same WebKit session from staging into
+    // the visible page cannot make the old representable tear down the new holder.
+    func makeUIView(context: Context) -> UIView { UIView() }
+    func updateUIView(_ holder: UIView, context: Context) {
+        guard webView.superview !== holder else { return }
+        webView.frame = holder.bounds
+        webView.autoresizingMask = [.flexibleWidth,.flexibleHeight]
+        holder.addSubview(webView)
+    }
 }

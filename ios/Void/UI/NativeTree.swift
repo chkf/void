@@ -92,10 +92,11 @@ struct NativeCommit {
 
 struct NativeNodeView: View {
     let node: NativeNode
+    let revision: Int
     @ObservedObject var page: ProjectPage
 
     private var children: some View {
-        ForEach(node.children) { child in NativeNodeView(node: child, page: page) }
+        ForEach(node.children) { child in NativeNodeView(node:child,revision:revision,page:page) }
     }
 
     @ViewBuilder var body: some View {
@@ -107,12 +108,12 @@ struct NativeNodeView: View {
         case "Section": Section(node.text("title")) { children }
         case "Text": Text(verbatim: node.text("value"))
         case "Image": Image(systemName: node.text("systemName")).accessibilityLabel(node.text("label"))
-        case "Button": Button(node.text("label")) { page.event(node.id, name: "onPress", value: NSNull()) }
-        case "TextField": NativeInput(node: node, page: page)
+        case "Button": Button(node.text("label")) { page.event(node.id, name: "onPress", value:NSNull(),displayedRevision:revision) }
+        case "TextField": NativeInput(node:node,revision:revision,page:page)
         case "Toggle":
-            Toggle(node.text("label"), isOn: Binding(get: { node.flag }, set: { page.event(node.id, name: "onChange", value: $0) }))
+            Toggle(node.text("label"), isOn: Binding(get: { node.flag }, set: { page.event(node.id, name: "onChange", value:$0,displayedRevision:revision) }))
         case "Picker":
-            Picker(node.text("label"), selection: Binding(get: { node.text("value") }, set: { page.event(node.id, name: "onChange", value: $0) })) {
+            Picker(node.text("label"), selection: Binding(get: { node.text("value") }, set: { page.event(node.id, name: "onChange", value:$0,displayedRevision:revision) })) {
                 ForEach(node.options, id: \.self) { Text(verbatim: $0).tag($0) }
             }
         default: EmptyView()
@@ -122,12 +123,14 @@ struct NativeNodeView: View {
 
 private struct NativeInput: View {
     let node: NativeNode
+    let revision: Int
     @ObservedObject var page: ProjectPage
     @State private var draft: String
     @State private var sent = 0
 
-    init(node: NativeNode, page: ProjectPage) {
+    init(node: NativeNode, revision: Int, page: ProjectPage) {
         self.node = node
+        self.revision = revision
         self.page = page
         _draft = State(initialValue: node.text("value"))
     }
@@ -135,7 +138,7 @@ private struct NativeInput: View {
     var body: some View {
         TextField(node.text("label"), text: Binding(get: { draft }, set: { value in
             draft = value
-            sent = page.event(node.id, name: "onChange", value: value)
+            sent = page.event(node.id, name: "onChange", value:value,displayedRevision:revision)
         }))
         .onChange(of: page.revision) {
             let value = node.text("value")

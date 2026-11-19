@@ -252,7 +252,7 @@ struct RunningPage: View {
                 ProjectSurface(page: page).frame(height:max(1,sdk.canvasHeight))
                     .clipped().allowsHitTesting(sdk.canvasHeight > 0).accessibilityHidden(sdk.canvasHeight == 0)
                 VStack(alignment: .leading) {
-                    ForEach(page.nodes) { NativeNodeView(node: $0, page: page) }
+                    ForEach(page.nodes) { NativeNodeView(node:$0,revision:page.revision,page:page) }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }

@@ -39,6 +39,7 @@ actor PreviewRecovery {
         if stages.contains("page.contentReady") || stages.contains("page.firstFrame") { return "首屏内容已就绪，等待显示" }
         if stages.contains("page.nativeCommitReceived") { return "正在处理项目提交的原生控件" }
         if stages.contains("page.sdkReturned") { return "首次原生调用已返回，等待项目提交首屏" }
+        if stages.contains("page.sdkConsentPending") { return "正在等待项目首次原生调用的权限选择" }
         if let method = events.last(where:{ $0.stage == "page.sdkMethod" }) {
             return "正在等待首屏的原生调用 " + method.detail
         }

@@ -358,6 +358,42 @@ final class DirectoryTests: XCTestCase {
     }
 
     @MainActor
+    func testStartupFileWatchCanBeCancelledWhileProviderHoldsDirectory() async throws {
+        let found = try await ProjectLibrary(base:store).discover(root)
+        let record = try XCTUnwrap(found.first)
+        let session = SDKSession(record:record,storage:store,permissions:["files.read"],networkHosts:[])
+        defer { session.close() }
+        let target = try record.grant.withRoot { $0 }
+        let entered = expectation(description:"文件提供商正在协调目录")
+        let finished = expectation(description:"测试写者已经结束")
+        let release = DispatchSemaphore(value:0)
+        DispatchQueue.global().async {
+            var error: NSError?
+            NSFileCoordinator().coordinate(writingItemAt:target,options:.forReplacing,error:&error) { _ in
+                entered.fulfill()
+                _ = release.wait(timeout:.now()+6)
+            }
+            finished.fulfill()
+        }
+        defer { release.signal() }
+        await fulfillment(of:[entered],timeout:3)
+        let started = expectation(description:"开始项目首屏需要的文件监听")
+        let before = ContinuousClock.now
+        let subscription = Task { @MainActor in
+            started.fulfill()
+            return try await FileSDK().call("watch",SDKArgs(["path":"project/app"]),in:session)
+        }
+        await fulfillment(of:[started],timeout:2)
+        try await Task.sleep(for:.milliseconds(150))
+        subscription.cancel()
+        do { _ = try await subscription.value; XCTFail("已取消的首屏请求不能登记监听") }
+        catch is CancellationError { }
+        XCTAssertLessThan(before.duration(to:.now),.seconds(3))
+        release.signal()
+        await fulfillment(of:[finished],timeout:3)
+    }
+
+    @MainActor
     func testRecentTSXPreviewsExistingSQLiteThroughNativeFirstFrame() async throws {
         let library = ProjectLibrary(base:store)
         let found = try await library.discover(root)
