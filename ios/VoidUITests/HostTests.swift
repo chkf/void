@@ -10,9 +10,15 @@ extension XCUIApplication {
         // A SwiftUI List can expose an offscreen row before a tap can reach it.
         // Scan results share this list with the other simulator fixtures.
         for _ in 0..<8 {
-            if row.exists && row.isHittable {
+            if row.exists {
                 let bounds = row.frame
-                if !bounds.isEmpty && bounds.minY >= frame.minY && bounds.maxY <= footer.frame.minY { return true }
+                if !bounds.isEmpty && frame.contains(CGPoint(x: bounds.midX, y: bounds.midY)) {
+                    if footer.exists && bounds.maxY > footer.frame.minY {
+                        footer.tap()
+                        continue
+                    }
+                    if row.isHittable { return true }
+                }
             }
             swipeUp()
         }
