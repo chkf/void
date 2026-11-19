@@ -5,18 +5,22 @@ import XCTest
 @MainActor
 final class PreviewTestWindow {
     let window: UIWindow
-    private weak var previous: UIWindow?
+    private let previousRoot: UIViewController?
+    private let hostController: UIHostingController<HostView>
 
     init(_ host: HostModel) async throws {
         await host.load()
-        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
-        previous = scene.windows.first(where:{ $0.isKeyWindow })
-        window = UIWindow(windowScene:scene)
-        window.rootViewController = UIHostingController(rootView:HostView(model:host))
-        window.makeKeyAndVisible()
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        window = try XCTUnwrap(scenes.flatMap { $0.windows }.first(where:{ $0.isKeyWindow }))
+        previousRoot = window.rootViewController
+        hostController = UIHostingController(rootView:HostView(model:host))
+        window.rootViewController = hostController
+        window.layoutIfNeeded()
     }
 
-    func close() { window.isHidden = true; previous?.makeKey() }
+    func close() {
+        if window.rootViewController === hostController { window.rootViewController = previousRoot }
+    }
 }
 
 @MainActor

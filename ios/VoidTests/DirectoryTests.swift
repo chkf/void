@@ -1,5 +1,6 @@
 import Darwin
 import SwiftUI
+import WebKit
 import XCTest
 @testable import VoidHost
 
@@ -320,15 +321,27 @@ final class DirectoryTests: XCTestCase {
         let model = HostModel(storage:store)
         let window = try await PreviewTestWindow(model)
         defer { window.close() }
-        func wait(_ condition: () -> Bool) async throws {
-            let end = ContinuousClock.now + .seconds(70)
+        func wait(_ phase: String, _ condition: () -> Bool) async throws {
+            let start = ContinuousClock.now
+            var sampled = false
             while !condition() {
-                guard ContinuousClock.now < end else { throw RuntimeIssue("等待预览超时") }
+                let elapsed = start.duration(to:.now)
+                if !sampled, elapsed > .seconds(15), let compiler = model.compiler {
+                    sampled = true
+                    print("重建回归",phase,"编译器附着于测试窗口",compiler.view.window === window.window)
+                    let state = "JSON.stringify({visibility:document.visibilityState,worker:typeof activeBuild !== 'undefined',resources:performance.getEntriesByType('resource').length})"
+                    compiler.view.evaluateJavaScript(state) { value, _ in print("重建回归网页状态",value as? String ?? "未返回") }
+                }
+                if elapsed >= .seconds(70) {
+                    let message = phase + "等待超时 · " + (model.scanStatus ?? model.problem ?? "已结束")
+                    XCTFail(message)
+                    throw RuntimeIssue(message)
+                }
                 try await Task.sleep(for:.milliseconds(100))
             }
         }
         await model.importDirectory(root)
-        try await wait { model.page != nil || model.problem != nil || model.notice != nil }
+        try await wait("首次导入") { !model.busy && (model.page != nil || model.problem != nil || model.notice != nil) }
         XCTAssertEqual(model.page?.nodes.first?.text("value"),"首次预览",model.problem ?? model.notice ?? "")
         let initial = try XCTUnwrap(model.page)
         try atomicEditorSave("export const title = '再次预览';","app/src/detail.ts")
@@ -337,21 +350,23 @@ final class DirectoryTests: XCTestCase {
         model.refresh(force:true,trace:manual)
         XCTAssertTrue(model.busy)
         XCTAssertTrue(DirectoryJournal.shared.recent().contains { $0.request == manual.id && $0.stage == "preview.begin" })
-        try await wait { model.page?.id != initial.id || model.problem != nil }
+        try await wait("手动重新构建") { !model.busy && (model.page?.id != initial.id || model.problem != nil) }
         XCTAssertEqual(model.page?.nodes.first?.text("value"),"再次预览",model.problem ?? "")
         let previous = model.page?.id
         try write("{","app/manifest.json")
         model.refresh(force:true)
-        try await wait { model.problem != nil }
+        try await wait("坏清单") { !model.busy && model.problem != nil }
         XCTAssertEqual(model.page?.id,previous)
         XCTAssertTrue(model.problem?.contains("目录扫描") == true)
         try write(manifest,"app/manifest.json")
         model.refresh(force:true)
-        try await wait { !model.busy && model.problem == nil }
+        try await wait("修复清单") { !model.busy && model.problem == nil }
+        window.close()
+        model.page?.stop()
         let restored = HostModel(storage:store)
         let nextWindow = try await PreviewTestWindow(restored)
         defer { nextWindow.close() }
-        try await wait { restored.page != nil || restored.problem != nil }
+        try await wait("冷启动") { !restored.busy && (restored.page != nil || restored.problem != nil) }
         XCTAssertEqual(restored.page?.nodes.first?.text("value"),"再次预览",restored.problem ?? "")
         XCTAssertEqual(restored.current?.id,model.current?.id)
         await model.showLibrary(); await restored.showLibrary()
