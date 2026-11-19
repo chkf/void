@@ -409,12 +409,14 @@ final class DirectoryTests: XCTestCase {
         try write(#"{"dependencies":{"@runtime/ui":"1.0.0","@runtime/sdk":"1.1.0","react":"18.3.1"}}"#,"app/package.json")
         try write("""
         import {ios} from "@runtime/sdk";
-        import {render, Form, Section, Text} from "@runtime/ui";
+          import {render, Form, Section, HStack, Text} from "@runtime/ui";
         async function start() {
           const result = await ios.graphics.query({sql:"SELECT value FROM retained"});
           const title = result.success ? String(result.data[0].value) : result.error.code;
             for (let n = 0; n < 60; n++) {
-              render(<Form><Section title="记录"><Text value={n === 59 ? title : String(n)}/></Section></Form>);
+              const rows = Array.from({length:100}, (_, i) =>
+                <HStack key={i}><Text value={String(i)}/><Text value={String(n)}/></HStack>);
+              render(<Form><Section title="记录"><Text value={n === 59 ? title : String(n)}/>{rows}</Section></Form>);
             }
         }
         void start();
@@ -439,6 +441,8 @@ final class DirectoryTests: XCTestCase {
         let expected = ["page.sdkMethod","page.nativeCommitReceived","page.contentReady","preview.verifyPage","preview.displayPage","page.firstFrame","preview.saveBuild"]
         XCTAssertEqual(stages.filter { expected.contains($0) },expected)
         XCTAssertTrue(host.page?.displayed == true)
+        XCTAssertEqual(host.page?.revision,2)
+        XCTAssertEqual(host.page?.nodes.first?.children.first?.children.count,101)
         XCTAssertEqual(host.page?.nodes.first?.children.first?.children.first?.text("value"),"原记录已读取",host.problem ?? "")
         XCTAssertTrue(host.page?.view.window === window)
         XCTAssertEqual(host.current?.id,original.id)
