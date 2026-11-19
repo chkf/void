@@ -6,6 +6,9 @@ struct Product: Codable {
     var files: [String: Data]
     let mode: UIMode
     let revision: String
+    var storedKey: String? = nil
+
+    private enum CodingKeys: String, CodingKey { case entry, files, mode, revision }
 }
 
 enum Toolchain {

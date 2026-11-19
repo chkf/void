@@ -84,7 +84,44 @@ final class WorkspaceTests: XCTestCase {
 
     func testRejectsInvalidNativeTree() throws {
         let data = Data(#"{"revision":1,"eventSequence":0,"nodes":[{"type":"Toggle","id":"a","props":{"label":"显示","value":"yes"},"children":[]}]}"#.utf8)
-        XCTAssertThrowsError(try JSONDecoder().decode(NativeCommit.self, from: data).validate())
+        let params = try XCTUnwrap(JSONSerialization.jsonObject(with:data) as? [String:Any])
+        XCTAssertThrowsError(try NativeCommit(message:params))
+        let row: [String:Any] = ["type":"Text","id":"a","props":["value":"one"],"children":[]]
+        XCTAssertThrowsError(try NativeCommit(message:["revision":true,"eventSequence":0,"nodes":[]]))
+        XCTAssertThrowsError(try NativeCommit(message:["revision":1,"eventSequence":0,"nodes":[row,row]]))
+        XCTAssertThrowsError(try NativeCommit(message:["revision":1,"eventSequence":0,"nodes":Array(repeating:row,count:16_385)]))
+        let valid = try NativeCommit(message:["revision":2,"eventSequence":1,"nodes":[row]])
+        XCTAssertEqual(valid.nodes.first?.text("value"),"one")
+    }
+
+    func testBuildStoreWritesRawResourcesAndCanRestoreLegacyVersion() async throws {
+        let base = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let id = UUID(), folder = base.appendingPathComponent(id.uuidString)
+        try FileManager.default.createDirectory(at:folder,withIntermediateDirectories:true)
+        defer { try? FileManager.default.removeItem(at:base) }
+        let store = ProductStore(base:base)
+        let old = Product(entry:"index.html",files:["index.html":Data("older".utf8)],mode:.web,revision:"a")
+        let oldKey = "a-previous-toolchain"
+        let legacy = folder.appendingPathComponent(oldKey + ".json")
+        let oldBytes = try JSONEncoder().encode(old)
+        try oldBytes.write(to:legacy)
+        let history = folder.appendingPathComponent("history.json")
+        try JSONEncoder().encode(BuildHistory(current:oldKey)).write(to:history)
+        let asset = Data(repeating:17,count:2 * 1024 * 1024)
+        let next = Product(entry:"index.html",files:["index.html":Data("new".utf8),"assets/图 片.bin":asset],mode:.web,revision:"b")
+        try await store.confirm(next,project:id)
+        let pointer = try JSONDecoder().decode(BuildHistory.self,from:Data(contentsOf:history))
+        XCTAssertEqual(pointer.previous,oldKey)
+        let directory = folder.appendingPathComponent(try XCTUnwrap(pointer.current) + ".product")
+        XCTAssertEqual(try Data(contentsOf:directory.appendingPathComponent("0")),asset)
+        let reopened = try await store.matching("b",project:id)
+        XCTAssertEqual(reopened?.files,next.files)
+        let prior = try await store.accepted(id,previous:true)
+        try await store.confirm(try XCTUnwrap(prior),project:id)
+        let restored = try JSONDecoder().decode(BuildHistory.self,from:Data(contentsOf:history))
+        XCTAssertEqual(restored.current,oldKey)
+        XCTAssertEqual(try Data(contentsOf:legacy),oldBytes)
+        XCTAssertTrue(FileManager.default.fileExists(atPath:directory.path))
     }
 
     func testRemovingHistoryPreservesFilesAndProjectIdentity() async throws {

@@ -31,6 +31,7 @@ final class HostModel: ObservableObject {
         return nil
     }
     @Published private(set) var candidate: ProjectPage?
+    @Published private(set) var presentingPage: ProjectPage?
     @Published private(set) var compiler: CompilerPage?
     @Published private(set) var busy = false
     @Published var notice: String?
@@ -47,6 +48,7 @@ final class HostModel: ObservableObject {
     private let products: ProductStore
     private let previewRecovery: PreviewRecovery
     private var recoveredAttempt: PreviewAttempt?
+    var interruptedRequestID: UUID? { recoveredAttempt?.request }
     private let usesAppCatalog: Bool
     private let storage: URL
     private var networkHosts: [String] = []
@@ -91,7 +93,8 @@ final class HostModel: ObservableObject {
             }
             if let interrupted, let original = records.first(where:{ $0.id == interrupted.project }) {
                 recoveredAttempt = interrupted
-                recoveryMessage = "「" + original.name + "」上次在「" + interrupted.stage.title + "」时中断。"
+                let stage = PreviewRecovery.interruptionTitle(interrupted,entries:DirectoryJournal.shared.recent())
+                recoveryMessage = "「" + original.name + "」上次在「" + stage + "」时中断。"
                 DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
             } else if usesAppCatalog, let (id,stage) = PreviewRecovery.interruptedLocalScan(DirectoryJournal.shared.recent()) {
                 recoveryMessage = "上次本机目录检查中断，可在目录诊断查看最后一步。"
@@ -179,6 +182,7 @@ final class HostModel: ObservableObject {
         candidate?.onFailure?("项目已切换")
         candidate?.stop()
         candidate = nil
+        presentingPage = nil
         page?.stop()
         screen = nil
         mode = nil
@@ -397,7 +401,7 @@ final class HostModel: ObservableObject {
                         guard latest == snapshot.revision else { needsScan = true; return }
                     }
                     try await stage(.firstFrame)
-                    try await activate(product,record:verifiedRecord,token:token,expected:previous ? nil : snapshot.revision,trace:diagnostic)
+                    try await activate(product,record:verifiedRecord,token:token,expected:previous ? nil : snapshot.revision,trace:diagnostic,stage:stage)
                     trace?.event("preview.result","OK")
                 } catch {
                     guard generation == token, !Task.isCancelled else { return }
@@ -430,7 +434,7 @@ final class HostModel: ObservableObject {
                     if mode != .swiftui, screen == nil, (error as? DirectoryIssue)?.kind != .sourceLimit, let accepted = try? await products.accepted(record.id) {
                         do {
                             try await stage(.firstFrame)
-                            try await activate(accepted,record:record,token:token,expected:nil,trace:diagnostic)
+                            try await activate(accepted,record:record,token:token,expected:nil,trace:diagnostic,stage:stage)
                             problem = detail
                         } catch { if generation == token { problem = detail + "\n" + error.localizedDescription } }
                     }
@@ -438,11 +442,7 @@ final class HostModel: ObservableObject {
             }
             await run()
             if marked {
-                // Let SwiftUI mount the first screen before removing the interrupted-preview marker.
-                if generation == token, screen != nil, problem == nil {
-                    await Task.yield()
-                    try? await Task.sleep(for:.milliseconds(350))
-                }
+
                 do { try await previewRecovery.finish(attemptID) }
                 catch { diagnostic.event("preview.recoveryWriteFailed",error:error) }
             }
@@ -462,11 +462,13 @@ final class HostModel: ObservableObject {
         current = records.first { $0.id == record.id }
     }
 
-    private func activate(_ product: Product, record: ProjectRecord, token: UUID, expected: String?, trace: DirectoryTrace? = nil) async throws {
+    private func activate(_ product: Product, record: ProjectRecord, token: UUID, expected: String?, trace: DirectoryTrace,
+                          stage: @MainActor (PreviewStage) async throws -> Void) async throws {
         try check(token)
         let next = try ProjectPage(product:product,record:record,storage:storage,permissions:permissions,networkHosts:networkHosts,trace:trace)
         candidate = next
         defer {
+            if presentingPage === next { presentingPage = nil }
             if candidate === next { candidate = nil }
             if page !== next { next.stop() }
         }
@@ -485,10 +487,18 @@ final class HostModel: ObservableObject {
         }
         try check(token)
         if let expected {
+            try await stage(.verifyPage)
             let latest = try await library.revision(record.id,trace:trace)
             try check(token)
             guard latest == expected else { needsScan = true; return }
         }
+        if let failure = next.failure { throw RuntimeIssue(failure) }
+        try await stage(.displayPage)
+        presentingPage = next
+        try await next.waitForDisplay()
+        try check(token)
+        if let failure = next.failure { throw RuntimeIssue(failure) }
+        try await stage(.saveBuild)
         try await products.confirm(product, project: record.id)
         try check(token)
         try await finishFirstPreview(record, token: token)

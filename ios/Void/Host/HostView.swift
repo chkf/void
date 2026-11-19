@@ -19,6 +19,7 @@ struct HostView: View {
     init(model: HostModel) { self.model = model; self.folders = model.folders }
     @Environment(\.scenePhase) private var phase
     @State private var panel: Panel?
+    @State private var diagnosticsRequest: UUID?
     @State private var projectName = ""
     @State private var template = ProjectTemplate.swiftUI
 
@@ -63,7 +64,7 @@ struct HostView: View {
                             .navigationTitle(record.name)
                         }
                     case .swiftUI(let id): ProjectContentView(projectName: record.name).id(id)
-                    case .script(let page): RunningPage(page: page).id(page.id)
+                    case .script: Color.clear
                     case nil:
                         if let entry = model.waitingEntry {
                             NavigationStack {
@@ -79,13 +80,18 @@ struct HostView: View {
                             ContentUnavailableView("项目未能打开", systemImage: "folder.badge.questionmark", description: Text(verbatim: problem))
                         } else { ProgressView("正在打开" + record.name) }
                     }
+                    if let page = model.presentingPage ?? model.page {
+                        RunningPage(page:page).id(page.id).background(Color(uiColor:.systemBackground))
+                    }
                 }
                 .background {
                     // Keep the staging web view attached to the foreground window while its worker
                     // or first native render is running. The native page covers the staging surface.
                     Group {
                         if let compiler = model.compiler { ProjectSurface(compiler:compiler).id(ObjectIdentifier(compiler)) }
-                        else if let candidate = model.candidate { ProjectSurface(page:candidate).id(candidate.id) }
+                        else if let candidate = model.candidate, candidate !== model.presentingPage, candidate !== model.page {
+                            ProjectSurface(page:candidate).id(candidate.id)
+                        }
                     }
                     .frame(width:4,height:4).overlay(Color(uiColor:.systemBackground))
                     .clipped().allowsHitTesting(false).accessibilityHidden(true)
@@ -123,7 +129,13 @@ struct HostView: View {
                 NavigationStack {
                     List {
                         if let recoveryMessage = model.recoveryMessage {
-                            Section("上次操作中断") { Text(verbatim:recoveryMessage).accessibilityIdentifier("preview.interrupted") }
+                            Section("上次操作中断") {
+                                Text(verbatim:recoveryMessage).accessibilityIdentifier("preview.interrupted")
+                                if let request = model.interruptedRequestID {
+                                    Button("上次预览诊断") { diagnosticsRequest = request; panel = .diagnostics }
+                                        .accessibilityIdentifier("preview.interruptedDetails")
+                                }
+                            }
                         }
                         Section {
                             Button { projectName = ""; template = .swiftUI; panel = .create } label: { Label("创建项目", systemImage: "plus") }
@@ -135,7 +147,7 @@ struct HostView: View {
                                 #endif
                             Button { begin(.local) } label: { Label("扫描本机项目",systemImage:"iphone") }
                                 .accessibilityIdentifier("host.local")
-                            Button { panel = .diagnostics } label: { Label("目录诊断",systemImage:"list.bullet.rectangle") }
+                            Button { diagnosticsRequest = nil; panel = .diagnostics } label: { Label("目录诊断",systemImage:"list.bullet.rectangle") }
                         }
                         if !model.records.isEmpty {
                             Section("最近项目") { ForEach(model.records) { record in
@@ -203,7 +215,7 @@ struct HostView: View {
                         }.disabled(cleanName.isEmpty)
                     }.navigationTitle("创建项目").toolbar { Button("取消") { panel = nil } }
                 }
-            case .diagnostics: NavigationStack { DirectoryDiagnosticView().toolbar { Button("完成") { panel = nil } } }
+            case .diagnostics: NavigationStack { DirectoryDiagnosticView(request:diagnosticsRequest).toolbar { Button("完成") { panel = nil } } }
             case .settings: NavigationStack { SettingsView().toolbar { Button("完成") { panel = nil } } }
             case .manage: ManagementView(model:model,close:{ panel = nil },reconnect:{
                 if let id = model.current?.id { begin(.reconnect(id),afterSheet:true) }
@@ -222,7 +234,7 @@ struct HostView: View {
     private var cleanName: String { projectName.trimmingCharacters(in: .whitespacesAndNewlines) }
 }
 
-private struct RunningPage: View {
+struct RunningPage: View {
     @ObservedObject var page: ProjectPage
     @ObservedObject private var sdk: SDKSession
     init(page: ProjectPage) { self.page = page; self.sdk = page.sdk }
@@ -231,6 +243,7 @@ private struct RunningPage: View {
             NativeMediaPreview(sdk: page.sdk)
             content
         }
+        .background { PageDisplayProbe(page:page).allowsHitTesting(false).accessibilityHidden(true) }
     }
     @ViewBuilder private var content: some View {
         if page.product.mode == .web { ProjectSurface(page: page) }

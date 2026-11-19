@@ -6,6 +6,13 @@ struct BuildHistory: Codable {
 }
 
 actor ProductStore {
+    private struct Index: Codable {
+        let entry: String
+        let mode: UIMode
+        let revision: String
+        let paths: [String]
+    }
+
     let base: URL
     init(base: URL) { self.base = base }
 
@@ -25,8 +32,25 @@ actor ProductStore {
         let pointer = try history(id)
         guard let version = previous ? pointer.previous : pointer.current else { return nil }
         guard ProjectFiles.component(version) else { throw RuntimeIssue("构建记录损坏") }
-        let url = directory(id).appendingPathComponent(version + ".json")
-        return try JSONDecoder().decode(Product.self, from: Data(contentsOf: url))
+        let parent = directory(id)
+        let bundle = parent.appendingPathComponent(version + ".product")
+        var product: Product
+        if FileManager.default.fileExists(atPath:bundle.path) {
+            let index = try JSONDecoder().decode(Index.self,from:Data(contentsOf:bundle.appendingPathComponent("index.json")))
+            var files: [String:Data] = [:]
+            for (offset,path) in index.paths.enumerated() {
+                try Task.checkCancellation()
+                guard ProjectFiles.safePath(path), files[path] == nil else { throw RuntimeIssue("构建资源目录损坏") }
+                files[path] = try Data(contentsOf:bundle.appendingPathComponent(String(offset)),options:.mappedIfSafe)
+            }
+            guard files[index.entry] != nil else { throw RuntimeIssue("构建记录缺少入口") }
+            product = Product(entry:index.entry,files:files,mode:index.mode,revision:index.revision)
+        } else {
+            let legacy = parent.appendingPathComponent(version + ".json")
+            product = try JSONDecoder().decode(Product.self,from:Data(contentsOf:legacy,options:.mappedIfSafe))
+        }
+        product.storedKey = version
+        return product
     }
 
     func matching(_ revision: String, project id: UUID) throws -> Product? {
@@ -37,10 +61,31 @@ actor ProductStore {
     func confirm(_ product: Product, project id: UUID) throws {
         let folder = directory(id)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let key = try product.storedKey ?? buildKey(product.revision)
+        guard ProjectFiles.component(key) else { throw RuntimeIssue("构建标识无效") }
+        let fm = FileManager.default
+        let bundle = folder.appendingPathComponent(key + ".product")
+        if !fm.fileExists(atPath:bundle.path), !fm.fileExists(atPath:folder.appendingPathComponent(key + ".json").path) {
+            guard product.files[product.entry] != nil else { throw RuntimeIssue("构建资源缺少入口") }
+            let staging = folder.appendingPathComponent(".pending-" + UUID().uuidString)
+            try fm.createDirectory(at:staging,withIntermediateDirectories:false)
+            defer { if fm.fileExists(atPath:staging.path) { try? fm.removeItem(at:staging) } }
+            let paths = product.files.keys.sorted()
+            for (offset,path) in paths.enumerated() {
+                try Task.checkCancellation()
+                guard ProjectFiles.safePath(path), let bytes = product.files[path] else { throw RuntimeIssue("构建资源路径无效") }
+                try bytes.write(to:staging.appendingPathComponent(String(offset)))
+            }
+            let index = Index(entry:product.entry,mode:product.mode,revision:product.revision,paths:paths)
+            try JSONEncoder().encode(index).write(to:staging.appendingPathComponent("index.json"))
+            try Task.checkCancellation()
+            do { try fm.moveItem(at:staging,to:bundle) }
+            catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileWriteFileExistsError {
+                guard fm.fileExists(atPath:bundle.appendingPathComponent("index.json").path) else { throw error }
+            }
+        }
+        try Task.checkCancellation()
         var pointer = try history(id)
-        let key = try buildKey(product.revision)
-        let url = folder.appendingPathComponent(key + ".json")
-        if !FileManager.default.fileExists(atPath: url.path) { try JSONEncoder().encode(product).write(to: url, options: .atomic) }
         if pointer.current != key {
             pointer.previous = pointer.current
             pointer.current = key

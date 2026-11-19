@@ -1,5 +1,23 @@
+import SwiftUI
 import XCTest
 @testable import VoidHost
+
+@MainActor
+final class PreviewTestWindow {
+    let window: UIWindow
+    private weak var previous: UIWindow?
+
+    init(_ host: HostModel) async throws {
+        await host.load()
+        let scene = try XCTUnwrap(UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first)
+        previous = scene.windows.first(where:{ $0.isKeyWindow })
+        window = UIWindow(windowScene:scene)
+        window.rootViewController = UIHostingController(rootView:HostView(model:host))
+        window.makeKeyAndVisible()
+    }
+
+    func close() { window.isHidden = true; previous?.makeKey() }
+}
 
 @MainActor
 final class RuntimeTests: XCTestCase {
@@ -55,6 +73,8 @@ final class RuntimeTests: XCTestCase {
         let project = FolderGrant.documents.appendingPathComponent(name)
         let host = HostModel(storage: storage)
         defer { try? FileManager.default.removeItem(at: storage); try? FileManager.default.removeItem(at: project) }
+        let window = try await PreviewTestWindow(host)
+        defer { window.close() }
         await host.create(name, parent: nil, template: .tsx)
         XCTAssertEqual(Set(host.permissions), ["files.read", "files.write"])
         let record = try XCTUnwrap(host.current)
@@ -87,7 +107,8 @@ final class RuntimeTests: XCTestCase {
         XCTAssertEqual(try String(contentsOf:project.appendingPathComponent("data/notes/first.txt"), encoding:.utf8),"下次见")
         await host.showLibrary()
         let reopened = HostModel(storage:storage)
-        await reopened.load()
+        let nextWindow = try await PreviewTestWindow(reopened)
+        defer { nextWindow.close() }
         await reopened.open(try XCTUnwrap(reopened.records.first))
         try await wait { reopened.page != nil || reopened.problem != nil }
         XCTAssertEqual(reopened.page?.nodes.first?.text("value"), "重开下次见", reopened.problem ?? "")
@@ -102,6 +123,8 @@ final class RuntimeTests: XCTestCase {
         try FileManager.default.createDirectory(at:app,withIntermediateDirectories:true)
         try Data(#"{"name":"空白项目","uiMode":"web","entry":"index.html"}"#.utf8).write(to:app.appendingPathComponent("manifest.json"))
         let host = HostModel(storage:storage)
+        let window = try await PreviewTestWindow(host)
+        defer { window.close() }
         await host.importDirectory(dir)
         try await wait { host.waitingEntry != nil || host.notice != nil }
         XCTAssertEqual(host.waitingEntry,"app/index.html")
@@ -122,6 +145,8 @@ final class RuntimeTests: XCTestCase {
             try? FileManager.default.removeItem(at: project)
         }
         let host = HostModel(storage: storage)
+        let window = try await PreviewTestWindow(host)
+        defer { window.close() }
         await host.create(name, parent: nil, template: .tsx)
         XCTAssertEqual(host.workspaceTemplate, .tsx)
         host.refresh(force: true)

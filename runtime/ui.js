@@ -10,6 +10,9 @@ let nextID = 0;
 let revision = 0;
 let eventSequence = 0;
 let callbacks = new Map();
+let previousCallbacks = new Map();
+let sending = false;
+let dirty = false;
 const container = { children: [] };
 
 function remove(parent, child) {
@@ -41,6 +44,23 @@ function serialize(node, handlers) {
   return { id: node.id, type: node.type, props, children };
 }
 
+function publish() {
+  dirty = true;
+  if (sending) return;
+  const handlers = new Map();
+  const nodes = container.children.filter(node => !node.hidden).map(node => serialize(node, handlers));
+  previousCallbacks = callbacks;
+  callbacks = handlers;
+  dirty = false;
+  sending = true;
+  void request("ui.commit", { revision: ++revision, eventSequence, nodes }).then(reply => {
+    if (!reply.success) console.error(reply.error.message);
+  }).finally(() => {
+    sending = false;
+    if (dirty) publish();
+  });
+}
+
 const reconciler = Reconciler({
   supportsMutation: true,
   isPrimaryRenderer: true,
@@ -49,14 +69,7 @@ const reconciler = Reconciler({
   getChildHostContext: context => context,
   getPublicInstance: node => node,
   prepareForCommit: () => null,
-  resetAfterCommit(root) {
-    const handlers = new Map();
-    const nodes = root.children.filter(node => !node.hidden).map(node => serialize(node, handlers));
-    callbacks = handlers;
-    void request("ui.commit", { revision: ++revision, eventSequence, nodes }).then(reply => {
-      if (!reply.success) console.error(reply.error.message);
-    });
-  },
+  resetAfterCommit: publish,
   createInstance: (type, props) => ({ id: String(++nextID), type, props, children: [] }),
   createTextInstance(value) {
     return { id: String(++nextID), type: Text, props: { value }, children: [] };
@@ -91,8 +104,9 @@ export function render(view) {
   reconciler.updateContainer(view, root, null, null);
 }
 
-globalThis.__voidEvent = ({ id, name, value, sequence }) => {
+globalThis.__voidEvent = ({ id, name, value, sequence, revision: displayedRevision }) => {
   if (sequence <= eventSequence) return;
   eventSequence = sequence;
-  callbacks.get(id + "/" + name)?.(value);
+  const handlers = displayedRevision === revision - 1 ? previousCallbacks : callbacks;
+  handlers.get(id + "/" + name)?.(value);
 };

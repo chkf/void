@@ -318,6 +318,8 @@ final class DirectoryTests: XCTestCase {
     @MainActor
     func testRealImportPreviewRebuildFailureRecoveryAndColdReopen() async throws {
         let model = HostModel(storage:store)
+        let window = try await PreviewTestWindow(model)
+        defer { window.close() }
         func wait(_ condition: () -> Bool) async throws {
             let end = ContinuousClock.now + .seconds(70)
             while !condition() {
@@ -347,7 +349,8 @@ final class DirectoryTests: XCTestCase {
         model.refresh(force:true)
         try await wait { !model.busy && model.problem == nil }
         let restored = HostModel(storage:store)
-        await restored.load()
+        let nextWindow = try await PreviewTestWindow(restored)
+        defer { nextWindow.close() }
         try await wait { restored.page != nil || restored.problem != nil }
         XCTAssertEqual(restored.page?.nodes.first?.text("value"),"再次预览",restored.problem ?? "")
         XCTAssertEqual(restored.current?.id,model.current?.id)
@@ -374,7 +377,9 @@ final class DirectoryTests: XCTestCase {
         async function start() {
           const result = await ios.graphics.query({sql:"SELECT value FROM retained"});
           const title = result.success ? String(result.data[0].value) : result.error.code;
-          render(<Form><Section title="记录"><Text value={title}/></Section></Form>);
+            for (let n = 0; n < 60; n++) {
+              render(<Form><Section title="记录"><Text value={n === 59 ? title : String(n)}/></Section></Form>);
+            }
         }
         void start();
         ""","app/src/main.tsx")
@@ -388,9 +393,16 @@ final class DirectoryTests: XCTestCase {
         defer { window.isHidden = true; previousWindow?.makeKey() }
         await host.selectRecent(original)
         XCTAssertTrue(host.showingOverview)
-        host.refresh(force:true,remember:true)
+        let trace = DirectoryTrace("preview-test")
+        host.refresh(force:true,remember:true,trace:trace)
         let deadline = ContinuousClock.now + .seconds(110)
-        while host.busy && ContinuousClock.now < deadline { try await Task.sleep(for:.milliseconds(100)) }
+        while (host.busy || host.page?.nodes.first?.children.first?.children.first?.text("value") != "原记录已读取") && host.problem == nil && ContinuousClock.now < deadline {
+            try await Task.sleep(for:.milliseconds(100))
+        }
+        let stages = DirectoryJournal.shared.recent().filter { $0.request == trace.id }.map(\.stage)
+        let expected = ["page.sdkMethod","page.nativeCommitReceived","page.contentReady","preview.verifyPage","preview.displayPage","page.firstFrame","preview.saveBuild"]
+        XCTAssertEqual(stages.filter { expected.contains($0) },expected)
+        XCTAssertTrue(host.page?.displayed == true)
         XCTAssertEqual(host.page?.nodes.first?.children.first?.children.first?.text("value"),"原记录已读取",host.problem ?? "")
         XCTAssertTrue(host.page?.view.window === window)
         XCTAssertEqual(host.current?.id,original.id)

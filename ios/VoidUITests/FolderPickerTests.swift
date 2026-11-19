@@ -244,6 +244,9 @@ final class FolderPickerTests: XCTestCase {
         app.terminate()
         app.launch()
         XCTAssertTrue(app.staticTexts["preview.interrupted"].waitForExistence(timeout:30),app.debugDescription)
+        app.buttons["preview.interruptedDetails"].tap()
+        XCTAssertTrue(app.navigationBars["上次预览诊断"].waitForExistence(timeout:10))
+        app.buttons["完成"].tap()
         let record = app.buttons["recent." + fixture]
         XCTAssertTrue(record.exists)
         openFixtureOverview()

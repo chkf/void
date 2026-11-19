@@ -16,6 +16,36 @@ const nativeFiles = Object.fromEntries(await Promise.all(["app/package.json", "a
 const template = { files: nativeFiles, entry: "src/main.tsx", mode: "native" };
 const compile = input => compileProject(esbuild, input, types, versions);
 
+test("连续更新首屏时只发送一个未确认的原生树，最终状态和点击回调均保留", async () => {
+  const commits = [], replies = [];
+  const context = vm.createContext({
+    setTimeout, clearTimeout, console, crypto: webcrypto,
+    webkit: { messageHandlers: { voidRPC: { postMessage(message) {
+      assert.equal(message.method, "ui.commit");
+      commits.push(message.params);
+      return new Promise(resolve => replies.push(() => resolve({ id: message.id, result: { success: true, data: null } })));
+    } } } }
+  });
+  vm.runInContext(libraries.toString(), context);
+  const react = context.__voidLibraries.react;
+  const ui = context.__voidLibraries["@runtime/ui"];
+  let clicked = -1;
+  for (let i = 0; i < 60; i++) {
+    ui.render(react.createElement(ui.Button, { label: String(i), onPress: () => { clicked = i; } }));
+  }
+  assert.equal(commits.length, 1);
+  assert.equal(commits[0].nodes[0].props.label, "0");
+  context.__voidEvent({ id: commits[0].nodes[0].id, name:"onPress", value:null, sequence:1 });
+  assert.equal(clicked, 0);
+  replies.shift()();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(commits.length, 2);
+  assert.equal(commits[1].nodes[0].props.label, "59");
+  context.__voidEvent({ id: commits[1].nodes[0].id, name:"onPress", value:null, sequence:2 });
+  assert.equal(clicked, 59);
+  replies.shift()();
+});
+
 test("取消的编译会终止工作线程，迟到的回调不能交付到下一次构建", async () => {
   const workers = [];
   class Worker {
@@ -56,6 +86,7 @@ test("原生模板离线编译、输出 Source Map，真实 React 状态随开�
   const toggle = section.children.find(node => node.type === "Toggle");
   assert.equal(section.children.at(-1).props.value, "你好");
   context.__voidEvent({ id: toggle.id, name: "onChange", value: false, sequence: 1 });
+  await new Promise(resolve => setImmediate(resolve));
   assert.equal(trees.at(-1).nodes[0].children[0].children.length, 2);
   assert.equal(trees.at(-1).eventSequence, 1);
   assert.equal(trees.at(-1).nodes[0].children[0].children[1].id, toggle.id);

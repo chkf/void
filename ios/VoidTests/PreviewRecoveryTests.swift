@@ -15,6 +15,18 @@ final class PreviewRecoveryTests: XCTestCase {
         local.event("local.request"); local.event("local.result","OK")
         XCTAssertNil(PreviewRecovery.interruptedLocalScan(events()))
     }
+    func testRecoveryUsesTheInterruptedRequestEvenAfterNewerFolderScan() {
+        let preview = DirectoryTrace("preview"), local = DirectoryTrace("local")
+        let attempt = PreviewAttempt(request:preview.id,project:UUID(),stage:.firstFrame)
+        preview.event("preview.firstFrame")
+        preview.event("page.navigationFinished")
+        local.event("page.contentReady")
+        local.event("local.result","OK")
+        XCTAssertEqual(PreviewRecovery.interruptionTitle(attempt,entries:DirectoryJournal.shared.recent()),"网页已载入，等待项目提交首屏")
+        preview.event("page.nativeCommitReceived")
+        XCTAssertEqual(PreviewRecovery.interruptionTitle(attempt,entries:DirectoryJournal.shared.recent()),"正在处理项目提交的原生控件")
+    }
+
     func testUpgradeRecognizesIncompleteDev4PreviewOnly() {
         let trace = DirectoryTrace("preview"), other = DirectoryTrace("preview")
         trace.event("preview.begin"); trace.event("scan.end"); other.event("preview.result")
@@ -51,6 +63,8 @@ final class PreviewRecoveryTests: XCTestCase {
         XCTAssertTrue(host.recoveryMessage?.contains("正在编译项目") == true)
         let pending = try await recovery.pending()
         XCTAssertEqual(pending?.request,active)
+        let window = try await PreviewTestWindow(host)
+        defer { window.close() }
         await host.open(original)
         let end = ContinuousClock.now + .seconds(115)
         while host.busy && ContinuousClock.now < end { try await Task.sleep(for:.milliseconds(100)) }

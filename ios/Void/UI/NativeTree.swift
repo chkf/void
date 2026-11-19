@@ -1,17 +1,11 @@
 import Foundation
 import SwiftUI
 
-enum NativeValue: Decodable {
+enum NativeValue {
     case text(String), flag(Bool), options([String])
-    init(from decoder: Decoder) throws {
-        let value = try decoder.singleValueContainer()
-        if let text = try? value.decode(String.self) { self = .text(text) }
-        else if let flag = try? value.decode(Bool.self) { self = .flag(flag) }
-        else { self = .options(try value.decode([String].self)) }
-    }
 }
 
-struct NativeNode: Decodable, Identifiable {
+struct NativeNode: Identifiable {
     let id: String
     let type: String
     let props: [String: NativeValue]
@@ -31,35 +25,68 @@ struct NativeNode: Decodable, Identifiable {
     }
 }
 
-struct NativeCommit: Decodable {
+struct NativeCommit {
     let revision: Int
     let eventSequence: Int
     let nodes: [NativeNode]
 
-    func validate() throws {
-        var seen = Set<String>()
-        let containers = ["HStack", "VStack", "Form", "List", "Section"]
-        let required = ["Text": ["value"], "Image": ["systemName", "label"], "Button": ["label"],
-                        "TextField": ["label", "value"], "Toggle": ["label", "value"], "Picker": ["label", "value", "options"],
-                        "Section": ["title"], "HStack": [], "VStack": [], "List": [], "Form": []]
-        func check(_ node: NativeNode, depth: Int) throws {
-            guard depth <= 128, !node.id.isEmpty, seen.insert(node.id).inserted,
-                  let keys = required[node.type], Set(keys) == Set(node.props.keys),
-                  node.children.isEmpty || containers.contains(node.type) else {
-                throw RuntimeIssue("无效的原生控件或属性 · " + node.type + " #" + node.id)
-            }
-            for key in keys {
-                switch (node.type, key, node.props[key]) {
-                case ("Toggle", "value", .flag), ("Picker", "options", .options): break
-                case ("Toggle", "value", _), ("Picker", "options", _): throw RuntimeIssue("属性类型错误 · " + node.type + "." + key)
-                case (_, _, .text): break
-                default: throw RuntimeIssue("属性类型错误 · " + node.type + "." + key)
-                }
-            }
-            for child in node.children { try check(child, depth: depth + 1) }
+    static func counter(_ value: Any?, minimum: Int) throws -> Int {
+        guard let number = value as? NSNumber, CFGetTypeID(number) != CFBooleanGetTypeID(),
+              let result = value as? Int, result >= minimum else { throw RuntimeIssue("原生界面修订号无效") }
+        return result
+    }
+
+    // WebKit already provides Foundation values. Decode them directly without making
+    // a JSON copy of the entire screen. Stop before allocating oversized subtrees.
+    init(message: [String: Any]) throws {
+        revision = try Self.counter(message["revision"],minimum:1)
+        eventSequence = try Self.counter(message["eventSequence"],minimum:0)
+        let required = ["Text":["value"], "Image":["systemName","label"], "Button":["label"],
+                        "TextField":["label","value"], "Toggle":["label","value"], "Picker":["label","value","options"],
+                        "Section":["title"], "HStack":[], "VStack":[], "List":[], "Form":[]]
+        let containers = ["HStack","VStack","Form","List","Section"]
+        var seen = Set<String>(), remainingItems = 16_384, remainingText = 4 * 1024 * 1024
+        func consumeItems(_ count: Int) throws {
+            guard count <= remainingItems else { throw RuntimeIssue("单帧原生控件和选项超过 16,384 项") }
+            remainingItems -= count
         }
-        guard revision > 0, eventSequence >= 0 else { throw RuntimeIssue("原生界面修订号无效") }
-        for node in nodes { try check(node, depth: 0) }
+        func text(_ value: Any?) throws -> String {
+            guard let string = value as? String else { throw RuntimeIssue("原生控件需要文本属性") }
+            let bytes = string.utf8.count
+            guard bytes <= remainingText else { throw RuntimeIssue("单帧原生界面文本超过 4 MiB") }
+            remainingText -= bytes
+            return string
+        }
+        func read(_ value: Any?, depth: Int) throws -> [NativeNode] {
+            guard let rows = value as? [Any] else { throw RuntimeIssue("原生控件列表无效") }
+            try consumeItems(rows.count)
+            return try rows.map { row in
+                try Task.checkCancellation()
+                guard depth <= 128, let item = row as? [String:Any], let type = item["type"] as? String,
+                      let keys = required[type], let props = item["props"] as? [String:Any], keys.count == props.count,
+                      let children = item["children"] as? [Any], children.isEmpty || containers.contains(type) else {
+                    throw RuntimeIssue("原生控件的类型、层级或属性无效")
+                }
+                let id = try text(item["id"])
+                guard !id.isEmpty, seen.insert(id).inserted else { throw RuntimeIssue("原生控件标识无效或重复") }
+                var decoded: [String:NativeValue] = [:]
+                for key in keys {
+                    switch (type,key) {
+                    case ("Toggle","value"):
+                        guard let flag = props[key] as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID()
+                        else { throw RuntimeIssue("Toggle.value 需要布尔值") }
+                        decoded[key] = .flag(flag.boolValue)
+                    case ("Picker","options"):
+                        guard let values = props[key] as? [Any] else { throw RuntimeIssue("Picker.options 需要文本列表") }
+                        try consumeItems(values.count)
+                        decoded[key] = .options(try values.map { try text($0) })
+                    default: decoded[key] = .text(try text(props[key]))
+                    }
+                }
+                return NativeNode(id:id,type:type,props:decoded,children:try read(children,depth:depth + 1))
+            }
+        }
+        nodes = try read(message["nodes"],depth:0)
     }
 }
 
