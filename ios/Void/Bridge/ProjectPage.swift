@@ -7,9 +7,14 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     let product: Product
     let view: WKWebView
     let sdk: SDKSession
-    @Published private(set) var nodes: [NativeNode] = []
-    @Published private(set) var revision = 0
-    private(set) var acknowledged = 0
+    @Published private var tree: NativeCommit?
+    var nodes: [NativeNode] { tree?.nodes ?? [] }
+    var revision: Int { tree?.revision ?? 0 }
+    var acknowledged: Int { tree?.eventSequence ?? 0 }
+    var uiVersion: Int { tree?.uiVersion ?? 1 }
+    var hasTabNavigation: Bool { tree?.hasTabs == true }
+    private var priorActions = [String: NativeAction]()
+    private var priorRevision = 0
     private var eventSequence = 0
     private let server: ResourceServer
     private var base: URL?
@@ -39,6 +44,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         config.websiteDataStore = .nonPersistent()
         let startup = """
         (() => {
+          globalThis.__voidNativeUIVersion = 2;
           const call = (method, params) => window.webkit.messageHandlers.voidRPC.postMessage({version:1,id:crypto.randomUUID(),method,params});
           let failed = false;
           addEventListener('error', e => {
@@ -202,9 +208,12 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
                         let commit = try await task.value
                         guard valid else { fail("INVALID_SESSION","页面已关闭"); return }
                         if newestTree == number {
-                            acknowledged = commit.eventSequence
-                            nodes = commit.nodes
-                            revision = commit.revision
+                            guard commit.eventSequence >= acknowledged, commit.eventSequence <= eventSequence else {
+                                throw RuntimeIssue("原生界面确认的事件序号无效")
+                            }
+                            priorRevision = revision
+                            priorActions = tree?.actions ?? [:]
+                            tree = commit
                             confirm()
                         }
                         success()
@@ -252,9 +261,12 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
 
     @discardableResult
     func event(_ id: String, name: String, value: Any, displayedRevision: Int? = nil) -> Int {
-        guard valid else { return eventSequence }
+        let displayed = displayedRevision ?? revision
+        guard valid, tree?.actions[id]?.accepts(name, value) == true,
+              displayed == revision || (displayed == priorRevision && priorActions[id]?.accepts(name, value) == true)
+        else { return eventSequence }
         eventSequence += 1
-        let event: [String: Any] = ["id":id,"name":name,"value":value,"sequence":eventSequence,"revision":displayedRevision ?? revision]
+        let event: [String: Any] = ["id":id,"name":name,"value":value,"sequence":eventSequence,"revision":displayed]
         view.callAsyncJavaScript("window.__voidEvent(event)", arguments: ["event": event], in: nil, in: .page) { [weak self] result in
             if case let .failure(error) = result, self?.valid == true { self?.onFailure?(error.localizedDescription) }
         }

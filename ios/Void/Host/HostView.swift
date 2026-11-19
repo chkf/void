@@ -14,6 +14,11 @@ private struct ObservedFolder: Equatable {
     let monitor: Bool
 }
 
+private struct ProjectTabsKey: PreferenceKey {
+    static let defaultValue = false
+    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
+}
+
 struct HostView: View {
     @ObservedObject var model: HostModel
     @ObservedObject var folders: FolderRequests
@@ -22,6 +27,7 @@ struct HostView: View {
     @State private var panel: Panel?
     @State private var projectName = ""
     @State private var template = ProjectTemplate.swiftUI
+    @State private var projectTabs = false
 
     var body: some View {
         ZStack {
@@ -98,7 +104,8 @@ struct HostView: View {
                             .frame(width:4,height:4).clipped().allowsHitTesting(false).accessibilityHidden(true)
                     }
                 }
-                .safeAreaInset(edge: .bottom) {
+                .onPreferenceChange(ProjectTabsKey.self) { projectTabs = $0 }
+                .safeAreaInset(edge: projectTabs ? .top : .bottom, spacing: 0) {
                     VStack(alignment:.leading,spacing:4) {
                     if let problem = model.problem, model.page != nil || model.mode == .swiftui && model.workspaceTemplate == nil {
                         Text(verbatim:problem).font(.caption).lineLimit(3).textSelection(.enabled)
@@ -108,7 +115,7 @@ struct HostView: View {
                         if model.busy {
                             ProgressView()
                             Text(model.scanStatus ?? "正在准备预览").font(.caption).accessibilityIdentifier("preview.stage")
-                            Button("取消") { model.cancelScan() }.accessibilityIdentifier("scan.cancel")
+                            Button("取消") { model.cancelScan() }.frame(minWidth: 44, minHeight: 44).accessibilityIdentifier("scan.cancel")
                         } else if let status = model.scanStatus { Text(status).font(.caption) }
                         if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil && !model.showingOverview {
                             Label(model.mode == .swiftui ? "查看构建说明" : "更新失败", systemImage: "exclamationmark.circle")
@@ -119,13 +126,15 @@ struct HostView: View {
                                 .accessibilityIdentifier("project.library")
                         }
                         Spacer()
-                        Button { panel = .manage } label: { Label("管理", systemImage: "slider.horizontal.3") }
+                        Button { panel = .manage } label: {
+                            Label("管理", systemImage: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
+                        }
                             .accessibilityIdentifier("host.manage")
                             #if DEBUG && targetEnvironment(simulator)
                             .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
                             #endif
                     }
-                    }.padding(.horizontal).padding(.vertical, 8).background(.bar)
+                    }.padding(.horizontal).padding(.vertical, projectTabs ? 0 : 4).background(.bar)
                 }
             } else {
                 NavigationStack {
@@ -254,7 +263,7 @@ struct RunningPage: View {
         VStack(spacing: 0) {
             NativeMediaPreview(sdk: page.sdk)
             content
-        }
+        }.preference(key: ProjectTabsKey.self, value: visible && page.hasTabNavigation)
     }
     @ViewBuilder private var content: some View {
         if page.product.mode == .web { ProjectSurface(page:page, visible:visible) }
@@ -262,9 +271,7 @@ struct RunningPage: View {
             VStack(spacing: 0) {
                 ProjectSurface(page:page, visible:visible).frame(height:max(1,sdk.canvasHeight))
                     .clipped().allowsHitTesting(sdk.canvasHeight > 0).accessibilityHidden(sdk.canvasHeight == 0)
-                VStack(alignment: .leading) {
-                    ForEach(page.nodes) { NativeNodeView(node:$0,revision:page.revision,page:page) }
-                }.frame(maxWidth: .infinity, maxHeight: .infinity)
+                NativeProjectTree(nodes: page.nodes, revision: page.revision, page: page)
             }
         }
     }
@@ -320,7 +327,7 @@ private struct SettingsView: View {
         Form {
             LabeledContent("宿主版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
             LabeledContent("构建号", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
-            LabeledContent("原生控件协议", value: "1")
+            LabeledContent("原生控件协议", value: "1 / 2（UI 1.1.0）")
             LabeledContent("SDK 版本", value: "1.1.0")
             Section("SDK 能力") {
                 ForEach(SDKSession.methods.keys.sorted(), id: \.self) { group in

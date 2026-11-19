@@ -10,18 +10,49 @@ import json, re, sys
 sdk = tuple(map(int, sys.argv[1].split(".")))[:2]
 requested = tuple(map(int, sys.argv[2].split("."))) if sys.argv[2] else None
 choices = []
+profile = sys.argv[3]
 for runtime, devices in json.load(sys.stdin)["devices"].items():
     match = re.search(r"\.iOS-(\d+(?:-\d+)*)", runtime)
     if not match:
         continue
     version = tuple(map(int, match.group(1).split("-")))
     if (17, 0) <= version[:2] <= sdk and (not requested or version[:2] == requested):
-        choices.extend((version, d["name"] in ("iPhone 17", "iPhone 16"), d["name"], d["udid"]) for d in devices if d["name"].startswith("iPhone") and d["isAvailable"])
+        for d in devices:
+            name = d["name"]
+            if not d["isAvailable"] or not name.startswith("iPad" if profile == "ipad" else "iPhone"):
+                continue
+            if profile == "compact":
+                # Prefer the smallest available phone for the installed runtime.
+                rank = next((8-i for i, part in enumerate(["SE", "mini", "16e", "17e", "iPhone 16", "iPhone 17"]) if part in name and "Pro" not in name and "Plus" not in name), 0)
+            else:
+                rank = int(name in ("iPhone 17", "iPhone 16") or "mini" in name)
+            choices.append((version, rank, name, d["udid"]))
 if not choices:
     sys.exit("缺少与所选 SDK 匹配的 iPhone 模拟器 " + sys.argv[2])
 version, _, name, udid = max(choices)
 print(name, "iOS " + ".".join(map(str, version)), file=sys.stderr)
-print(udid)' "$(xcrun --sdk iphonesimulator --show-sdk-version)" "${VOID_IOS_SDK:-}"
+print(udid)' "$(xcrun --sdk iphonesimulator --show-sdk-version)" "${VOID_IOS_SDK:-}" "${VOID_LAYOUT_PROFILE:-}"
+}
+
+prepare_native_ui_test() {
+  local device="$1" container
+  xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
+  container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
+  TEST_RUNNER_VOID_NATIVE_UI_PROJECT=$(python3 - "$container" <<'PY'
+import json, pathlib, shutil, sys, uuid
+token = str(uuid.uuid4())
+name = "Void Native UI " + token[:8]
+root = pathlib.Path(sys.argv[1]) / "Documents" / name
+shutil.copytree("examples/native-ui", root)
+(root / "runtime.json").write_text(json.dumps({"formatVersion": 1, "id": token}))
+manifest = root / "app/manifest.json"
+value = json.loads(manifest.read_bytes())
+value["name"] = name
+manifest.write_text(json.dumps(value))
+print(name)
+PY
+  )
+  export TEST_RUNNER_VOID_NATIVE_UI_PROJECT
 }
 
 # Seed a user folder in the dedicated simulator's local Files provider. The host
@@ -130,12 +161,16 @@ case "${1:-device}" in
     test -s "$app/Toolchain/sdk-api.json"
     test -s "$app/Toolchain/sdk-reference.md"
     test -s "$app/Toolchain/sdk.d.ts"
+    test -s "$app/Toolchain/ui.d.ts"
+    test -s "$app/Toolchain/native-ui.md"
+    test -s "$app/Toolchain/NativeUIDemo/app/src/main.tsx"
     test -s "$app/StarterProject/app/SwiftUI/ProjectContentView.swift"
     test -s "$app/TSXProject/app/src/main.tsx"
     if [[ -n "${VOID_IOS_SDK:-}" ]]; then
       test "$(plutil -extract DTSDKName raw "$app/Info.plist")" = "iphoneos$VOID_IOS_SDK"
     fi
     test "$(plutil -extract MinimumOSVersion raw "$app/Info.plist")" = 17.0
+    test "$(plutil -extract CFBundleVersion raw "$app/Info.plist")" = 11
     staging=$(mktemp -d "$out/package.XXXXXX")
     mkdir -p "$staging/Payload"
     ditto "$app" "$staging/Payload/VoidHost.app"
@@ -172,6 +207,7 @@ case "${1:-device}" in
       -only-testing:VoidTests/DirectoryTests/testStartupFileWatchCanBeCancelledWhileProviderHoldsDirectory \
       -only-testing:VoidTests/WorkspaceTests/testBuildStoreWritesRawResourcesAndCanRestoreLegacyVersion \
       -only-testing:VoidTests/WorkspaceTests/testRejectsInvalidNativeTree \
+      -only-testing:VoidTests/NativeContractTests \
       -only-testing:VoidTests/PreviewRecoveryTests/testRecoveryUsesTheInterruptedRequestEvenAfterNewerFolderScan \
       -only-testing:VoidTests/PreviewRecoveryTests/testNewWorkspaceRemainsSelectedAfterADifferentInterruptedPreview \
       -resultBundlePath "$out/release-preview.xcresult" test-without-building
@@ -241,11 +277,22 @@ assert all(any(e["stage"] == step for e in timeline)
            for step in ["picker.present", "picker.dismiss", "import.result", "page.firstFrame"])
 PY
     ;;
+  native-layout)
+    bash scripts/ios-build.sh start-simulator
+    device=$(choose_simulator)
+    xcrun simctl bootstatus "$device" -b
+    bash scripts/ios-build.sh build-tests
+    prepare_native_ui_test "$device"
+    xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+      -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidUITests/NativeNavigationTests \
+      -resultBundlePath "$out/layout.xcresult" test-without-building
+    ;;
   run-tests)
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
     install_picker_fixture "$device"
     prepare_consent_test "$device" Debug
+    prepare_native_ui_test "$device"
     if [[ "${VOID_SIMULATOR_FIXTURES:-}" == 1 ]]; then
       container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
       for service in contacts calendar reminders photos photos-add location; do
@@ -283,5 +330,5 @@ PY
     if ((test_status != 0)); then exit "$test_status"; fi
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
-  *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests|release-preview|local-picker" >&2; exit 2 ;;
+  *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests|release-preview|local-picker|native-layout" >&2; exit 2 ;;
 esac

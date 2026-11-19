@@ -1,0 +1,7 @@
+{
+  "name": "原生组件示例",
+  "version": "1.0.0",
+  "uiMode": "native",
+  "entry": "src/main.tsx",
+  "permissions": []
+}

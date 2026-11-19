@@ -54,8 +54,14 @@ actor ProductStore {
     }
 
     func matching(_ revision: String, project id: UUID) throws -> Product? {
-        guard try history(id).current == buildKey(revision) else { return nil }
-        return try accepted(id)
+        let current = try history(id).current
+        if current == (try buildKey(revision)) { return try accepted(id) }
+        // The released dev.10 product carries its own v1 renderer. Reopen an
+        // unchanged native project in place, retaining both history pointers.
+        let dev10 = "8f54b1ef5cb30086abd34dd6bc023b93e37a660ea339c51fe8761ce287056504"
+        guard current == revision + "-" + dev10, let product = try accepted(id),
+              product.mode == .native, product.revision == revision else { return nil }
+        return product
     }
 
     func confirm(_ product: Product, project id: UUID, commit: DirectoryCommit? = nil) throws {

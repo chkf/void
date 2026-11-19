@@ -86,7 +86,8 @@ function typecheck(files, declarations, roots) {
 }
 
 function matchesBuiltin(name, requested, installed) {
-  return requested === installed || (name === "@runtime/sdk" && requested === "1.0.0" && installed === "1.1.0");
+  return typeof installed === "string" && (requested === installed ||
+    ((name === "@runtime/sdk" || name === "@runtime/ui") && requested === "1.0.0" && installed === "1.1.0"));
 }
 
 function resolver(files, versions, declared, readSource) {
@@ -99,7 +100,8 @@ function resolver(files, versions, declared, readSource) {
         if (builtins.has(specifier)) {
           const pkg = specifier.startsWith("react-dom/") ? "react-dom" : specifier.split("/jsx-runtime")[0];
           if (!matchesBuiltin(pkg, declared[pkg], versions[pkg])) throw new Error("app/package.json 缺少匹配的依赖 " + pkg + "@" + versions[pkg]);
-          return { path: specifier, namespace: "host-library" };
+          const path = pkg === "@runtime/ui" && declared[pkg] === "1.1.0" ? "@runtime/ui@1.1.0" : specifier;
+          return { path, namespace: "host-library" };
         }
         let path;
         if (specifier.startsWith(".") || specifier.startsWith("/")) {
@@ -161,6 +163,7 @@ export async function compileProject(esbuild, input, declarations, versions) {
   const declared = pkg.dependencies || {};
   for (const [name, version] of Object.entries(declared)) {
     if (matchesBuiltin(name, version, versions[name])) continue;
+    if (name === "@runtime/ui") throw new Error("app/package.json · 此宿主不支持 @runtime/ui@" + version + "，请使用匹配的宿主或锁定受支持的精确版本");
     const local = files["modules/" + name + "/package.json"];
     if (!local || JSON.parse(decoder.decode(local)).version !== version) throw new Error("app/package.json 缺少锁定依赖 " + name + "@" + version);
   }
@@ -184,7 +187,10 @@ export async function compileProject(esbuild, input, declarations, versions) {
       }
     }
   }
-  typecheck(files, declarations, Object.keys(files).filter(name => /^app\/.*\.(?:ts|tsx)$/.test(name)));
+  const projectTypes = declared["@runtime/ui"] === "1.0.0" && declarations["/contracts/ui-1.0.d.ts"]
+    ? { ...declarations, "/node_modules/@runtime/ui/index.d.ts": declarations["/contracts/ui-1.0.d.ts"] }
+    : declarations;
+  typecheck(files, projectTypes, Object.keys(files).filter(name => /^app\/.*\.(?:ts|tsx)$/.test(name)));
   if (entries.length) {
     const result = await esbuild.build({
       entryPoints: entries, bundle: true, write: false, outdir: "void-output",

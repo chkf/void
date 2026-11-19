@@ -1,6 +1,6 @@
 import { build } from "esbuild-wasm";
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { copyFile, cp, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const output = resolve(root, "ios/Toolchain");
 await mkdir(output, { recursive: true });
 const deps = JSON.parse(await readFile(join(root, "package.json"), "utf8")).devDependencies;
-const versions = { react: deps.react, "react-dom": deps["react-dom"], "@runtime/ui": "1.0.0", "@runtime/sdk": "1.1.0" };
+const versions = { react: deps.react, "react-dom": deps["react-dom"], "@runtime/ui": "1.1.0", "@runtime/sdk": "1.1.0" };
 await copyFile(join(root, "runtime/sdk-api.json"), join(output, "sdk-api.json"));
 await copyFile(join(root, "runtime/sdk.d.ts"), join(output, "sdk.d.ts"));
 const reference = (await readFile(join(root, "docs/SDK_REFERENCE.md"), "utf8"))
@@ -34,6 +34,10 @@ for (const name of ["@types/react", "@types/react-dom", "@types/prop-types", "cs
 for (const name of ["ui", "sdk"]) {
   types["/node_modules/@runtime/" + name + "/index.d.ts"] = await readFile(join(root, "runtime/" + name + ".d.ts"), "utf8");
 }
+types["/contracts/ui-1.0.d.ts"] = await readFile(join(root, "runtime/ui-1.0.d.ts"), "utf8");
+await copyFile(join(root, "runtime/ui.d.ts"), join(output, "ui.d.ts"));
+await cp(join(root, "examples/native-ui"), join(output, "NativeUIDemo"), { recursive: true });
+await copyFile(join(root, "docs/NATIVE_UI.md"), join(output, "native-ui.md"));
 await writeFile(join(output, "types.json"), JSON.stringify(types));
 await writeFile(join(output, "versions.json"), JSON.stringify(versions));
 for (const [entry, name] of [["libraries.js", "libraries.js"], ["browser-compiler.mjs", "compiler.js"]]) {
