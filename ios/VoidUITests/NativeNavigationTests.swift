@@ -2,8 +2,9 @@ import XCTest
 import UIKit
 
 final class NativeNavigationTests: XCTestCase {
-    private func attach(_ app: XCUIApplication, _ name: String) {
-        let image = XCTAttachment(screenshot: app.screenshot())
+    @MainActor private func attach(_ name: String) {
+        // A window-relative snapshot can crop the rotated app in display coordinates.
+        let image = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         image.name = name
         image.lifetime = .keepAlways
         add(image)
@@ -82,7 +83,7 @@ final class NativeNavigationTests: XCTestCase {
         XCTAssertTrue(manage.isHittable)
         if app.keyboards.firstMatch.exists {
             XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
-            attach(app, "Keyboard")
+            attach("Keyboard")
             input.typeText("\n")
         }
         appearance.tap()
@@ -93,7 +94,7 @@ final class NativeNavigationTests: XCTestCase {
         components.tap()
         XCTAssertEqual(input.value as? String, "abc")
         XCTAssertTrue(app.staticTexts["1 / 4"].exists)
-        attach(app, "Light-Portrait")
+        attach("Light-Portrait")
         var findings = try audit(app)
         let scroll = app.scrollViews.firstMatch
         scroll.swipeUp()
@@ -115,20 +116,25 @@ final class NativeNavigationTests: XCTestCase {
         toggleThird()
         XCTAssertTrue(rows.waitForExistence(timeout: 8))
         rows.tap()
-        XCTAssertTrue(app.staticTexts["列表行 1"].waitForExistence(timeout: 8))
+        let firstRow = app.staticTexts["列表行 1"]
+        XCTAssertTrue(firstRow.waitForExistence(timeout: 8))
+        let firstRowY = firstRow.frame.midY
         app.swipeUp()
+        XCTAssertTrue(!firstRow.isHittable || firstRow.frame.midY < firstRowY - 8)
         XCTAssertTrue(components.isHittable)
+        attach("Three-Tabs-Scrolled")
         components.tap()
         XCTAssertTrue(anchor.isHittable)
         XCTAssertEqual(anchor.frame.midY, y, accuracy: 3)
         appearance.tap()
         toggleThird()
         XCTAssertTrue(becomes(rows, "exists == false"))
-        attach(app, "Dark-Portrait")
+        attach("Dark-Portrait")
         findings += try audit(app)
         device.orientation = .landscapeLeft
         XCTAssertTrue(manage.waitForExistence(timeout: 8))
-        attach(app, "Dark-Landscape")
+        XCTAssertGreaterThan(app.frame.width, app.frame.height)
+        attach("Dark-Landscape")
         manage.tap()
         XCTAssertTrue(app.buttons["host.switch"].isHittable)
         let recovery = app.buttons["host.recovery"]
@@ -137,7 +143,7 @@ final class NativeNavigationTests: XCTestCase {
         let restore = app.buttons["host.restore"]
         XCTAssertTrue(restore.waitForExistence(timeout: 8))
         XCTAssertTrue(restore.isHittable)
-        attach(app, "Host-Recovery-Landscape")
+        attach("Host-Recovery-Landscape")
         app.buttons["host.recoveryDone"].tap()
 
         device.orientation = .portrait
@@ -148,7 +154,7 @@ final class NativeNavigationTests: XCTestCase {
         XCTAssertTrue(manage.isHittable)
         XCTAssertTrue(heading.waitForExistence(timeout: 12))
         XCTAssertGreaterThan(heading.frame.height, standardHeight * 1.3)
-        attach(app, "Accessibility-XXXL")
+        attach("Accessibility-XXXL")
         XCTAssertTrue(appearance.isHittable)
         XCTAssertTrue(findings.isEmpty, findings.joined(separator: "\n"))
     }
