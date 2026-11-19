@@ -8,6 +8,12 @@ dev.9 提交通过 9 项 Release 回归。真实目录导入、手动重新构�
 
 原 dev.9 标签的五项端到端界面测试均通过，包括强退、打开对应诊断再恢复 TSX。原生组合测试另建了测试窗口，看到首屏即可触发下一次重建。该用例数次出现超时，首次运行的 40 项原生测试中通过 39 项。原标签未自动发布。补验使用应用已有的前台窗口，在预览按钮可用的时间点触发重新构建，同时保留手动请求接管后台扫描、坏清单回退及冷启动断言。相同应用源码在该测试下通过 9 项 Release 回归，完整组合用例用时 19.613 秒。发布复验使用标签 `v0.1.0-dev.9.1`，应用构建号仍为 9。[较早的标签测试](https://github.com/chkf/void/actions/runs/44451941659/job/135317753652) · [原标签复跑](https://github.com/chkf/void/actions/runs/44451941659/job/135325362796) · [使用前台窗口的运行记录](https://github.com/chkf/void/actions/runs/44454586956/job/135326402861)
 
+复验标签的常规模拟器通过全部 40 项原生测试和 5 项界面测试，包括真实外部 Files 导入与重新授权、本机发现后从旧记录预览、首屏强退后打开对应诊断并恢复。修改依赖后的手动重建显示了新内容，并保留同一项目身份。独立的系统 Files 用例仍未选中 App 自己的项目文件夹。另一次 Release 测试在相同手动重建阶段超时，当时编译网页报告可见。其他使用相同应用代码的 Release 运行完成了全部 9 项，用例结果存在差异。[40 项原生与 5 项界面测试](https://github.com/chkf/void/actions/runs/44456466314/job/135332564923) · [手动重建超时记录](https://github.com/chkf/void/actions/runs/44456466314/job/135332564721) · [同一应用代码的 Release 验证](https://github.com/chkf/void/actions/runs/44457595930/job/135336312345) · [本机系统 Files 用例](https://github.com/chkf/void/actions/runs/44456466314/job/135332564808)
+
+标签上的 Release 重跑仍出现手动重建超时。补验运行在同一轮通过 9 项 Release、40 项原生和 5 项界面测试。GitHub Actions 下载了该轮与标签轮的两个设备构建，比对 IPA 内全部 34 项内容，包括可执行文件、资源和离线工具链，全部逐字节相同。核验后发布了标签轮的原始 IPA，未改签。公开附件为 6,096,834 字节，SHA-256 为 `2220a610a7fcc97bf53b3bb926bb4a483eada43df3b44d0dddce36655ffa54a4`。构建号为 9，应用标识为 `app.chkf.void`，最低系统为 iOS 17.0，Xcode 27.2，Mach-O UUID 为 `191EE8B7-A4DD-3ACB-B58A-01594F36FB17`。[Release 安装包](https://github.com/chkf/void/releases/download/v0.1.0-dev.9.1/void-unsigned.ipa) · [逐文件核验与发布](https://github.com/chkf/void/actions/runs/44461245100) · [补验全部原生与界面测试](https://github.com/chkf/void/actions/runs/44457595930/job/135336312799)
+
+原 iPhone 上「正在等待项目首屏」的系统退出原因仍未确定。模拟器用预置的测试记录核验了 SQLite 读取，原「健身记录」的实际首屏与训练保存未做真机验收。
+
 ## v0.1.0-dev.8 TSX 首屏与中断定位
 
 原 iPhone 的恢复页显示「健身记录」曾在「正在等待项目首屏」时中断，并显示该项目已经找到。两个提示可以来自不同请求。旧版本在收到 TSX 控件之后，还会复核源码并将全部构建资源编码成一份 JSON，再让 SwiftUI 显示页面。在这些步骤中意外退出，恢复页都可能显示同一条首屏提示。截图没有提供进程被终止的原因。
