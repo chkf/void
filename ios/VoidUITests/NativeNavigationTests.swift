@@ -43,7 +43,7 @@ final class NativeNavigationTests: XCTestCase {
         defer { device.orientation = .portrait }
         app.launch()
         if !app.buttons["host.local"].waitForExistence(timeout: 4) {
-            app.buttons["host.manage"].tap()
+            app.openProjectManagement()
             app.buttons["host.switch"].tap()
         }
         app.buttons["host.local"].tap()
@@ -57,7 +57,7 @@ final class NativeNavigationTests: XCTestCase {
         preview.tap()
 
         // iPadOS exposes a floating tab cell and its nested button with the same title.
-        let components = app.buttons["组件"].firstMatch, appearance = app.buttons["外观"].firstMatch, rows = app.buttons["列表"].firstMatch
+        let components = app.buttons["组件"].firstMatch, settings = app.projectSettingsButton, rows = app.buttons["列表"].firstMatch
         let manage = app.buttons["host.manage"]
         XCTAssertTrue(components.waitForExistence(timeout: 100), app.debugDescription)
         // iPadOS exposes its top tab as a button without XCTest's phone-only
@@ -67,28 +67,27 @@ final class NativeNavigationTests: XCTestCase {
         XCTAssertFalse(app.buttons["浅色"].exists)
         if UIDevice.current.userInterfaceIdiom == .phone { XCTAssertTrue(becomes(components, "selected == true")) }
         XCTAssertTrue(becomes(app.buttons["scan.cancel"], "exists == false", timeout: 30))
-        XCTAssertTrue(manage.isHittable)
-        XCTAssertLessThan(manage.frame.midY, app.frame.midY)
-        if app.buttons["folder.clear"].exists { XCTAssertLessThan(app.buttons["folder.clear"].frame.midY, app.frame.midY) }
+        XCTAssertFalse(manage.exists)
+        XCTAssertTrue(settings.isHittable)
+        XCTAssertFalse(app.buttons["folder.clear"].exists)
         if UIDevice.current.userInterfaceIdiom == .phone { XCTAssertGreaterThan(components.frame.midY, app.frame.midY) }
         let reset = app.buttons["复位"], plus = app.buttons["增加"]
         let heading = app.staticTexts["原生控件"]
         let standardHeight = heading.frame.height
         XCTAssertFalse(reset.isEnabled)
         XCTAssertGreaterThanOrEqual(plus.frame.height, 44)
-        XCTAssertGreaterThanOrEqual(manage.frame.height, 44)
         plus.tap()
         XCTAssertTrue(app.staticTexts["1 / 4"].waitForExistence(timeout: 8))
         let input = app.textFields["临时文本"]
         input.tap()
         input.typeText("abc")
-        XCTAssertTrue(manage.isHittable)
+        XCTAssertFalse(manage.exists)
         if app.keyboards.firstMatch.exists {
             XCTAssertLessThanOrEqual(input.frame.maxY, app.keyboards.firstMatch.frame.minY + 1)
             attach("Keyboard")
             input.typeText("\n")
         }
-        appearance.tap()
+        settings.tap()
         XCTAssertFalse(input.exists)
         app.buttons["浅色"].tap()
         XCTAssertTrue(app.staticTexts["模式 light"].waitForExistence(timeout: 8))
@@ -103,8 +102,8 @@ final class NativeNavigationTests: XCTestCase {
         let visible = (8...36).map { app.staticTexts["滚动行 \($0)"] }.last(where: { $0.isHittable })
         let anchor = try XCTUnwrap(visible)
         let y = anchor.frame.midY
-        XCTAssertTrue(appearance.isHittable)
-        appearance.tap()
+        XCTAssertTrue(settings.isHittable)
+        settings.tap()
         app.buttons["深色"].tap()
         XCTAssertTrue(app.staticTexts["模式 dark"].waitForExistence(timeout: 8))
         XCTAssertGreaterThan(light - (try brightness(app)), 0.3)
@@ -120,6 +119,7 @@ final class NativeNavigationTests: XCTestCase {
         rows.tap()
         let firstRow = app.staticTexts["列表行 1"]
         XCTAssertTrue(firstRow.waitForExistence(timeout: 8))
+        XCTAssertFalse(manage.exists)
         let firstRowY = firstRow.frame.midY
         app.swipeUp()
         XCTAssertTrue(!firstRow.isHittable || firstRow.frame.midY < firstRowY - 8)
@@ -128,16 +128,16 @@ final class NativeNavigationTests: XCTestCase {
         components.tap()
         XCTAssertTrue(anchor.isHittable)
         XCTAssertEqual(anchor.frame.midY, y, accuracy: 3)
-        appearance.tap()
+        settings.tap()
         toggleThird()
         XCTAssertTrue(becomes(rows, "exists == false"))
         attach("Dark-Portrait")
         findings += try audit(app)
         device.orientation = .landscapeLeft
-        XCTAssertTrue(manage.waitForExistence(timeout: 8))
+        XCTAssertTrue(settings.waitForExistence(timeout: 8))
         XCTAssertGreaterThan(app.frame.width, app.frame.height)
         attach("Dark-Landscape")
-        manage.tap()
+        app.openProjectManagement()
         XCTAssertTrue(app.buttons["host.switch"].isHittable)
         let recovery = app.buttons["host.recovery"]
         XCTAssertTrue(recovery.isHittable)
@@ -147,17 +147,18 @@ final class NativeNavigationTests: XCTestCase {
         XCTAssertTrue(restore.isHittable)
         attach("Host-Recovery-Landscape")
         app.buttons["host.recoveryDone"].tap()
+        XCTAssertTrue(manage.waitForExistence(timeout: 8))
 
         device.orientation = .portrait
         app.terminate()
         app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
         XCTAssertTrue(components.waitForExistence(timeout: 90), app.debugDescription)
-        XCTAssertTrue(manage.isHittable)
+        XCTAssertFalse(manage.exists)
         XCTAssertTrue(heading.waitForExistence(timeout: 12))
         XCTAssertGreaterThan(heading.frame.height, standardHeight * 1.3)
         attach("Accessibility-XXXL")
-        XCTAssertTrue(appearance.isHittable)
+        XCTAssertTrue(settings.isHittable)
         XCTAssertTrue(findings.isEmpty, findings.joined(separator: "\n"))
     }
 }

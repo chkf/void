@@ -33,8 +33,8 @@ function Example() {
   return <Theme mode={mode} light={{ accent: "#304C68" }} dark={{ accent: "#B8D5EF", onAccent: "#111923" }}>
     <TabView selection={selection} onChange={select}>
       <Tab id="components" title="组件" systemName="square.grid.2x2"><Components /></Tab>
-      <Tab id="appearance" title="外观" systemName="circle.lefthalf.filled">
-        <Screen title="外观">
+      <Tab id="settings" title="设置" systemName="gearshape">
+        <Screen title="设置">
           <Form appearance="themed">
             <Section title="主题">
               <Button label="跟随系统" onPress={() => setMode("system")} />

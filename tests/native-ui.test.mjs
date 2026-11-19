@@ -75,8 +75,9 @@ test("离线示例经真实 renderer 往返选中、表单和主题，动态增�
   ui.event(button("增加").id, "onPress", null);
   await settle();
   assert.equal(lookup("ProgressView").props.value, 1);
-  ui.event(lookup("TabView").id, "onChange", "appearance");
+  ui.event(lookup("TabView").id, "onChange", "settings");
   await settle();
+  assert.equal(lookup("TabView").props.selection, "settings");
   ui.event(button("深色").id, "onPress", null);
   await settle();
   assert.equal(lookup("Theme").props.mode, "dark");
@@ -86,7 +87,7 @@ test("离线示例经真实 renderer 往返选中、表单和主题，动态增�
   ui.event(lookup("TabView").id, "onChange", "rows");
   await settle();
   assert.equal(lookup("TabView").props.selection, "rows");
-  ui.event(lookup("TabView").id, "onChange", "appearance");
+  ui.event(lookup("TabView").id, "onChange", "settings");
   await settle();
   ui.event(lookup("Toggle").id, "onChange", false);
   await settle();

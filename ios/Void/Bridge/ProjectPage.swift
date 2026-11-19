@@ -34,6 +34,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     private let trace: DirectoryTrace?
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
+    var onOpenManagement: (() -> Void)?
 
     init(product: Product, record: ProjectRecord, storage: URL, permissions: [String], networkHosts: [String], trace: DirectoryTrace? = nil) throws {
         self.product = product
@@ -101,6 +102,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         view.navigationDelegate = nil
         onReady = nil
         onFailure = nil
+        onOpenManagement = nil
         server.stop()
     }
 
@@ -111,6 +113,14 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
 
     func webView(_ webView: WKWebView, decidePolicyFor action: WKNavigationAction,
                  decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if action.request.url?.absoluteString == "void://project/management" {
+            decisionHandler(.cancel)
+            if product.mode == .web, action.navigationType == .linkActivated, action.sourceFrame.isMainFrame,
+               contains(action.sourceFrame.request.url), action.targetFrame?.isMainFrame == true {
+                onOpenManagement?()
+            }
+            return
+        }
         decisionHandler(action.targetFrame?.isMainFrame == true && contains(action.request.url) ? .allow : .cancel)
     }
 
@@ -124,7 +134,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard valid else { return }
         trace?.event("page.processTerminated")
-        reportFailure("项目的 WebKit 进程已终止，可在管理中重新预览")
+        reportFailure("项目的 WebKit 进程已终止，可在「设置」的「项目管理」中重新预览")
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { navigationFailed(error) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { navigationFailed(error) }

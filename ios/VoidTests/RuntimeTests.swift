@@ -132,11 +132,18 @@ final class RuntimeTests: XCTestCase {
         await host.importDirectory(dir)
         try await wait { host.waitingEntry != nil || host.notice != nil }
         XCTAssertEqual(host.waitingEntry,"app/index.html")
-        try Data("<main>第一页</main>".utf8).write(to:app.appendingPathComponent("index.html"))
+        let html = #"<main>第一页</main><a href="void://project/management">项目管理</a>"#
+        try Data(html.utf8).write(to:app.appendingPathComponent("index.html"))
         host.refresh()
         try await wait { host.page != nil }
         XCTAssertNil(host.waitingEntry)
         XCTAssertNil(host.problem)
+        let page = try XCTUnwrap(host.page)
+        let originalURL = page.view.url
+        _ = try await page.view.evaluateJavaScript("document.querySelector('a').click(); true")
+        try await wait { window.window.rootViewController?.presentedViewController != nil }
+        XCTAssertTrue(host.page === page)
+        XCTAssertEqual(page.view.url, originalURL)
         await host.showLibrary()
     }
 

@@ -101,12 +101,13 @@ test("类型诊断保留 TSX 文件和行列", async () => {
 
 test("已有 HTML 项目编译模块、CSS 和资源，并隔离共享数据", async () => {
   const files = {
-    "app/index.html": Buffer.from('<link rel="stylesheet" href="style.css"><script type="module" src="main.js"></script>'),
+    "app/index.html": Buffer.from('<link rel="stylesheet" href="style.css"><script type="module" src="main.js"></script><a href="void://project/management">项目管理</a>'),
     "app/style.css": Buffer.from("body {color: red}"), "app/main.js": Buffer.from("globalThis.answer = 42;"),
     "assets/logo.png": Buffer.from([1, 2, 3]), "data/private.txt": Buffer.from("私人数据")
   };
   const product = await compile({ mode: "web", entry: "index.html", files });
   assert.equal(product.entry, "index.html");
+  assert.ok(new TextDecoder().decode(product.files[product.entry]).includes('href="void://project/management"'));
   assert.ok(product.files["bundle/entry-0.css"]);
   assert.ok(product.files["bundle/entry-1.js"]);
   assert.ok(product.files["assets/logo.png"]);

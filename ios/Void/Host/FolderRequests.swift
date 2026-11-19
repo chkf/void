@@ -78,7 +78,9 @@ final class FolderRequests: ObservableObject {
         finish(r,.cancelled,"已取消目录操作",error:CancellationError())
     }
     func changeProject(to id: UUID?) {
-        if let r = request, active, r.origin != id { cancel(r.id) }
+        guard let request, request.origin != id else { return }
+        if active { cancel(request.id) }
+        else { clearResult() }
     }
     private func start(_ r: FolderRequest, url: URL) {
         phase = .processing; message = "正在检查目录授权和项目文件"

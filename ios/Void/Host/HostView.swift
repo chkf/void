@@ -2,7 +2,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 private enum Panel: Hashable, Identifiable {
-    case create, manage, settings
+    case create, manage
+    case settings(UUID?)
     case diagnostics(UUID?)
     var id: Self { self }
 }
@@ -105,45 +106,14 @@ struct HostView: View {
                     }
                 }
                 .safeAreaInset(edge: projectTabs ? .top : .bottom, spacing: 0) {
-                    VStack(alignment:.leading,spacing:4) {
-                    if let problem = model.problem, model.page != nil || model.mode == .swiftui && model.workspaceTemplate == nil {
-                        Text(verbatim:problem).font(.caption).lineLimit(projectTabs ? 1 : 3).textSelection(.enabled)
-                            .accessibilityIdentifier("preview.error")
+                    if !projectTabs || model.busy || model.scanStatus != nil || model.problem != nil || folders.phase != .idle {
+                        projectControls
                     }
-                    HStack {
-                        if projectTabs && folders.phase != .idle && (!model.busy || folders.active) {
-                            folderFeedback
-                        }
-                        if model.busy {
-                            ProgressView()
-                            Text(model.scanStatus ?? "正在准备预览").font(.caption).lineLimit(2).accessibilityIdentifier("preview.stage")
-                            Button { model.cancelScan() } label: { Text("取消").frame(minWidth: 44, minHeight: 44) }
-                                .fixedSize(horizontal: true, vertical: false).accessibilityIdentifier("scan.cancel")
-                        } else if let status = model.scanStatus { Text(status).font(.caption) }
-                        if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil && !model.showingOverview {
-                            Label(model.mode == .swiftui ? "查看构建说明" : "更新失败", systemImage: "exclamationmark.circle")
-                                .foregroundStyle(.secondary)
-                        }
-                        if model.workspaceTemplate != nil || model.showingOverview {
-                            Button { Task { await model.showLibrary() } } label: { Label("项目列表", systemImage: "list.bullet") }
-                                .accessibilityIdentifier("project.library")
-                        }
-                        Spacer()
-                        Button { panel = .manage } label: {
-                            Label("管理", systemImage: "slider.horizontal.3").frame(minWidth: 44, minHeight: 44)
-                        }.fixedSize(horizontal: true, vertical: false)
-                            .accessibilityIdentifier("host.manage")
-                            #if DEBUG && targetEnvironment(simulator)
-                            .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
-                            #endif
-                    }
-                    }.padding(.horizontal).padding(.vertical, projectTabs ? 0 : 4)
-                        .tint(projectTabs ? Color(uiColor: .label) : nil)
-                        .background {
-                            if projectTabs { Color(uiColor: .systemBackground) }
-                            else { Rectangle().fill(.bar) }
-                        }
                 }
+                .environment(\.openProjectSettings, { destination in
+                    guard panel == nil, model.current?.id == record.id else { return }
+                    panel = destination == .management ? .manage : .settings(record.id)
+                })
             } else {
                 NavigationStack {
                     List {
@@ -189,7 +159,10 @@ struct HostView: View {
                         }
                     }
                     .navigationTitle("项目")
-                    .toolbar { Button { panel = .settings } label: { Label("设置", systemImage: "gearshape") } }
+                    .toolbar {
+                        Button { panel = .settings(nil) } label: { Label("设置", systemImage: "gearshape") }
+                            .accessibilityIdentifier("host.settings")
+                    }
                 }
             }
         }
@@ -227,15 +200,69 @@ struct HostView: View {
                     }.navigationTitle("创建项目").toolbar { Button("取消") { panel = nil } }
                 }
             case .diagnostics(let request): NavigationStack { DirectoryDiagnosticView(request:request).toolbar { Button("完成") { panel = nil } } }
-            case .settings: NavigationStack { SettingsView().toolbar { Button("完成") { panel = nil } } }
-            case .manage: ManagementView(model:model,close:{ panel = nil },reconnect:{
-                if let id = model.current?.id { begin(.reconnect(id),afterSheet:true) }
-            })
+            case .settings(let projectID):
+                NavigationStack {
+                    Group {
+                        if let record = model.current, record.id == projectID {
+                            Form {
+                                Section(record.name) {
+                                    NavigationLink { management } label: { ProjectManagementLabel() }
+                                        .accessibilityIdentifier("host.manage")
+                                    LabeledContent("项目版本", value: record.version)
+                                }
+                            }.navigationTitle("设置")
+                        } else { SettingsView().navigationTitle("设置") }
+                    }.toolbar { Button("完成") { panel = nil } }
+                }
+            case .manage: NavigationStack { management }
             }
         }
         .alert("项目操作失败", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("好") { model.notice = nil }
         } message: { Text(verbatim: model.notice ?? "") }
+    }
+
+    private var management: some View {
+        ManagementView(model: model, close: { panel = nil }, reconnect: {
+            if let id = model.current?.id { begin(.reconnect(id), afterSheet: true) }
+        })
+    }
+
+    private var projectControls: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            if let problem = model.problem, model.page != nil || model.mode == .swiftui && model.workspaceTemplate == nil {
+                Text(verbatim: problem).font(.caption).lineLimit(projectTabs ? 1 : 3).textSelection(.enabled)
+                    .accessibilityIdentifier("preview.error")
+            }
+            if projectTabs && folders.phase != .idle && (!model.busy || folders.active) {
+                folderFeedback
+            }
+            HStack {
+                if model.busy {
+                    ProgressView()
+                    Text(model.scanStatus ?? "正在准备预览").font(.caption).lineLimit(2).accessibilityIdentifier("preview.stage")
+                    Button { model.cancelScan() } label: { Text("取消").frame(minWidth: 44, minHeight: 44) }
+                        .fixedSize(horizontal: true, vertical: false).accessibilityIdentifier("scan.cancel")
+                } else if let status = model.scanStatus { Text(status).font(.caption) }
+                if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil && !model.showingOverview {
+                    Label(model.mode == .swiftui ? "查看构建说明" : "更新失败", systemImage: "exclamationmark.circle")
+                        .foregroundStyle(.secondary)
+                }
+                if model.workspaceTemplate != nil || model.showingOverview {
+                    Button { Task { await model.showLibrary() } } label: { Label("项目列表", systemImage: "list.bullet") }
+                        .accessibilityIdentifier("project.library")
+                }
+                Spacer(minLength: 0)
+                if !projectTabs || model.problem != nil {
+                    ProjectSettingsButton()
+                }
+            }
+        }
+        .padding(.horizontal).padding(.vertical, projectTabs ? 0 : 4)
+        .background {
+            if projectTabs { Color(uiColor: .systemBackground) }
+            else { Rectangle().fill(.bar) }
+        }
     }
 
     // Keep one SwiftUI identity and one WebKit surface while a candidate is
@@ -272,6 +299,7 @@ struct HostView: View {
 struct RunningPage: View {
     @ObservedObject var page: ProjectPage
     @ObservedObject private var sdk: SDKSession
+    @Environment(\.openProjectSettings) private var openSettings
     let visible: Bool
     init(page: ProjectPage, visible: Bool) { self.page = page; self.sdk = page.sdk; self.visible = visible }
     var body: some View {
@@ -281,8 +309,13 @@ struct RunningPage: View {
         }.preference(key: ProjectTabsKey.self, value: visible && page.hasTabNavigation)
     }
     @ViewBuilder private var content: some View {
-        if page.product.mode == .web { ProjectSurface(page:page, visible:visible) }
-        else {
+        if page.product.mode == .web {
+            ProjectSurface(page: page, visible: visible)
+                .onChange(of: visible, initial: true) {
+                    page.onOpenManagement = visible ? { [openSettings] in openSettings(.management) } : nil
+                }
+                .onDisappear { page.onOpenManagement = nil }
+        } else {
             VStack(spacing: 0) {
                 ProjectSurface(page:page, visible:visible).frame(height:max(1,sdk.canvasHeight))
                     .clipped().allowsHitTesting(sdk.canvasHeight > 0).accessibilityHidden(sdk.canvasHeight == 0)
@@ -300,48 +333,47 @@ private struct ManagementView: View {
     @State private var name = ""
 
     var body: some View {
-        NavigationStack {
-            List {
-                Section(model.current?.name ?? "项目") {
-                    Button("切换项目") { close(); Task { await model.showLibrary() } }.accessibilityIdentifier("host.switch")
-                    Button("重命名") { name = model.current?.name ?? ""; rename = true }
-                    NavigationLink("权限声明") {
-                        ProjectPermissionView(model: model)
-                    }
-                    NavigationLink("运行日志") {
-                        List(Array(model.log.enumerated()), id: \.offset) { Text(verbatim: $0.element) }.navigationTitle("运行日志")
-                    }
+        List {
+            Section(model.current?.name ?? "项目") {
+                Button("切换项目") { close(); Task { await model.showLibrary() } }.accessibilityIdentifier("host.switch")
+                Button("重命名") { name = model.current?.name ?? ""; rename = true }
+                NavigationLink("权限声明") {
+                    ProjectPermissionView(model: model)
                 }
-                if model.page?.hasTabNavigation != true {
-                    Section("恢复") {
-                        if let message = model.problem { Text(verbatim: message).textSelection(.enabled) }
-                        recoveryControls
-                    }
+                NavigationLink("运行日志") {
+                    List(Array(model.log.enumerated()), id: \.offset) { Text(verbatim: $0.element) }.navigationTitle("运行日志")
                 }
-                NavigationLink("设置") { SettingsView() }
             }
-            .navigationTitle("项目管理")
-            .toolbar {
-                if model.page?.hasTabNavigation == true {
-                    ToolbarItem(placement: .topBarLeading) {
-                        NavigationLink("恢复") {
-                            List {
-                                recoveryControls
-                                if let message = model.problem { Section("错误详情") { Text(verbatim: message).textSelection(.enabled) } }
-                            }
-                            .navigationTitle("预览与恢复")
-                            .navigationBarTitleDisplayMode(.inline)
-                            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成", action: close).accessibilityIdentifier("host.recoveryDone") } }
-                        }.accessibilityIdentifier("host.recovery")
-                    }
+            if model.page?.hasTabNavigation != true {
+                Section("恢复") {
+                    if let message = model.problem { Text(verbatim: message).textSelection(.enabled) }
+                    recoveryControls
                 }
-                ToolbarItem(placement: .topBarTrailing) { Button("完成", action: close) }
             }
-            .alert("重命名项目", isPresented: $rename) {
-                TextField("名称", text: $name)
-                Button("保存") { Task { await model.rename(name) } }
-                Button("取消", role: .cancel) {}
+            NavigationLink("宿主信息") { SettingsView().navigationTitle("宿主信息") }
+        }
+        .navigationTitle("项目管理")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if model.page?.hasTabNavigation == true {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink("恢复") {
+                        List {
+                            recoveryControls
+                            if let message = model.problem { Section("错误详情") { Text(verbatim: message).textSelection(.enabled) } }
+                        }
+                        .navigationTitle("预览与恢复")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成", action: close).accessibilityIdentifier("host.recoveryDone") } }
+                    }.accessibilityIdentifier("host.recovery")
+                }
             }
+            ToolbarItem(placement: .topBarTrailing) { Button("完成", action: close) }
+        }
+        .alert("重命名项目", isPresented: $rename) {
+            TextField("名称", text: $name)
+            Button("保存") { Task { await model.rename(name) } }
+            Button("取消", role: .cancel) {}
         }
     }
 
@@ -377,7 +409,7 @@ private struct SettingsView: View {
                     }
                 }
             }
-        }.navigationTitle("设置")
+        }
     }
 }
 

@@ -20,6 +20,60 @@ final class NativeTabEventTests: XCTestCase {
         return nil
     }
 
+    func testSettingsAdaptsToProjectTabsWithoutChangingTheirSelection() async throws {
+        let files = FileManager.default
+        let folder = FolderGrant.documents.appendingPathComponent("VoidSettings-" + UUID().uuidString)
+        let storage = files.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? files.removeItem(at: folder); try? files.removeItem(at: storage) }
+        let tools = try XCTUnwrap(Bundle.main.url(forResource: "Toolchain", withExtension: nil))
+        try files.copyItem(at: tools.appendingPathComponent("NativeUIDemo"), to: folder)
+        let source = """
+        import { useState } from "react";
+        import { render, TabView, Tab, Button } from "@runtime/ui";
+        function App() {
+          const [layout, setLayout] = useState(0);
+          const ids = layout === 0 ? ["a","b"] : ["a","b","c","d","e"];
+          return <TabView selection="a" onChange={() => {}}>{ids.map(id =>
+            <Tab key={id} id={id} title={id === "b" && layout === 2 ? "Settings" : id} systemName="circle">
+              <Button label="切换布局" onPress={() => setLayout(n => (n + 1) % 3)} />
+            </Tab>)}</TabView>;
+        }
+        render(<App />);
+        """
+        try Data(source.utf8).write(to: folder.appendingPathComponent("app/src/main.tsx"))
+        let host = HostModel(storage: storage)
+        let window = try await PreviewTestWindow(host)
+        defer { window.close() }
+        await host.importDirectory(folder)
+        try await until { host.page != nil || host.problem != nil || host.notice != nil }
+        let page = try XCTUnwrap(host.page, host.problem ?? host.notice ?? "")
+        try await until { self.tabs(in: window.window.rootViewController)?.viewControllers?.count == 3 }
+        let controller = try XCTUnwrap(tabs(in: window.window.rootViewController))
+        let first = try XCTUnwrap(controller.selectedViewController)
+        func nextLayout() throws {
+            let button = try XCTUnwrap(page.nodes.first?.children.first?.children.first)
+            XCTAssertGreaterThan(page.event(button.id, name: "onPress", value: NSNull()), 0)
+        }
+
+        XCTAssertEqual(controller.viewControllers?.compactMap { $0.tabBarItem.title }, ["a", "b", "设置"])
+        try nextLayout()
+        try await until { controller.viewControllers?.count == 5 }
+        XCTAssertEqual(controller.viewControllers?.compactMap { $0.tabBarItem.title }, ["a", "b", "c", "d", "e"])
+        try nextLayout()
+        try await until { controller.viewControllers?[1].tabBarItem.accessibilityIdentifier == "project.settings" }
+        XCTAssertEqual(controller.viewControllers?.count, 5)
+        try nextLayout()
+        try await until { controller.viewControllers?.count == 3 }
+        let settings = try XCTUnwrap(controller.viewControllers?.last)
+        let acknowledged = page.acknowledged
+        XCTAssertEqual(controller.delegate?.tabBarController?(controller, shouldSelect: settings), false)
+        try await until { window.window.rootViewController?.presentedViewController != nil }
+        XCTAssertEqual(page.acknowledged, acknowledged)
+        XCTAssertTrue(controller.selectedViewController === first)
+        XCTAssertTrue(host.page === page)
+        await host.showLibrary()
+    }
+
     func testRapidSystemSelectionsUseOneWebKitAndRetainControllers() async throws {
         let files = FileManager.default
         let folder = FolderGrant.documents.appendingPathComponent("VoidTabs-" + UUID().uuidString)
@@ -58,7 +112,7 @@ final class NativeTabEventTests: XCTestCase {
         }
         try await until { page.acknowledged == 21 || host.problem != nil }
         XCTAssertNil(host.problem)
-        XCTAssertEqual(page.nodes.first?.children.first?.text("selection"), "appearance")
+        XCTAssertEqual(page.nodes.first?.children.first?.text("selection"), "settings")
         XCTAssertTrue(controller.selectedViewController === original[1])
         controller.selectedViewController = original[0]
         controller.delegate?.tabBarController?(controller, didSelect: original[0])
@@ -69,7 +123,7 @@ final class NativeTabEventTests: XCTestCase {
         XCTAssertEqual(page.event(nav.id, name: "onChange", value: "components", displayedRevision: first), 0)
         controller.selectedViewController = original[1]
         controller.delegate?.tabBarController?(controller, didSelect: original[1])
-        try await until { page.nodes.first?.children.first?.text("selection") == "appearance" }
+        try await until { page.nodes.first?.children.first?.text("selection") == "settings" }
         controller.selectedViewController = original[0]
         controller.delegate?.tabBarController?(controller, didSelect: original[0])
         try await until { page.nodes.first?.children.first?.text("selection") == "components" }

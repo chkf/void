@@ -4,10 +4,11 @@ struct NativeNodeView: View {
     let node: NativeNode
     let revision: Int
     let page: ProjectPage
+    var managementCollectionID: String? = nil
     @Environment(\.nativePalette) private var palette
 
     private var children: some View {
-        ForEach(node.children) { NativeNodeView(node: $0, revision: revision, page: page) }
+        ForEach(node.children) { NativeNodeView(node: $0, revision: revision, page: page, managementCollectionID: managementCollectionID) }
     }
 
     private var horizontal: HorizontalAlignment {
@@ -95,17 +96,23 @@ struct NativeNodeView: View {
     private var themedRows: Bool {
         node.text("appearance") == "themed" || (node.props["appearance"] == nil && palette.themed)
     }
+    @ViewBuilder private var rows: some View {
+        children
+        if managementCollectionID == node.id {
+            Section { ProjectManagementButton() }
+        }
+    }
     @ViewBuilder private var collection: some View {
         if themedRows {
             if node.type == "Form" {
-                Form { children.listRowBackground(palette.color(.surface)) }
+                Form { rows.listRowBackground(palette.color(.surface)) }
                     .scrollContentBackground(.hidden).background(palette.color(.background))
             } else {
-                List { children.listRowBackground(palette.color(.surface)) }
+                List { rows.listRowBackground(palette.color(.surface)) }
                     .scrollContentBackground(.hidden).background(palette.color(.background))
             }
-        } else if node.type == "Form" { Form { children } }
-        else { List { children } }
+        } else if node.type == "Form" { Form { rows } }
+        else { List { rows } }
     }
 }
 

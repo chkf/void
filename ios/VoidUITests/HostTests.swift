@@ -1,6 +1,28 @@
 import XCTest
 
 extension XCUIApplication {
+    var projectSettingsButton: XCUIElement {
+        buttons.matching(NSPredicate(format: "identifier == %@ OR (label == %@ AND identifier != %@)",
+                                     "project.settings", "设置", "host.settings")).firstMatch
+    }
+
+    func openProjectManagement(file: StaticString = #filePath, line: UInt = #line) {
+        let settings = projectSettingsButton
+        guard settings.waitForExistence(timeout: 12) else {
+            return XCTFail("找不到项目设置\n" + debugDescription, file: file, line: line)
+        }
+        settings.tap()
+        let manage = buttons["host.manage"].firstMatch
+        for _ in 0..<6 {
+            if manage.exists && manage.isHittable {
+                manage.tap()
+                return
+            }
+            swipeUp()
+        }
+        XCTFail("设置中找不到项目管理\n" + debugDescription, file: file, line: line)
+    }
+
     @MainActor func revealScannedProject(_ row: XCUIElement) -> Bool {
         let status = staticTexts["folder.status"]
         let found = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", "已找到"), object: status)
@@ -33,7 +55,7 @@ final class HostTests: XCTestCase {
         let app = XCUIApplication()
         app.launch()
         if !app.buttons["host.local"].waitForExistence(timeout:4) {
-            app.buttons["host.manage"].tap()
+            app.openProjectManagement()
             app.buttons["host.switch"].tap()
         }
         app.buttons["host.local"].tap()
@@ -73,9 +95,13 @@ final class HostTests: XCTestCase {
         app.launch()
         let create = app.buttons["host.create"]
         if !create.waitForExistence(timeout: 4) {
-            app.buttons["host.manage"].tap()
+            app.openProjectManagement()
             app.buttons["host.switch"].tap()
         }
+        app.buttons["host.settings"].tap()
+        XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["host.manage"].exists)
+        app.buttons["完成"].tap()
         create.tap()
         let field = app.textFields["project.name"]
         field.tap()
@@ -85,6 +111,8 @@ final class HostTests: XCTestCase {
         let preview = app.buttons["project.preview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 20), app.debugDescription)
         XCTAssertFalse(app.staticTexts["项目未能打开"].exists)
+        XCTAssertTrue(app.projectSettingsButton.isHittable)
+        XCTAssertFalse(app.buttons["host.manage"].exists)
         app.terminate()
         app.launch()
         XCTAssertTrue(preview.waitForExistence(timeout: 15))
@@ -110,7 +138,8 @@ final class HostTests: XCTestCase {
         app.launch()
         XCTAssertTrue(toggle.waitForExistence(timeout: 90), app.debugDescription)
         XCTAssertTrue(app.navigationBars[name].exists)
-        app.buttons["host.manage"].tap()
+        XCTAssertFalse(app.buttons["host.manage"].exists)
+        app.openProjectManagement()
         XCTAssertTrue(app.buttons["host.switch"].exists)
         XCTAssertTrue(app.buttons["host.reconnect"].exists)
         app.buttons["host.switch"].tap()

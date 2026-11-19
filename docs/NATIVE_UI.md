@@ -4,7 +4,7 @@
 
 | 依赖 | 宿主行为 |
 | --- | --- |
-| `1.0.0` | 原组件、原属性、系统外观、原底部管理入口，使用协议 1。旧产物缺省协议号也按 1 解码。原目录、项目登记和授权继续使用。源码相同的 dev.10 正式包可直接复用已确认产物。 |
+| `1.0.0` | 原组件、原属性、系统外观，使用协议 1。项目管理在设置齿轮中。旧产物缺省协议号也按 1 解码。原目录、项目登记和授权继续使用。源码相同的 dev.10 正式包可直接复用已确认产物。 |
 | `1.1.0` | 使用下表的属性和协议 2。dev.10 从源码构建会报缺少锁定依赖 `@runtime/ui@1.1.0`。已编译的新版 renderer 在旧宿主调用 render 时报告需要升级宿主。 |
 | 其他版本、范围、标签 | 编译器报告不兼容。SDK 的精确版本规则独立于 UI。 |
 
@@ -30,7 +30,7 @@ function App() {
 render(<App />);
 ```
 
-独立示例可在「导入文件夹」中选择整个 `native-ui` 目录。示例包含两个初始页，在「外观」中可添加第三页、切换主题。输入框、计数和选择仅保存在 React 内存中。示例未声明权限，也没有 SDK 调用。IPA 内同时附带 `Toolchain/NativeUIDemo`、`Toolchain/ui.d.ts` 和 `Toolchain/native-ui.md`。
+独立示例可在「导入文件夹」中选择整个 `native-ui` 目录。示例包含两个初始页，在「设置」中可添加第三页、切换主题或打开「项目管理」。输入框、计数和选择仅保存在 React 内存中。示例未声明权限，也没有 SDK 调用。IPA 内同时附带 `Toolchain/NativeUIDemo`、`Toolchain/ui.d.ts` 和 `Toolchain/native-ui.md`。
 
 ## 组件契约
 
@@ -79,6 +79,8 @@ React 首次提交时挂载全部 Tab 的子树，原生为每个稳定 id 持�
 
 系统点击先更新当前页，并携带显示修订和递增序列发往 React。宿主等对应的 React 确认后再采用受控值，应用可以拒绝选择。程序设置 selection 不会再触发 onChange。桥上最多一份 ui.commit 在途，忙时合并，保留当前和前一修订的回调。禁用按钮同时受原生控件与事件分发校验。
 
-iPhone 使用系统底部标签栏。iPad 上的位置与形态由当前 iPadOS 和窗口尺寸决定，新系统可以显示顶部标签栏。宿主在已校验的标签项目上方为「管理」预留空间，构建中可在此取消。「管理」首页可以切换项目，导航栏的「恢复」可打开重建、还原和目录诊断，即使在小屏横向布局下也可进入。项目内容遵循原生安全区、键盘和旋转布局。[Apple 标签栏控制器](https://developer.apple.com/documentation/uikit/uitabbarcontroller) · [iPad 标签栏](https://developer.apple.com/documentation/uikit/elevating-your-ipad-app-with-a-tab-bar-and-sidebar)
+iPhone 使用系统底部标签栏。iPad 上的位置与形态由当前 iPadOS 和窗口尺寸决定。项目内容遵循原生安全区、键盘和旋转布局。构建时可在进度旁取消。[Apple 标签栏控制器](https://developer.apple.com/documentation/uikit/uitabbarcontroller) · [iPad 标签栏](https://developer.apple.com/documentation/uikit/elevating-your-ipad-app-with-a-tab-bar-and-sidebar)
+
+要把「项目管理」放进已有的设置页，给对应的 `Tab` 使用 `id="settings"`。宿主也能识别标题为「设置」或「Settings」的标签。管理入口位于该页第一个 Form 或 List 的末尾，其他布局显示在设置页底部。项目没有设置页时，宿主补一个「设置」标签。五个标签已满时，设置齿轮位于当前页底部。打开宿主补充的设置入口会保留项目选中的标签。
 
 单帧根深度为 0，最大深度 128。保留 16,384 项及 4 MiB UTF-8 文本的上限。协议 2 的属性、色表条目、控件和 Picker 选项均计入项数，属性名、色表键值、节点 ID 和字符串值计入文本预算。宿主直接在后台解码 WebKit 的 Foundation 值。非法树会显示诊断，已有可运行版本沿用原恢复流程。

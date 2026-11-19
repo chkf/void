@@ -8,6 +8,8 @@ void 是一个面向个人的 iPhone 项目宿主。应用本身和默认项目�
 
 ## 开发与构建
 
+构建 12 将「项目管理」移入每个子应用的「设置」。可在这里切换项目、查看权限和日志，或恢复预览。单页项目从底部齿轮进入。[下载 dev.12 IPA 和示例](https://github.com/chkf/void/releases/tag/v0.1.0-dev.12)
+
 构建 11 为 TSX 项目提供 `@runtime/ui@1.1.0`。开发者可配置原生标签栏、浅色和深色主题、文本、卡片及滚动布局。独立示例包含两页和可开关的第三页，所有输入仅保存在内存。原依赖 `1.0.0` 继续可用。[构建 11 的 IPA 与示例 ZIP](https://github.com/chkf/void/actions/runs/44515969381/artifacts/14527390642) · [原生 UI 接口与版本规则](docs/NATIVE_UI.md) · [签名与安装](docs/BUILD.md) · [验证记录](docs/LIMITATIONS.md)
 
 构建号 10 修复了预览时首次弹出项目权限提示会导致 Void 闪退的问题。适用于 iOS 17 及以上的 iPhone，原生 SDK 为 1.1.0。沿用已安装版本的签名团队和实际 Bundle ID 覆盖安装，再从「最近项目」进入原项目预览。[下载 dev.10 IPA](https://github.com/chkf/void/releases/download/v0.1.0-dev.10/void-unsigned.ipa) · [验证记录](docs/LIMITATIONS.md) · [全部版本](https://github.com/chkf/void/releases)

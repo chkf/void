@@ -81,12 +81,19 @@ final class FolderPickerTests: XCTestCase {
         if localFixture { app.launchEnvironment["VOID_PICKER_TEST_PROJECT"] = token }
         app.launch()
         if localFixture {
-            let ready = app.buttons.matching(NSPredicate(format:"identifier IN %@ AND value == %@",
-                                                          ["host.import","host.manage"],"fixture-ready")).firstMatch
-            XCTAssertTrue(ready.waitForExistence(timeout:40),app.debugDescription)
+            let loaded = app.buttons.matching(NSPredicate(
+                format: "(identifier == %@ AND value == %@) OR identifier == %@",
+                "host.import", "fixture-ready", "project.settings")).firstMatch
+            XCTAssertTrue(loaded.waitForExistence(timeout:40),app.debugDescription)
         }
         if !app.buttons["host.import"].waitForExistence(timeout:3) {
-            app.buttons["host.manage"].tap(); app.buttons["host.switch"].tap()
+            app.openProjectManagement()
+            app.buttons["host.switch"].tap()
+        }
+        if localFixture {
+            let ready = app.buttons.matching(NSPredicate(format:"identifier == %@ AND value == %@",
+                                                          "host.import","fixture-ready")).firstMatch
+            XCTAssertTrue(ready.waitForExistence(timeout:40),app.debugDescription)
         }
         XCTAssertFalse(app.buttons["recent." + (localFixture ? fixture : "我的项目")].exists)
     }
@@ -97,7 +104,8 @@ final class FolderPickerTests: XCTestCase {
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
     }
     private func reconnect() {
-        app.buttons["host.manage"].tap(); app.buttons["host.reconnect"].tap()
+        app.openProjectManagement()
+        app.buttons["host.reconnect"].tap()
     }
 
     private func openFixtureOverview() {
@@ -122,7 +130,7 @@ final class FolderPickerTests: XCTestCase {
     func testDocumentsScanImportsAndPreviewsUnregisteredTSX() {
         openLibrary()
         scanDocumentsAndPreview()
-        app.buttons["host.manage"].tap()
+        app.openProjectManagement()
         app.buttons["host.rescan"].tap()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:30),app.debugDescription)
     }
