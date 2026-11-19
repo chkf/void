@@ -68,6 +68,33 @@ PY
   xcrun simctl terminate "$device" com.apple.DocumentsApp
 }
 
+# Prepare an unregistered TSX folder in this simulator's Documents. Consent and
+# SQLite are created by the app itself, through the normal preview and SDK APIs.
+prepare_consent_test() {
+  local device="$1" configuration="$2" container
+  xcrun simctl install "$device" "$out/DerivedData/Build/Products/${configuration}-iphonesimulator/VoidHost.app"
+  container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
+  TEST_RUNNER_VOID_CONSENT_PROJECT=$(python3 - "$container" <<'PY'
+import json, pathlib, shutil, sys, uuid
+
+project_id = uuid.uuid4()
+name = f"Void Consent {str(project_id)[:8]}"
+root = pathlib.Path(sys.argv[1]) / "Documents" / name
+root.parent.mkdir(exist_ok=True)
+root.mkdir()
+(root / "app/src").mkdir(parents=True)
+(root / "runtime.json").write_text(json.dumps({"formatVersion": 1, "id": str(project_id)}))
+manifest = {"name": name, "entry": "src/main.tsx", "uiMode": "native", "version": "1.1.0",
+            "permissions": ["database", "files.read"]}
+(root / "app/manifest.json").write_text(json.dumps(manifest))
+shutil.copyfile("ios/TSXProject/app/package.json", root / "app/package.json")
+shutil.copyfile("tests/fixtures/consent-preview.tsx", root / "app/src/main.tsx")
+print(name)
+PY
+  )
+  export TEST_RUNNER_VOID_CONSENT_PROJECT
+}
+
 # Capture only call stacks from the hosted simulator test, outside its main thread.
 sample_slow_rebuild() {
   local device="$1" container marker pid executable report
@@ -130,10 +157,14 @@ case "${1:-device}" in
     bash scripts/ios-build.sh start-simulator
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
+    preview_args=("${args[@]}" -configuration Release ENABLE_TESTABILITY=YES -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO)
+    xcodebuild "${preview_args[@]}" build-for-testing
+    prepare_consent_test "$device" Release
     sample_slow_rebuild "$device" & sample_pid=$!
     trap 'kill "$sample_pid" 2>/dev/null || true' EXIT
-    xcodebuild "${args[@]}" -configuration Release ENABLE_TESTABILITY=YES \
-      -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO \
+    xcodebuild "${preview_args[@]}" \
+      -only-testing:VoidUITests/HostTests/testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch \
+      -only-testing:VoidTests/NativeSDKTests/testClosingFirstConsentCancelsWithoutSavingADecision \
       -only-testing:VoidTests/DirectoryTests/testLocalScanAndRecentSelectionDoNotReadOrStartAProject \
       -only-testing:VoidTests/DirectoryTests/testFingerprintMatchesFullContentsWithoutRetainingAssetsAndBoundsGrowingSources \
       -only-testing:VoidTests/DirectoryTests/testRecentTSXPreviewsExistingSQLiteThroughNativeFirstFrame \
@@ -143,7 +174,7 @@ case "${1:-device}" in
       -only-testing:VoidTests/WorkspaceTests/testRejectsInvalidNativeTree \
       -only-testing:VoidTests/PreviewRecoveryTests/testRecoveryUsesTheInterruptedRequestEvenAfterNewerFolderScan \
       -only-testing:VoidTests/PreviewRecoveryTests/testNewWorkspaceRemainsSelectedAfterADifferentInterruptedPreview \
-      -resultBundlePath "$out/release-preview.xcresult" test
+      -resultBundlePath "$out/release-preview.xcresult" test-without-building
     ;;
   test)
     bash scripts/ios-build.sh build-tests
@@ -214,8 +245,8 @@ PY
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
     install_picker_fixture "$device"
+    prepare_consent_test "$device" Debug
     if [[ "${VOID_SIMULATOR_FIXTURES:-}" == 1 ]]; then
-      xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
       container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
       for service in contacts calendar reminders photos photos-add location; do
         xcrun simctl privacy "$device" grant "$service" app.chkf.void

@@ -123,6 +123,7 @@ final class SDKPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
     private var cancel: (() -> Void)?
 
     func show<T>(_ controller: UIViewController, until wait: SDKWait<T>) async throws -> T {
+        try Task.checkCancellation()
         guard cancel == nil else { throw SDKFailure("BUSY", "请先完成当前系统面板") }
         let scene = anchor?.window?.windowScene ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first { $0.activationState == .foregroundActive }
         guard let scene, scene.activationState == .foregroundActive,
@@ -131,21 +132,41 @@ final class SDKPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
         guard !top.isBeingDismissed, !(top is UIAlertController) else { throw SDKFailure("BUSY", "请关闭当前提示后重试") }
         current = controller
         cancel = { wait.finish(.failure(CancellationError())) }
-        if let popover = controller.popoverPresentationController {
+        let isAlert = controller is UIAlertController
+        if !isAlert, let popover = controller.popoverPresentationController {
             popover.sourceView = top.view
             popover.sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 1, height: 1)
         }
-        controller.presentationController?.delegate = self
         top.present(controller, animated: true)
-        controller.presentationController?.delegate = self
-        defer {
-            if current === controller {
-                if controller.presentingViewController != nil { controller.dismiss(animated: false) }
-                current = nil
-                cancel = nil
+        // UIKit owns the alert presentation controller and asserts if its delegate is replaced.
+        // Alert actions resolve the wait. Other sheets can also end with an interactive dismissal.
+        if !isAlert, let presentation = controller.presentationController, presentation.delegate == nil {
+            presentation.delegate = self
+        }
+        let result: Result<T, Error>
+        do { result = .success(try await wait.value()) }
+        catch { result = .failure(error) }
+        // A second permission may already be waiting. Finish UIKit's transition before
+        // releasing this presenter so the next request uses the project's window.
+        if controller.isBeingPresented || controller.isBeingDismissed, let transition = controller.transitionCoordinator {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                var finished = false
+                func finish() {
+                    guard !finished else { return }
+                    finished = true
+                    done.resume()
+                }
+                if !transition.animate(alongsideTransition:nil,completion:{ _ in finish() }) { finish() }
             }
         }
-        return try await wait.value()
+        if controller.presentingViewController != nil && !controller.isBeingDismissed {
+            await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+                controller.dismiss(animated:false) { done.resume() }
+            }
+        }
+        current = nil
+        cancel = nil
+        return try result.get()
     }
 
     func confirm(title: String, detail: String) async throws -> Bool {
@@ -155,8 +176,10 @@ final class SDKPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
         alert.addAction(UIAlertAction(title: "允许", style: .default) { _ in wait.finish(.success(true)) })
         return try await show(alert, until: wait)
     }
-    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) { cancel?() }
-    func close() { cancel?(); current?.dismiss(animated: false); current = nil; cancel = nil }
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        if current === presentationController.presentedViewController { cancel?() }
+    }
+    func close() { cancel?() }
 }
 
 @MainActor

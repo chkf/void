@@ -39,6 +39,57 @@ final class NativeSDKTests: XCTestCase {
     }
     private func error(_ result: [String:Any]) -> String? { (result["error"] as? [String:Any])?["code"] as? String }
 
+    func testClosingFirstConsentCancelsWithoutSavingADecision() async throws {
+        let window = try await PreviewTestWindow(HostModel(storage:storage))
+        defer { window.close() }
+        let root = try XCTUnwrap(window.window.rootViewController)
+        SDKConsent.shared.set(nil,for:"database",project:record.id)
+        let directory = try record.grant.withRoot { $0 }
+        let holding = expectation(description:"提供方占用原目录")
+        let release = DispatchSemaphore(value:0)
+        DispatchQueue.global().async {
+            var error: NSError?
+            NSFileCoordinator().coordinate(writingItemAt:directory,options:.forReplacing,error:&error) { _ in
+                holding.fulfill()
+                _ = release.wait(timeout:.now()+15)
+            }
+        }
+        defer { release.signal() }
+        await fulfillment(of:[holding],timeout:4)
+        let scan = DirectoryTrace("verification-test")
+        let library = ProjectLibrary(base:storage)
+        let id = record.id
+        let checking = Task { try await library.revision(id,trace:scan) }
+        defer { checking.cancel() }
+        let trace = DirectoryTrace("consent-test")
+        let session = SDKSession(record:record,storage:storage,permissions:permissions,networkHosts:[],trace:trace)
+        session.ui.anchor = root.view
+        defer { session.close() }
+        let query = Task { await self.result("graphics.query",["sql":"SELECT 1"],in:session) }
+        let deadline = ContinuousClock.now + .seconds(8)
+        while !(root.presentedViewController is UIAlertController) && ContinuousClock.now < deadline {
+            try await Task.sleep(for:.milliseconds(30))
+        }
+        let alert = try XCTUnwrap(root.presentedViewController as? UIAlertController)
+        let pending = DirectoryJournal.shared.recent().filter { $0.request == scan.id }
+        XCTAssertFalse(pending.contains { $0.stage == "scan.end" })
+        XCTAssertEqual(alert.actions.compactMap(\.title),["不允许","允许"])
+        XCTAssertNil(SDKConsent.shared.decision("database",project:record.id))
+        session.close()
+        let reply = await query.value
+        XCTAssertEqual(error(reply),"CANCELLED")
+        XCTAssertNil(root.presentedViewController)
+        XCTAssertNil(SDKConsent.shared.decision("database",project:record.id))
+        XCTAssertEqual(SDKConsent.shared.decision("files.read",project:record.id),true)
+        let events = DirectoryJournal.shared.recent().filter { $0.request == trace.id }
+        XCTAssertEqual(events.map(\.stage),["sdk.consent.begin","sdk.consent.end"])
+        XCTAssertEqual(events.last?.detail,"database CANCELLED")
+        release.signal()
+        let revision = try await checking.value
+        XCTAssertFalse(revision.isEmpty)
+        XCTAssertTrue(DirectoryJournal.shared.recent().contains { $0.request == scan.id && $0.stage == "scan.fingerprint" })
+    }
+
     func testRegisteredPermissionsAndIsolatedFiles() async throws {
         XCTAssertEqual(SDKSession.methods.count,18)
         XCTAssertTrue(SDKSession.methods.values.flatMap(\.values).filter{!$0.isEmpty}.allSatisfy{SDKConsent.labels[$0] != nil})

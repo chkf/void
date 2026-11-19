@@ -33,7 +33,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     init(product: Product, record: ProjectRecord, storage: URL, permissions: [String], networkHosts: [String], trace: DirectoryTrace? = nil) throws {
         self.product = product
         self.trace = trace
-        sdk = SDKSession(record: record, storage: storage, permissions: permissions, networkHosts: networkHosts)
+        sdk = SDKSession(record: record, storage: storage, permissions: permissions, networkHosts: networkHosts, trace:trace)
         server = try ResourceServer(files: product.files)
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()

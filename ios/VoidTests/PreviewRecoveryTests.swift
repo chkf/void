@@ -25,6 +25,12 @@ final class PreviewRecoveryTests: XCTestCase {
         XCTAssertEqual(PreviewRecovery.interruptionTitle(attempt,entries:DirectoryJournal.shared.recent()),"网页已载入，等待项目提交首屏")
         preview.event("page.nativeCommitReceived")
         XCTAssertEqual(PreviewRecovery.interruptionTitle(attempt,entries:DirectoryJournal.shared.recent()),"正在处理项目提交的原生控件")
+        let verifying = PreviewAttempt(request:preview.id,project:attempt.project,stage:.verifyPage)
+        preview.event("sdk.consent.begin","database")
+        local.event("sdk.consent.end","database 允许")
+        XCTAssertEqual(PreviewRecovery.interruptionTitle(verifying,entries:DirectoryJournal.shared.recent()),"正在等待项目权限选择（database）")
+        preview.event("sdk.consent.end","database 允许")
+        XCTAssertEqual(PreviewRecovery.interruptionTitle(verifying,entries:DirectoryJournal.shared.recent()),verifying.stage.title)
     }
 
     func testUpgradeRecognizesIncompleteDev4PreviewOnly() {

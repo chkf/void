@@ -57,6 +57,7 @@ final class SDKSession: ObservableObject {
     let ui = SDKPresenter()
     let events = SDKEvents()
     let access: SDKConsent
+    private let trace: DirectoryTrace?
     var declared: Set<String>
     var networkHosts: Set<String>
     @Published var preview: CALayer?
@@ -72,9 +73,10 @@ final class SDKSession: ObservableObject {
         return value
     }()
 
-    init(record: ProjectRecord, storage: URL, permissions: [String], networkHosts: [String]) {
+    init(record: ProjectRecord, storage: URL, permissions: [String], networkHosts: [String], trace: DirectoryTrace? = nil) {
         self.record = record
         self.storage = storage
+        self.trace = trace
         self.files = SDKFiles(record: record, storage: storage)
         self.declared = Set(permissions)
         self.networkHosts = Set(networkHosts.map { $0.lowercased() })
@@ -93,10 +95,18 @@ final class SDKSession: ObservableObject {
         let task = Task { @MainActor in
             defer { asking = nil }
             let label = SDKConsent.labels[key] ?? key
-            let answer = try await ui.confirm(title: "允许「" + record.name + "」" + label + "？", detail: "此选择仅用于当前项目，可在项目管理中修改。")
-            try Task.checkCancellation()
-            guard valid else { throw CancellationError() }
+            trace?.event("sdk.consent.begin",key)
+            let answer: Bool
+            do {
+                answer = try await ui.confirm(title: "允许「" + record.name + "」" + label + "？", detail: "此选择仅用于当前项目，可在项目管理中修改。")
+                try Task.checkCancellation()
+                guard valid else { throw CancellationError() }
+            } catch {
+                trace?.event("sdk.consent.end",key + " " + SDKFailure.describe(error).code,error:error)
+                throw error
+            }
             access.set(answer, for: key, project: record.id)
+            trace?.event("sdk.consent.end",key + (answer ? " 允许" : " 拒绝"))
             if !answer { throw SDKFailure.denied("已拒绝" + label) }
         }
         asking = task

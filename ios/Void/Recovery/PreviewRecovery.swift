@@ -31,8 +31,12 @@ actor PreviewRecovery {
     init(storage: URL) { file = storage.appendingPathComponent("preview-attempt.json") }
 
     static func interruptionTitle(_ attempt: PreviewAttempt, entries: [DirectoryEvent]) -> String {
-        guard attempt.stage == .firstFrame else { return attempt.stage.title }
         let request = entries.filter { $0.request == attempt.request }
+        if let consent = request.last(where:{ $0.stage == "sdk.consent.begin" || $0.stage == "sdk.consent.end" }),
+           consent.stage == "sdk.consent.begin" {
+            return "正在等待项目权限选择（" + consent.detail + "）"
+        }
+        guard attempt.stage == .firstFrame else { return attempt.stage.title }
         let start = request.lastIndex { $0.stage == "preview.firstFrame" } ?? request.startIndex
         let events = request[start...]
         let stages = Set(events.map(\.stage))
