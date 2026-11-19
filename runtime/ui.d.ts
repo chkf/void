@@ -23,6 +23,8 @@ export const Section: Container<{ title: string }>;
 export const Text: ComponentType<{ value: string; font?: FontStyle; weight?: FontWeight; color?: ColorRole; alignment?: Horizontal; monospacedDigits?: boolean }>;
 export const Image: ComponentType<{ systemName: string; label: string; size?: number; color?: ColorRole }>;
 export const Button: ComponentType<{ label: string; onPress: () => void; icon?: string; variant?: "primary" | "secondary" | "plain" | "destructive"; disabled?: boolean; fullWidth?: boolean }>;
+/** Place this row inside the project's own settings. */
+export const ProjectManagementButton: ComponentType<{}>;
 export const ProgressView: ComponentType<{ value: number; total?: number; label?: string }>;
 export const TextField: ComponentType<{ label: string; value: string; onChange: (value: string) => void }>;
 export const Toggle: ComponentType<{ label: string; value: boolean; onChange: (value: boolean) => void }>;

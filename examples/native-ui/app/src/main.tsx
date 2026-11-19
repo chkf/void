@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { render, Theme, TabView, Tab, Screen, ScrollView, Card, Form, List, Section,
-  VStack, HStack, Spacer, Text, Image, Button, TextField, Toggle, ProgressView } from "@runtime/ui";
+  VStack, HStack, Spacer, Text, Image, Button, TextField, Toggle, ProgressView, ProjectManagementButton } from "@runtime/ui";
 
 function Components() {
   const [draft, setDraft] = useState("");
@@ -30,7 +30,7 @@ function Example() {
   const [selection, select] = useState("components");
   const [mode, setMode] = useState<"system" | "light" | "dark">("system");
   const [extra, showExtra] = useState(false);
-  return <Theme mode={mode} light={{ accent: "#304C68" }} dark={{ accent: "#B8D5EF", onAccent: "#111923" }}>
+  return <Theme mode={mode} light={{ background: "#E4EFF6", accent: "#304C68" }} dark={{ background: "#142821", accent: "#B8D5EF", onAccent: "#111923" }}>
     <TabView selection={selection} onChange={select}>
       <Tab id="components" title="组件" systemName="square.grid.2x2"><Components /></Tab>
       <Tab id="settings" title="设置" systemName="gearshape">
@@ -45,6 +45,7 @@ function Example() {
             <Section title="导航">
               <Toggle label="第三个标签" value={extra} onChange={showExtra} />
             </Section>
+            <Section title="项目"><ProjectManagementButton /></Section>
           </Form>
         </Screen>
       </Tab>

@@ -16,6 +16,11 @@ struct ProjectContentView: View {
                         Text(verbatim: name.isEmpty ? "你好" : "你好，" + name)
                     }
                 }
+                Section {
+                    NavigationLink("设置") {
+                        Form { ProjectManagementButton() }.navigationTitle("设置")
+                    }
+                }
             }
             .navigationTitle(projectName)
         }

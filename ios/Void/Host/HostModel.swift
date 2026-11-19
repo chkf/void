@@ -99,7 +99,8 @@ final class HostModel: ObservableObject {
             } else if usesAppCatalog, let (id,stage) = PreviewRecovery.interruptedLocalScan(DirectoryJournal.shared.recent()) {
                 recoveryMessage = "上次本机目录检查中断，可在目录诊断查看最后一步。"
                 DirectoryTrace("local",id:id).event("local.interrupted",stage)
-            } else if let id = catalog.last, let record = records.first(where:{ $0.id == id }) {
+            } else if !UserDefaults.standard.bool(forKey: "void.openProjectListOnLaunch"),
+                      let id = catalog.last, let record = records.first(where:{ $0.id == id }) {
                 await open(record)
             }
         } catch { notice = error.localizedDescription }

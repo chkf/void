@@ -38,31 +38,38 @@ extension EnvironmentValues {
     }
 }
 
-struct NativeProjectTree: View {
+struct NativeProjectTree<Header: View>: View {
     let nodes: [NativeNode]
     let revision: Int
     let page: ProjectPage
+    let visible: Bool
+    @ViewBuilder var header: Header
     @Environment(\.colorScheme) private var systemScheme
 
     var body: some View {
-        if page.uiVersion == 2 {
-            let theme = nodes.first.flatMap { $0.type == "Theme" ? $0 : nil }
-            let scheme: ColorScheme = switch theme?.text("mode") {
-            case "light": .light
-            case "dark": .dark
-            default: systemScheme
-            }
-            let palette = NativePalette(dark: scheme == .dark, themed: theme != nil,
-                                        overrides: theme?.palette(scheme == .dark ? "dark" : "light") ?? [:])
-            content(theme?.children ?? nodes)
-                .foregroundStyle(palette.color(.text))
-                .tint(palette.color(.accent))
-                .background(palette.color(.background))
-                .environment(\.nativePalette, palette)
-                .environment(\.colorScheme, scheme)
-        } else {
-            content(nodes)
+        let theme = nodes.first.flatMap { $0.type == "Theme" ? $0 : nil }
+        let preferred: ColorScheme? = switch theme?.text("mode") {
+        case "light": .light
+        case "dark": .dark
+        default: nil
         }
+        let scheme = preferred ?? systemScheme
+        let palette = NativePalette(dark: scheme == .dark, themed: theme != nil,
+                                    overrides: theme?.palette(scheme == .dark ? "dark" : "light") ?? [:])
+        VStack(spacing: 0) {
+            header
+            if page.uiVersion == 2 {
+                content(theme?.children ?? nodes)
+                    .foregroundStyle(palette.color(.text))
+                    .tint(palette.color(.accent))
+                    .environment(\.nativePalette, palette)
+                    .environment(\.colorScheme, scheme)
+            } else {
+                content(nodes)
+            }
+        }
+        .background { palette.color(.background).ignoresSafeArea(.container) }
+        .preferredColorScheme(visible ? preferred : nil)
     }
 
     private func content(_ rows: [NativeNode]) -> some View {

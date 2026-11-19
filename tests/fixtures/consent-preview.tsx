@@ -1,5 +1,5 @@
 import { ios } from "@runtime/sdk";
-import { Button, Form, Section, Text, render } from "@runtime/ui";
+import { Button, Form, Section, Text, ProjectManagementButton, render } from "@runtime/ui";
 
 async function start() {
   render(<Text value="正在打开测试数据库" />);
@@ -17,7 +17,7 @@ async function start() {
         const write = await ios.graphics.execute({ sql: "INSERT OR REPLACE INTO notes VALUES (1, '已读回测试记录')" });
         show(write.success ? "测试记录已保存" : write.error.code);
       }} />
-    </Section></Form>);
+    </Section><Section title="设置"><ProjectManagementButton /></Section></Form>);
   }
   show(rows.data.length ? String(rows.data[0].value) : "数据库已打开");
 }

@@ -36,6 +36,16 @@ struct NativeNode: Identifiable {
         if case let .options(value) = props["options"] { return value }
         return []
     }
+
+    func first(where matches: (NativeNode) -> Bool) -> NativeNode? {
+        if matches(self) { return self }
+        for child in children {
+            if let match = child.first(where: matches) { return match }
+        }
+        return nil
+    }
+
+    var hasSettingsTitle: Bool { ["设置", "settings"].contains(text("title").lowercased()) }
 }
 
 private enum Field {
@@ -66,6 +76,7 @@ private struct NodeRule {
         "Image": NodeRule(["systemName": .text, "label": .text], ["size": .number(1...128), "color": .color]),
         "Button": NodeRule(["label": .text], ["icon": .symbol, "variant": .choice(["primary","secondary","plain","destructive"]),
                                                "disabled": .flag, "fullWidth": .flag]),
+        "ProjectManagementButton": NodeRule(),
         "TextField": NodeRule(["label": .text, "value": .text]),
         "Toggle": NodeRule(["label": .text, "value": .flag]),
         "Picker": NodeRule(["label": .text, "value": .text, "options": .options]),
@@ -105,6 +116,19 @@ struct NativeCommit {
     let eventSequence: Int
     let nodes: [NativeNode]
     let actions: [String: NativeAction]
+    let legacyManagementContainerID: String?
+
+    private static func legacyManagementContainer(in nodes: [NativeNode]) -> String? {
+        // Older projects identified their settings tab by id or title. An explicit row always wins.
+        if nodes.contains(where: { $0.first { $0.type == "ProjectManagementButton" } != nil }) { return nil }
+        for root in nodes {
+            if let section = root.first(where: { $0.type == "Section" && $0.hasSettingsTitle }) { return section.id }
+            if let tab = root.first(where: { $0.type == "Tab" && ($0.text("id") == "settings" || $0.hasSettingsTitle) }) {
+                return tab.first { ["Form", "List", "ScrollView"].contains($0.type) }?.id ?? tab.id
+            }
+        }
+        return nil
+    }
 
     var hasTabs: Bool {
         let root = nodes.first
@@ -128,6 +152,7 @@ struct NativeCommit {
         var decoder = TreeDecoder(version: uiVersion)
         nodes = try decoder.read(message["nodes"], parent: nil, depth: 0, scrolling: false)
         actions = decoder.actions
+        legacyManagementContainerID = Self.legacyManagementContainer(in: nodes)
     }
 }
 

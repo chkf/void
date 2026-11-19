@@ -69,6 +69,9 @@ test("离线示例经真实 renderer 往返选中、表单和主题，动态增�
   const button = label => ui.find(n => n.type === "Button" && n.props.label === label);
   assert.equal(ui.commits[0].uiVersion, 2);
   assert.equal(lookup("TabView").children.length, 2);
+  const [home, settings] = lookup("TabView").children;
+  assert.equal(ui.find(n => n.type === "ProjectManagementButton", home), undefined);
+  assert.ok(ui.find(n => n.type === "ProjectManagementButton", settings));
   const input = lookup("TextField").id;
   ui.event(input, "onChange", "保留输入");
   await settle();

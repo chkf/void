@@ -82,8 +82,8 @@ final class FolderPickerTests: XCTestCase {
         app.launch()
         if localFixture {
             let loaded = app.buttons.matching(NSPredicate(
-                format: "(identifier == %@ AND value == %@) OR identifier == %@",
-                "host.import", "fixture-ready", "project.settings")).firstMatch
+                format: "(identifier == %@ AND value == %@) OR identifier IN %@ OR (label == %@ AND identifier != %@)",
+                "host.import", "fixture-ready", ["project.settings", "host.manage"], "设置", "host.settings")).firstMatch
             XCTAssertTrue(loaded.waitForExistence(timeout:40),app.debugDescription)
         }
         if !app.buttons["host.import"].waitForExistence(timeout:3) {

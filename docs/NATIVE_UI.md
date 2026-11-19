@@ -4,7 +4,7 @@
 
 | 依赖 | 宿主行为 |
 | --- | --- |
-| `1.0.0` | 原组件、原属性、系统外观，使用协议 1。项目管理在设置齿轮中。旧产物缺省协议号也按 1 解码。原目录、项目登记和授权继续使用。源码相同的 dev.10 正式包可直接复用已确认产物。 |
+| `1.0.0` | 原组件、原属性、系统外观，使用协议 1。新版宿主也支持在表单中放置 `ProjectManagementButton`。旧产物缺省协议号按 1 解码。原目录、项目登记和授权继续使用。 |
 | `1.1.0` | 使用下表的属性和协议 2。dev.10 从源码构建会报缺少锁定依赖 `@runtime/ui@1.1.0`。已编译的新版 renderer 在旧宿主调用 render 时报告需要升级宿主。 |
 | 其他版本、范围、标签 | 编译器报告不兼容。SDK 的精确版本规则独立于 UI。 |
 
@@ -41,6 +41,7 @@ render(<App />);
 | Theme | — | `mode` 为 system（默认）、light、dark。`light`、`dark` 各为一层语义色表，缺项回落到对应模式的默认值。Theme 只可作为唯一根节点。 |
 | TabView | `selection: string`、`onChange(id)` | 作为唯一根节点，或 Theme 的唯一直接子节点。只接受 2～5 个直接 Tab，可用数组、Fragment 和条件组合。 |
 | Tab | `id`、`title`、`systemName` 均为字符串，至少一个内容节点 | id 唯一，selection 必须存在。id 和图标名最多 128 个 UTF-8 字节，标题最多 256 个，均须非空且无控制字符。 |
+| ProjectManagementButton | — | 项目设置中的「项目管理」行，点按后打开宿主面板。支持 UI 1.0.0 和 1.1.0。 |
 | Screen | — | `title` 缺省时只显示内容区。标题使用动态字号并标为辅助功能标题。内容占满可用安全区，容器自身不滚动。 |
 | ScrollView | — | 原生纵向滚动，可交互式收起键盘。协议 2 拒绝 ScrollView、Form 和 List 互相嵌套或嵌入自身。 |
 | Card | — | `background` 默认 surface。`border` 默认无边框，指定颜色后 `borderWidth` 默认 1（0～8）。`cornerRadius`、`padding` 均默认 12（0～64）。 |
@@ -81,6 +82,6 @@ React 首次提交时挂载全部 Tab 的子树，原生为每个稳定 id 持�
 
 iPhone 使用系统底部标签栏。iPad 上的位置与形态由当前 iPadOS 和窗口尺寸决定。项目内容遵循原生安全区、键盘和旋转布局。构建时可在进度旁取消。[Apple 标签栏控制器](https://developer.apple.com/documentation/uikit/uitabbarcontroller) · [iPad 标签栏](https://developer.apple.com/documentation/uikit/elevating-your-ipad-app-with-a-tab-bar-and-sidebar)
 
-要把「项目管理」放进已有的设置页，给对应的 `Tab` 使用 `id="settings"`。宿主也能识别标题为「设置」或「Settings」的标签。管理入口位于该页第一个 Form 或 List 的末尾，其他布局显示在设置页底部。项目没有设置页时，宿主补一个「设置」标签。五个标签已满时，设置齿轮位于当前页底部。打开宿主补充的设置入口会保留项目选中的标签。
+在应用自己的设置页中，从 `@runtime/ui` 导入 `ProjectManagementButton`，然后在已有分组中写入 `<ProjectManagementButton />`。例如五标签应用可将它放入「我的 → 设置」。标签栏完全按项目声明呈现。旧项目已有的「设置」分组或设置标签也可继续承载管理行。项目的 `Theme` 背景色延伸至状态栏后方，标题和控件保留系统安全间距。[完整设置示例](../examples/native-ui/app/src/main.tsx)
 
 单帧根深度为 0，最大深度 128。保留 16,384 项及 4 MiB UTF-8 文本的上限。协议 2 的属性、色表条目、控件和 Picker 选项均计入项数，属性名、色表键值、节点 ID 和字符串值计入文本预算。宿主直接在后台解码 WebKit 的 Foundation 值。非法树会显示诊断，已有可运行版本沿用原恢复流程。

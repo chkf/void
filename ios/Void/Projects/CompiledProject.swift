@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 enum CompiledProject {
@@ -19,7 +20,15 @@ enum CompiledProject {
         }
         let bundled = try sources(ProjectFiles.snapshot(at: template).files)
         let project = try sources(snapshot.files)
-        guard bundled["app/" + entry] != nil, project == bundled else {
+        if bundled["app/" + entry] != nil && project == bundled { return }
+        // The shipped greeting form gained only its settings link. Match both complete
+        // source sets so custom Swift builds still require their own exact sources.
+        func soleEntryDigest(_ files: [String: Data]) -> String? {
+            guard files.count == 1, let source = files["app/" + entry] else { return nil }
+            return SHA256.hash(data: source).map { String(format: "%02x", $0) }.joined()
+        }
+        guard soleEntryDigest(project) == "32e5f5a0cfb737a2c93e924f79fcbf30ec93948510272c2d75c83f8252b4c380",
+              soleEntryDigest(bundled) == "b1fdde4a6adc9dfc2347ec42f34328de490e48e71706443ba4c85dc5b3e27a1f" else {
             throw RuntimeIssue("SwiftUI 源码与已安装版本不同。请将 app/SwiftUI/ 同步到仓库的 ios/StarterProject/app/SwiftUI/，通过 GitHub Actions 构建并安装对应的 IPA。")
         }
     }

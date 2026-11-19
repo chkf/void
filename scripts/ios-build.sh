@@ -49,6 +49,11 @@ manifest = root / "app/manifest.json"
 value = json.loads(manifest.read_bytes())
 value["name"] = name
 manifest.write_text(json.dumps(value))
+profile = root.with_name(name + " Profile")
+shutil.copytree(root, profile)
+(profile / "runtime.json").write_text(json.dumps({"formatVersion": 1, "id": str(uuid.uuid4())}))
+(profile / "app/manifest.json").write_text(json.dumps({**value, "name": profile.name}))
+shutil.copyfile("tests/fixtures/profile-settings.tsx", profile / "app/src/main.tsx")
 print(name)
 PY
   )
@@ -166,6 +171,7 @@ case "${1:-device}" in
     test -s "$app/Toolchain/NativeUIDemo/app/src/main.tsx"
     test -s "$app/StarterProject/app/SwiftUI/ProjectContentView.swift"
     test -s "$app/TSXProject/app/src/main.tsx"
+    test -s "$app/Settings.bundle/Root.plist"
     if [[ -n "${VOID_IOS_SDK:-}" ]]; then
       test "$(plutil -extract DTSDKName raw "$app/Info.plist")" = "iphoneos$VOID_IOS_SDK"
     fi

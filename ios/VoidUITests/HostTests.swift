@@ -7,12 +7,13 @@ extension XCUIApplication {
     }
 
     func openProjectManagement(file: StaticString = #filePath, line: UInt = #line) {
+        let manage = buttons["host.manage"].firstMatch
+        if manage.exists && manage.isHittable { manage.tap(); return }
         let settings = projectSettingsButton
         guard settings.waitForExistence(timeout: 12) else {
             return XCTFail("找不到项目设置\n" + debugDescription, file: file, line: line)
         }
         settings.tap()
-        let manage = buttons["host.manage"].firstMatch
         for _ in 0..<6 {
             if manage.exists && manage.isHittable {
                 manage.tap()

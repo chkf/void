@@ -13,6 +13,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     var acknowledged: Int { tree?.eventSequence ?? 0 }
     var uiVersion: Int { tree?.uiVersion ?? 1 }
     var hasTabNavigation: Bool { tree?.hasTabs == true }
+    var legacyManagementContainerID: String? { tree?.legacyManagementContainerID }
     private var priorActions = [String: NativeAction]()
     private var priorRevision = 0
     private var eventSequence = 0

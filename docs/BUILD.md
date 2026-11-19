@@ -9,7 +9,7 @@ GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.
 | void-tests | 解压后用 Xcode 打开 xcresult，查看各用例、失败截图及运行设备。 |
 | void-native-ui-compact、void-native-ui-ipad | 独立模拟器的原生导航测试报告与导出的截图附件，含深浅色、横屏和辅助功能字号。 |
 
-构建 12 的设备包覆盖 iPhone 与 iPad。下载同一提交工作流中的 `void-unsigned-iphone`，解压取得 `void-unsigned.ipa`。该包内附 `Toolchain/NativeUIDemo`。独立模拟器可用 `VOID_LAYOUT_PROFILE=compact bash scripts/ios-build.sh native-layout` 或 `VOID_LAYOUT_PROFILE=ipad bash scripts/ios-build.sh native-layout` 重现原生导航验收。[组件契约与独立示例](NATIVE_UI.md)
+构建 13 的设备包覆盖 iPhone 与 iPad。下载同一提交工作流中的 `void-unsigned-iphone`，解压取得 `void-unsigned.ipa`。该包内附 `Toolchain/NativeUIDemo`。独立模拟器可用 `VOID_LAYOUT_PROFILE=compact bash scripts/ios-build.sh native-layout` 或 `VOID_LAYOUT_PROFILE=ipad bash scripts/ios-build.sh native-layout` 重现原生导航验收，包括五标签项目内的设置入口和 iPhone 状态栏背景。[组件契约与独立示例](NATIVE_UI.md)
 
 VoiceOver 手势与实际朗读在签名设备上验收。在系统「设置 → 辅助功能」启用 VoiceOver，打开独立示例，左右轻扫可听到当前标签、图标标签、输入框和进度。双点示例里的「设置」标签，确认能找到并打开「项目管理」。输入后切走再回来，核对文本与滚动位置。模拟器测试覆盖辅助功能树、对比度和大字体。[Apple 的辅助技术测试说明](https://developer.apple.com/documentation/accessibility/performing-accessibility-testing-for-your-app)
 

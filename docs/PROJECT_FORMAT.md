@@ -18,4 +18,6 @@ React/TSX 模板在 `app/package.json` 中锁定 React 18.3.1、@runtime/ui 1.0.
 
 使用项目标签栏和主题的 TSX 源码须把 `@runtime/ui` 精确声明为 `1.1.0`。目录格式仍为 1。[组件属性与示例](NATIVE_UI.md)
 
+子应用应在自己的设置页提供「项目管理」。SwiftUI 和 TSX 使用 `ProjectManagementButton`，Web 设置列表使用 `void://project/management` 链接。[三种项目的接入示例](RUNTIME.md#在子应用自己的设置里接入项目管理)
+
 `app/` 存源码，`assets/` 存资源，`modules/` 存本地模块。私有登记、已运行的产物、共享数据与日志分别按[文件边界](FILESYSTEM.md)处理。

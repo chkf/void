@@ -8,7 +8,7 @@ void 是一个面向个人的 iPhone 项目宿主。应用本身和默认项目�
 
 ## 开发与构建
 
-构建 12 将「项目管理」移入每个子应用的「设置」。可在这里切换项目、查看权限和日志，或恢复预览。单页项目从底部齿轮进入。[下载 dev.12 IPA 和示例](https://github.com/chkf/void/releases/tag/v0.1.0-dev.12)
+开发子应用时，将「项目管理」放进应用自己的设置列表，例如「我的 → 设置」。SwiftUI、TSX 和 Web 的接入方式及示例见开发文档。[设置接入指南](docs/RUNTIME.md#在子应用自己的设置里接入项目管理) · [下载已发布的 IPA 和示例](https://github.com/chkf/void/releases)
 
 构建 11 为 TSX 项目提供 `@runtime/ui@1.1.0`。开发者可配置原生标签栏、浅色和深色主题、文本、卡片及滚动布局。独立示例包含两页和可开关的第三页，所有输入仅保存在内存。原依赖 `1.0.0` 继续可用。[构建 11 的 IPA 与示例 ZIP](https://github.com/chkf/void/actions/runs/44515969381/artifacts/14527390642) · [原生 UI 接口与版本规则](docs/NATIVE_UI.md) · [签名与安装](docs/BUILD.md) · [验证记录](docs/LIMITATIONS.md)
 

@@ -6,6 +6,7 @@ import { request } from "./bridge.js";
 export const VStack = "VStack", HStack = "HStack", List = "List", Form = "Form";
 export const Section = "Section", Text = "Text", Image = "Image", Button = "Button";
 export const TextField = "TextField", Toggle = "Toggle", Picker = "Picker";
+export const ProjectManagementButton = "ProjectManagementButton";
 export const Theme = "Theme", Tab = "Tab", Screen = "Screen", ScrollView = "ScrollView";
 export const Card = "Card", Spacer = "Spacer", ProgressView = "ProgressView";
 
@@ -158,7 +159,7 @@ export function render(view) {
   mount(view);
 }
 
-export const legacyUI = { VStack, HStack, List, Form, Section, Text, Image, Button, TextField, Toggle, Picker, render: mount };
+export const legacyUI = { VStack, HStack, List, Form, Section, Text, Image, Button, TextField, Toggle, Picker, ProjectManagementButton, render: mount };
 export const nativeUI = { ...legacyUI, Theme, TabView, Tab, Screen, ScrollView, Card, Spacer, ProgressView, render };
 
 globalThis.__voidEvent = ({ id, name, value, sequence, revision: displayedRevision }) => {

@@ -207,6 +207,8 @@ jobs:
           cat > "$notes" <<EOF
           下载下方的 **void-unsigned.ipa**。适用于 iOS / iPadOS 17 及以上设备，安装前需要使用自己的 Apple 签名。
 
+          原生项目的背景延伸到状态栏。开发者可将「项目管理」放进子应用自己的设置列表，例如「我的 → 设置」。示例见附件 **native-ui-example.zip**。[SwiftUI、TSX 和 Web 接入示例](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/RUNTIME.md#在子应用自己的设置里接入项目管理)
+
           沿用原签名团队和已安装版本的实际 Bundle ID 覆盖安装，然后从「最近项目」打开原登记。项目可锁定 @runtime/ui 1.1.0 配置系统标签栏和样式，原生 SDK 仍为 1.1.0。
 
           $simulator_note [原生组件、示例与版本规则](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/NATIVE_UI.md)
@@ -221,11 +223,13 @@ jobs:
             gh release create "$tag" --verify-tag --draft "${prerelease[@]}" --title "void $tag" --notes-file "$notes"
           fi
           api=$(gh release view "$tag" --json apiUrl --jq .apiUrl)
-          asset_digest() {
-            gh api "$api" --jq '.assets[] | select(.name == "void-unsigned.ipa") | .digest'
-          }
-          if [[ -z "$(asset_digest)" ]]; then gh release upload "$tag" "$ipa"; fi
-          [[ "$(asset_digest)" == "$digest" ]]
+          for file in "$ipa" release/native-ui-example.zip; do
+            name=$(basename "$file")
+            expected="sha256:$(sha256sum "$file" | cut -d' ' -f1)"
+            query=".assets[] | select(.name == \"$name\") | .digest"
+            if [[ -z "$(gh api "$api" --jq "$query")" ]]; then gh release upload "$tag" "$file"; fi
+            [[ "$(gh api "$api" --jq "$query")" == "$expected" ]]
+          done
           if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft)" == true ]]; then
             gh release edit "$tag" --draft=false
           fi

@@ -50,6 +50,21 @@ final class NativeContractTests: XCTestCase {
         XCTAssertThrowsError(try decode([], version: 3))
     }
 
+    func testSettingsRowsBelongToTheDeclaredPage() throws {
+        let form = node("Form", [:], [], id: "original-form")
+        let section = node("Section", ["title": "设置"], [], id: "profile-settings")
+        let profile = node("Tab", ["id": "profile", "title": "我的", "systemName": "person"], [form])
+        func navigation(_ other: Row) -> Row { node("TabView", ["selection": "profile"], [profile, other]) }
+        XCTAssertNil(try decode([navigation(tab("a"))]).legacyManagementContainerID)
+        let oldSettings = node("Tab", ["id": "settings", "title": "偏好", "systemName": "gear"], [node("Form", id: "prefs")])
+        XCTAssertEqual(try decode([navigation(oldSettings)]).legacyManagementContainerID, "prefs")
+        XCTAssertEqual(try decode([node("Form", [:], [section])], version: 1).legacyManagementContainerID, "profile-settings")
+        for version in [1, 2] {
+            let settings = node("Section", ["title": "设置"], [node("ProjectManagementButton")])
+            XCTAssertNil(try decode([node("Form", [:], [settings])], version: version).legacyManagementContainerID)
+        }
+    }
+
     func testColorNumberAndResourceBounds() throws {
         for color in ["red","#abc","#abcd","#01234567"," #123456","#12z456","＃112233","#+12345","#123456\n"] {
             XCTAssertThrowsError(try decode([node("Theme", ["dark":["text":color]])]), color)

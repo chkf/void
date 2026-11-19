@@ -91,7 +91,6 @@ struct HostView: View {
                     ForEach(mountedPages, id:\.id) { page in
                         let visible = page === (model.presentingPage ?? model.page)
                         RunningPage(page:page, visible:visible)
-                            .background(Color(uiColor:.systemBackground))
                             .zIndex(visible ? 1 : -1)
                             .allowsHitTesting(visible)
                             .accessibilityHidden(!visible)
@@ -106,7 +105,7 @@ struct HostView: View {
                     }
                 }
                 .safeAreaInset(edge: projectTabs ? .top : .bottom, spacing: 0) {
-                    if !projectTabs || model.busy || model.scanStatus != nil || model.problem != nil || folders.phase != .idle {
+                    if hostOwnsScreen || model.busy || model.scanStatus != nil || model.problem != nil || (projectTabs && folders.phase != .idle) {
                         projectControls
                     }
                 }
@@ -228,6 +227,11 @@ struct HostView: View {
         })
     }
 
+    private var hostOwnsScreen: Bool {
+        if case .swiftUI = model.screen { return false }
+        return model.page == nil && model.presentingPage == nil
+    }
+
     private var projectControls: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let problem = model.problem, model.page != nil || model.mode == .swiftui && model.workspaceTemplate == nil {
@@ -253,7 +257,7 @@ struct HostView: View {
                         .accessibilityIdentifier("project.library")
                 }
                 Spacer(minLength: 0)
-                if !projectTabs || model.problem != nil {
+                if hostOwnsScreen || model.problem != nil {
                     ProjectSettingsButton()
                 }
             }
@@ -300,26 +304,33 @@ struct RunningPage: View {
     @ObservedObject var page: ProjectPage
     @ObservedObject private var sdk: SDKSession
     @Environment(\.openProjectSettings) private var openSettings
+    @State private var webBackground = UIColor.systemBackground
     let visible: Bool
     init(page: ProjectPage, visible: Bool) { self.page = page; self.sdk = page.sdk; self.visible = visible }
     var body: some View {
-        VStack(spacing: 0) {
-            NativeMediaPreview(sdk: page.sdk)
-            content
-        }.preference(key: ProjectTabsKey.self, value: visible && page.hasTabNavigation)
+        content.preference(key: ProjectTabsKey.self, value: visible && page.hasTabNavigation)
     }
     @ViewBuilder private var content: some View {
         if page.product.mode == .web {
-            ProjectSurface(page: page, visible: visible)
-                .onChange(of: visible, initial: true) {
-                    page.onOpenManagement = visible ? { [openSettings] in openSettings(.management) } : nil
-                }
-                .onDisappear { page.onOpenManagement = nil }
-        } else {
             VStack(spacing: 0) {
-                ProjectSurface(page:page, visible:visible).frame(height:max(1,sdk.canvasHeight))
-                    .clipped().allowsHitTesting(sdk.canvasHeight > 0).accessibilityHidden(sdk.canvasHeight == 0)
-                NativeProjectTree(nodes: page.nodes, revision: page.revision, page: page)
+                NativeMediaPreview(sdk: sdk)
+                ProjectSurface(page: page, visible: visible)
+            }
+            .background { Color(uiColor: webBackground).ignoresSafeArea(.container) }
+            .onReceive(page.view.publisher(for: \.underPageBackgroundColor)) { webBackground = $0 ?? .systemBackground }
+            .onChange(of: visible, initial: true) {
+                page.onOpenManagement = visible ? { [openSettings] in openSettings(.management) } : nil
+            }
+            .onDisappear { page.onOpenManagement = nil }
+        } else {
+            NativeProjectTree(nodes: page.nodes, revision: page.revision, page: page, visible: visible) {
+                NativeMediaPreview(sdk: sdk)
+                // WebKit still needs a window and nonempty bounds to confirm the first frame.
+                // Only an explicitly requested canvas occupies space in the project layout.
+                ProjectSurface(page: page, visible: visible)
+                    .frame(height: max(1, sdk.canvasHeight))
+                    .frame(height: sdk.canvasHeight).clipped()
+                    .allowsHitTesting(sdk.canvasHeight > 0).accessibilityHidden(sdk.canvasHeight == 0)
             }
         }
     }

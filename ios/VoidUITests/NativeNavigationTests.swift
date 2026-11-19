@@ -34,6 +34,66 @@ final class NativeNavigationTests: XCTestCase {
         return findings
     }
 
+    @MainActor private func assertStatusBackground(_ app: XCUIApplication, above title: XCUIElement, rgb: [Int],
+                                                    file: StaticString = #filePath, line: UInt = #line) throws {
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return }
+        let image = try XCTUnwrap(app.screenshot().image.cgImage)
+        let scale = CGFloat(image.height) / app.frame.height
+        let start = Int(8 * scale)
+        let end = Int((title.frame.minY - app.frame.minY + 2) * scale)
+        XCTAssertGreaterThan(end, start, file: file, line: line)
+        guard end > start else { return }
+        // This column misses the clock, camera cutout and status icons, and crosses the safe-area boundary.
+        let strip = try XCTUnwrap(image.cropping(to: CGRect(x: CGFloat(image.width * 3 / 10), y: CGFloat(start),
+                                                             width: 1, height: CGFloat(end - start))))
+        var pixels = [UInt8](repeating: 0, count: strip.height * 4)
+        try pixels.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: 1, height: strip.height, bitsPerComponent: 8,
+                bytesPerRow: 4, space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(strip, in: CGRect(x: 0, y: 0, width: 1, height: CGFloat(strip.height)))
+        }
+        let mismatch = stride(from: 0, to: pixels.count, by: 4).first { offset in
+            rgb.indices.contains { channel in abs(Int(pixels[offset + channel]) - rgb[channel]) > 8 }
+        }
+        if let mismatch {
+            XCTFail("状态栏至标题的背景出现异色，实际 \(Array(pixels[mismatch..<(mismatch + 3)]))，预期 \(rgb)", file: file, line: line)
+        }
+    }
+
+    @MainActor func testFiveTabsPutManagementInsideProfileSettings() throws {
+        continueAfterFailure = false
+        let app = XCUIApplication()
+        app.launchArguments = ["-void.openProjectListOnLaunch", "YES"]
+        app.launch()
+        app.buttons["host.local"].tap()
+        let expected = ProcessInfo.processInfo.environment["VOID_NATIVE_UI_PROJECT"]
+        let row = expected.map { app.buttons["recent." + $0 + " Profile"] } ??
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "recent.Void Native UI ", " Profile")).firstMatch
+        XCTAssertTrue(app.revealScannedProject(row), app.debugDescription)
+        row.tap()
+        app.buttons["project.preview"].tap()
+        XCTAssertTrue(app.staticTexts["训练内容"].waitForExistence(timeout: 100))
+        XCTAssertTrue(becomes(app.buttons["scan.cancel"], "exists == false", timeout: 30))
+        for title in ["训练", "历史", "进步", "模板", "我的"] { XCTAssertTrue(app.buttons[title].firstMatch.exists) }
+        let manage = app.buttons["host.manage"].firstMatch
+        XCTAssertFalse(app.projectSettingsButton.exists)
+        XCTAssertFalse(manage.exists)
+        attach("Five-Tabs-Home")
+        try assertStatusBackground(app, above: app.staticTexts["训练"].firstMatch, rgb: [20, 40, 33])
+        app.buttons["我的"].firstMatch.tap()
+        XCTAssertFalse(manage.exists)
+        app.buttons["偏好设置"].tap()
+        XCTAssertTrue(manage.waitForExistence(timeout: 8))
+        attach("Five-Tabs-Own-Settings")
+        manage.tap()
+        XCTAssertTrue(app.buttons["host.switch"].waitForExistence(timeout: 8))
+        app.buttons["完成"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["返回我的"].waitForExistence(timeout: 8))
+        manage.tap()
+        app.buttons["host.switch"].tap()
+    }
+
     @MainActor func testNativeTabsPreserveDraftScrollThemeAndHostAccess() throws {
         continueAfterFailure = false
         executionTimeAllowance = 360
@@ -96,6 +156,7 @@ final class NativeNavigationTests: XCTestCase {
         XCTAssertEqual(input.value as? String, "abc")
         XCTAssertTrue(app.staticTexts["1 / 4"].exists)
         attach("Light-Portrait")
+        try assertStatusBackground(app, above: app.staticTexts["组件"].firstMatch, rgb: [228, 239, 246])
         var findings = try audit(app)
         let scroll = app.scrollViews.firstMatch
         scroll.swipeUp()
@@ -132,6 +193,7 @@ final class NativeNavigationTests: XCTestCase {
         toggleThird()
         XCTAssertTrue(becomes(rows, "exists == false"))
         attach("Dark-Portrait")
+        try assertStatusBackground(app, above: app.staticTexts["设置"].firstMatch, rgb: [20, 40, 33])
         findings += try audit(app)
         device.orientation = .landscapeLeft
         XCTAssertTrue(settings.waitForExistence(timeout: 8))

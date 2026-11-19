@@ -4,11 +4,11 @@ struct NativeNodeView: View {
     let node: NativeNode
     let revision: Int
     let page: ProjectPage
-    var managementCollectionID: String? = nil
     @Environment(\.nativePalette) private var palette
 
-    private var children: some View {
-        ForEach(node.children) { NativeNodeView(node: $0, revision: revision, page: page, managementCollectionID: managementCollectionID) }
+    @ViewBuilder private var children: some View {
+        ForEach(node.children) { NativeNodeView(node: $0, revision: revision, page: page) }
+        if page.legacyManagementContainerID == node.id { ProjectManagementButton() }
     }
 
     private var horizontal: HorizontalAlignment {
@@ -66,7 +66,10 @@ struct NativeNodeView: View {
         case "VStack": VStack(alignment: horizontal, spacing: points("spacing")) { children }
         case "HStack": HStack(alignment: vertical, spacing: points("spacing")) { children }
         case "Form", "List": collection
-        case "Section": Section(node.text("title")) { children }
+        case "Section":
+            if page.uiVersion == 2 {
+                Section { children } header: { Text(verbatim: node.text("title")).foregroundStyle(palette.color(.secondaryText)) }
+            } else { Section(node.text("title")) { children } }
         case "Text":
             if page.uiVersion == 1 { Text(verbatim: node.text("value")) }
             else { NativeText(node: node) }
@@ -77,6 +80,7 @@ struct NativeNodeView: View {
                 NativeImage(node: node)
             }
         case "Button": NativeButton(node: node, revision: revision, page: page)
+        case "ProjectManagementButton": ProjectManagementButton()
         case "TextField": NativeInput(node: node, revision: revision, page: page)
         case "Toggle":
             Toggle(node.text("label"), isOn: Binding(get: { node.flag }, set: { change($0) }))
@@ -96,23 +100,17 @@ struct NativeNodeView: View {
     private var themedRows: Bool {
         node.text("appearance") == "themed" || (node.props["appearance"] == nil && palette.themed)
     }
-    @ViewBuilder private var rows: some View {
-        children
-        if managementCollectionID == node.id {
-            Section { ProjectManagementButton() }
-        }
-    }
     @ViewBuilder private var collection: some View {
         if themedRows {
             if node.type == "Form" {
-                Form { rows.listRowBackground(palette.color(.surface)) }
+                Form { children.listRowBackground(palette.color(.surface)) }
                     .scrollContentBackground(.hidden).background(palette.color(.background))
             } else {
-                List { rows.listRowBackground(palette.color(.surface)) }
+                List { children.listRowBackground(palette.color(.surface)) }
                     .scrollContentBackground(.hidden).background(palette.color(.background))
             }
-        } else if node.type == "Form" { Form { rows } }
-        else { List { rows } }
+        } else if node.type == "Form" { Form { children } }
+        else { List { children } }
     }
 }
 

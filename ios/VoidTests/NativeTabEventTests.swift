@@ -20,7 +20,7 @@ final class NativeTabEventTests: XCTestCase {
         return nil
     }
 
-    func testSettingsAdaptsToProjectTabsWithoutChangingTheirSelection() async throws {
+    func testOnlyProjectTabsAppearAndDeclinedSelectionStaysInProject() async throws {
         let files = FileManager.default
         let folder = FolderGrant.documents.appendingPathComponent("VoidSettings-" + UUID().uuidString)
         let storage = files.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -29,13 +29,14 @@ final class NativeTabEventTests: XCTestCase {
         try files.copyItem(at: tools.appendingPathComponent("NativeUIDemo"), to: folder)
         let source = """
         import { useState } from "react";
-        import { render, TabView, Tab, Button } from "@runtime/ui";
+        import { render, TabView, Tab, Button, Form, Section, ProjectManagementButton } from "@runtime/ui";
         function App() {
           const [layout, setLayout] = useState(0);
           const ids = layout === 0 ? ["a","b"] : ["a","b","c","d","e"];
           return <TabView selection="a" onChange={() => {}}>{ids.map(id =>
-            <Tab key={id} id={id} title={id === "b" && layout === 2 ? "Settings" : id} systemName="circle">
+            <Tab key={id} id={id} title={id === "e" ? "我的" : id} systemName="circle">
               <Button label="切换布局" onPress={() => setLayout(n => (n + 1) % 3)} />
+              {layout === 2 && id === "e" && <Form><Section title="设置"><ProjectManagementButton /></Section></Form>}
             </Tab>)}</TabView>;
         }
         render(<App />);
@@ -47,7 +48,7 @@ final class NativeTabEventTests: XCTestCase {
         await host.importDirectory(folder)
         try await until { host.page != nil || host.problem != nil || host.notice != nil }
         let page = try XCTUnwrap(host.page, host.problem ?? host.notice ?? "")
-        try await until { self.tabs(in: window.window.rootViewController)?.viewControllers?.count == 3 }
+        try await until { self.tabs(in: window.window.rootViewController)?.viewControllers?.count == 2 }
         let controller = try XCTUnwrap(tabs(in: window.window.rootViewController))
         let first = try XCTUnwrap(controller.selectedViewController)
         func nextLayout() throws {
@@ -55,20 +56,25 @@ final class NativeTabEventTests: XCTestCase {
             XCTAssertGreaterThan(page.event(button.id, name: "onPress", value: NSNull()), 0)
         }
 
-        XCTAssertEqual(controller.viewControllers?.compactMap { $0.tabBarItem.title }, ["a", "b", "设置"])
+        XCTAssertEqual(controller.viewControllers?.compactMap { $0.tabBarItem.title }, ["a", "b"])
+        XCTAssertNil(page.legacyManagementContainerID)
         try nextLayout()
         try await until { controller.viewControllers?.count == 5 }
-        XCTAssertEqual(controller.viewControllers?.compactMap { $0.tabBarItem.title }, ["a", "b", "c", "d", "e"])
+        XCTAssertEqual(controller.viewControllers?.compactMap { $0.tabBarItem.title }, ["a", "b", "c", "d", "我的"])
+        XCTAssertNil(page.legacyManagementContainerID)
         try nextLayout()
-        try await until { controller.viewControllers?[1].tabBarItem.accessibilityIdentifier == "project.settings" }
+        try await until { page.nodes.first?.children.last?.first { $0.type == "ProjectManagementButton" } != nil }
         XCTAssertEqual(controller.viewControllers?.count, 5)
-        try nextLayout()
-        try await until { controller.viewControllers?.count == 3 }
-        let settings = try XCTUnwrap(controller.viewControllers?.last)
+        XCTAssertNil(page.legacyManagementContainerID)
+        let profile = try XCTUnwrap(controller.viewControllers?.last)
         let acknowledged = page.acknowledged
-        XCTAssertEqual(controller.delegate?.tabBarController?(controller, shouldSelect: settings), false)
-        try await until { window.window.rootViewController?.presentedViewController != nil }
-        XCTAssertEqual(page.acknowledged, acknowledged)
+        XCTAssertEqual(controller.delegate?.tabBarController?(controller, shouldSelect: profile), true)
+        controller.selectedViewController = profile
+        controller.delegate?.tabBarController?(controller, didSelect: profile)
+        try await until { page.acknowledged > acknowledged && controller.selectedViewController === first }
+        XCTAssertNil(window.window.rootViewController?.presentedViewController)
+        try nextLayout()
+        try await until { controller.viewControllers?.count == 2 }
         XCTAssertTrue(controller.selectedViewController === first)
         XCTAssertTrue(host.page === page)
         await host.showLibrary()
