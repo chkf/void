@@ -25,6 +25,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     private let mounted = SDKWait<Void>()
     private(set) var failure: String?
     private(set) var displayed = false
+    private var attached = false
     private let trace: DirectoryTrace?
     var onReady: (() -> Void)?
     var onFailure: ((String) -> Void)?
@@ -134,6 +135,12 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         onFailure?(detail)
     }
 
+    func surfaceAttached() {
+        guard valid, ready, !attached else { return }
+        attached = true
+        trace?.event("page.surfaceAttached")
+    }
+
     func didDisplay(in window: UIWindow) -> Bool {
         guard valid, ready, !displayed, failure == nil, view.window === window else { return displayed }
         displayed = true
@@ -145,6 +152,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     func waitForDisplay() async throws {
         let deadline = Task {
             do { try await Task.sleep(for:.seconds(20)) } catch { return }
+            trace?.event("page.displayTimedOut", view.window == nil ? "页面未附着到窗口" : "尚未收到窗口刷新")
             mounted.finish(.failure(RuntimeIssue("首屏已准备好，但尚未显示在项目窗口中")))
         }
         defer { deadline.cancel() }
@@ -254,47 +262,66 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     }
 }
 
-// Observe a display refresh after the visible SwiftUI surface has a window and layout.
+// This view owns the WebKit session for the page's entire SwiftUI lifetime.
+// The native form and this surface share the same layout pass and window.
 @MainActor
-struct PageDisplayProbe: UIViewRepresentable {
-    let page: ProjectPage
-    func makeUIView(context: Context) -> Probe { Probe() }
-    func updateUIView(_ view: Probe, context: Context) { view.page = page; view.arm() }
-    static func dismantleUIView(_ view: Probe, coordinator: ()) { view.disarm() }
+struct ProjectSurface: UIViewRepresentable {
+    let webView: WKWebView
+    private let showing: ProjectPage?
 
-    final class Probe: UIView {
-        weak var page: ProjectPage?
+    init(page: ProjectPage, visible: Bool) {
+        webView = page.view
+        showing = visible ? page : nil
+    }
+    init(compiler: CompilerPage) { webView = compiler.view; showing = nil }
+
+    func makeUIView(context: Context) -> Holder { Holder() }
+    func updateUIView(_ holder: Holder, context: Context) {
+        holder.mount(webView, showing:showing)
+    }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: Holder, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions(by:CGSize(width:1,height:1))
+    }
+    static func dismantleUIView(_ view: Holder, coordinator: ()) { view.disarm() }
+
+    final class Holder: UIView {
+        private weak var webView: WKWebView?
+        private weak var showing: ProjectPage?
         private var link: CADisplayLink?
         private var ticks = 0
-        override func didMoveToWindow() { super.didMoveToWindow(); if window == nil { disarm() } else { arm() } }
-        override func layoutSubviews() { super.layoutSubviews(); arm() }
-        func arm() {
-            guard link == nil, let page, !page.displayed, window != nil, !bounds.isEmpty else { return }
+
+        func mount(_ view: WKWebView, showing page: ProjectPage?) {
+            if view.superview !== self {
+                webView?.removeFromSuperview()
+                webView = view
+                view.frame = bounds
+                addSubview(view)
+            }
+            if showing !== page { disarm(); showing = page }
+            arm()
+        }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil { disarm() } else { arm() }
+        }
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            webView?.frame = bounds
+            arm()
+        }
+        private func arm() {
+            guard link == nil, let page = showing, !page.displayed,
+                  let window, webView?.window === window, !bounds.isEmpty else { return }
+            page.surfaceAttached()
             let next = CADisplayLink(target:self,selector:#selector(tick))
             link = next
             next.add(to:.main,forMode:.common)
         }
         @objc private func tick() {
-            guard let window, let page, !bounds.isEmpty else { disarm(); return }
+            guard let page = showing, let window, webView?.window === window, !bounds.isEmpty else { disarm(); return }
             ticks = min(2,ticks + 1)
             if ticks == 2, page.didDisplay(in:window) { disarm() }
         }
         func disarm() { link?.invalidate(); link = nil; ticks = 0 }
-    }
-}
-
-@MainActor
-struct ProjectSurface: UIViewRepresentable {
-    let webView: WKWebView
-    init(page: ProjectPage) { webView = page.view }
-    init(compiler: CompilerPage) { webView = compiler.view }
-    // SwiftUI owns each holder. Moving the same WebKit session from staging into
-    // the visible page cannot make the old representable tear down the new holder.
-    func makeUIView(context: Context) -> UIView { UIView() }
-    func updateUIView(_ holder: UIView, context: Context) {
-        guard webView.superview !== holder else { return }
-        webView.frame = holder.bounds
-        webView.autoresizingMask = [.flexibleWidth,.flexibleHeight]
-        holder.addSubview(webView)
     }
 }

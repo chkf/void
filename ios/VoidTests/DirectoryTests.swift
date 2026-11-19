@@ -438,7 +438,7 @@ final class DirectoryTests: XCTestCase {
             try await Task.sleep(for:.milliseconds(100))
         }
         let stages = DirectoryJournal.shared.recent().filter { $0.request == trace.id }.map(\.stage)
-        let expected = ["page.sdkMethod","page.nativeCommitReceived","page.contentReady","preview.verifyPage","preview.displayPage","page.firstFrame","preview.saveBuild"]
+        let expected = ["page.sdkMethod","page.nativeCommitReceived","page.contentReady","preview.verifyPage","preview.displayPage","page.surfaceAttached","page.firstFrame","preview.saveBuild"]
         XCTAssertEqual(stages.filter { expected.contains($0) },expected)
         XCTAssertTrue(host.page?.displayed == true)
         XCTAssertEqual(host.page?.revision,2)

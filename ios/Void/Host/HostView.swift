@@ -27,6 +27,7 @@ struct HostView: View {
         ZStack {
             if let record = model.current {
                 ZStack {
+                    Color(uiColor:.systemBackground)
                     switch model.screen {
                     case .overview:
                         NavigationStack {
@@ -80,21 +81,21 @@ struct HostView: View {
                             ContentUnavailableView("项目未能打开", systemImage: "folder.badge.questionmark", description: Text(verbatim: problem))
                         } else { ProgressView("正在打开" + record.name) }
                     }
-                    if let page = model.presentingPage ?? model.page {
-                        RunningPage(page:page).id(page.id).background(Color(uiColor:.systemBackground))
+                    ForEach(mountedPages, id:\.id) { page in
+                        let visible = page === (model.presentingPage ?? model.page)
+                        RunningPage(page:page, visible:visible)
+                            .background(Color(uiColor:.systemBackground))
+                            .zIndex(visible ? 1 : -1)
+                            .allowsHitTesting(visible)
+                            .accessibilityHidden(!visible)
                     }
                 }
                 .background {
-                    // Keep the staging web view attached to the foreground window while its worker
-                    // or first native render is running. The native page covers the staging surface.
-                    Group {
-                        if let compiler = model.compiler { ProjectSurface(compiler:compiler).id(ObjectIdentifier(compiler)) }
-                        else if let candidate = model.candidate, candidate !== model.presentingPage, candidate !== model.page {
-                            ProjectSurface(page:candidate).id(candidate.id)
-                        }
+                    if let compiler = model.compiler {
+                        ProjectSurface(compiler:compiler).id(ObjectIdentifier(compiler))
+                            .frame(width:4,height:4).overlay(Color(uiColor:.systemBackground))
+                            .clipped().allowsHitTesting(false).accessibilityHidden(true)
                     }
-                    .frame(width:4,height:4).overlay(Color(uiColor:.systemBackground))
-                    .clipped().allowsHitTesting(false).accessibilityHidden(true)
                 }
                 .safeAreaInset(edge: .bottom) {
                     VStack(alignment:.leading,spacing:4) {
@@ -227,6 +228,15 @@ struct HostView: View {
         } message: { Text(verbatim: model.notice ?? "") }
     }
 
+    // Keep one SwiftUI identity and one WebKit surface while a candidate is
+    // prepared, displayed, and finally recorded as the current page.
+    private var mountedPages: [ProjectPage] {
+        var pages = [ProjectPage]()
+        if let current = model.page { pages.append(current) }
+        if let next = model.candidate, next !== model.page { pages.append(next) }
+        return pages
+    }
+
     private func begin(_ purpose: FolderPurpose, afterSheet: Bool = false) {
         _ = folders.begin(purpose,origin:model.current?.id,afterSheet:afterSheet)
         if afterSheet { panel = nil }
@@ -237,19 +247,19 @@ struct HostView: View {
 struct RunningPage: View {
     @ObservedObject var page: ProjectPage
     @ObservedObject private var sdk: SDKSession
-    init(page: ProjectPage) { self.page = page; self.sdk = page.sdk }
+    let visible: Bool
+    init(page: ProjectPage, visible: Bool) { self.page = page; self.sdk = page.sdk; self.visible = visible }
     var body: some View {
         VStack(spacing: 0) {
             NativeMediaPreview(sdk: page.sdk)
             content
         }
-        .background { PageDisplayProbe(page:page).allowsHitTesting(false).accessibilityHidden(true) }
     }
     @ViewBuilder private var content: some View {
-        if page.product.mode == .web { ProjectSurface(page: page) }
+        if page.product.mode == .web { ProjectSurface(page:page, visible:visible) }
         else {
             VStack(spacing: 0) {
-                ProjectSurface(page: page).frame(height:max(1,sdk.canvasHeight))
+                ProjectSurface(page:page, visible:visible).frame(height:max(1,sdk.canvasHeight))
                     .clipped().allowsHitTesting(sdk.canvasHeight > 0).accessibilityHidden(sdk.canvasHeight == 0)
                 VStack(alignment: .leading) {
                     ForEach(page.nodes) { NativeNodeView(node:$0,revision:page.revision,page:page) }
