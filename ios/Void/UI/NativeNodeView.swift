@@ -31,6 +31,8 @@ struct NativeNodeView: View {
         page.event(node.id, name: "onChange", value: value, displayedRevision: revision)
     }
 
+    private func points(_ key: String) -> CGFloat? { node.number(key).map { CGFloat($0) } }
+
     @ViewBuilder var body: some View {
         switch node.type {
         case "TabView":
@@ -59,9 +61,9 @@ struct NativeNodeView: View {
                         shape.strokeBorder(border, lineWidth: node.number("borderWidth") ?? 1).allowsHitTesting(false)
                     }
                 }
-        case "Spacer": Spacer(minLength: node.number("minLength"))
-        case "VStack": VStack(alignment: horizontal, spacing: node.number("spacing")) { children }
-        case "HStack": HStack(alignment: vertical, spacing: node.number("spacing")) { children }
+        case "Spacer": Spacer(minLength: points("minLength"))
+        case "VStack": VStack(alignment: horizontal, spacing: points("spacing")) { children }
+        case "HStack": HStack(alignment: vertical, spacing: points("spacing")) { children }
         case "Form", "List": collection
         case "Section": Section(node.text("title")) { children }
         case "Text": NativeText(node: node)
@@ -156,6 +158,7 @@ private struct NativeButton: View {
                 Text(verbatim: node.text("label"))
             }
             .frame(minWidth: 44, maxWidth: node.bool("fullWidth") ? .infinity : nil, minHeight: 44)
+            .foregroundColor(node.text("variant") == "primary" ? palette.color(.onAccent) : nil)
             .contentShape(Rectangle())
         }.disabled(node.bool("disabled"))
     }

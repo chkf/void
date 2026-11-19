@@ -5,7 +5,7 @@
 | 协议方法 | 参数 | 效果 |
 | --- | --- | --- |
 | system.info | 空对象 | 返回 UIDevice 的 name、version 和 model 对应的系统信息 |
-| ui.commit | revision、eventSequence、nodes | 校验并提交 SwiftUI 控件树 |
+| ui.commit | uiVersion、revision、eventSequence、nodes | 在后台校验整帧后原子提交 SwiftUI 控件树。uiVersion 省略时为 1，版本 2 开放受限样式和原生标签。 |
 | runtime.ready | 空对象 | 通知宿主 Web 入口已加载 |
 | runtime.error | message | 将页面错误通知宿主管理界面 |
 | sdk.cancel | id | 取消本页面对应的在途请求 |

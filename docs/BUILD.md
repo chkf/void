@@ -7,6 +7,9 @@ GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.
 | void-unsigned-iphone | 解压后包含 void-unsigned.ipa，内含 arm64 Release 应用。安装到 iPhone 需要有效签名和配置描述文件。 |
 | void-simulator | 解压内层 ZIP 后可用 `xcrun simctl install booted VoidHost.app` 安装到兼容的 iPhone 模拟器。 |
 | void-tests | 解压后用 Xcode 打开 xcresult，查看各用例、失败截图及运行设备。 |
+| void-native-ui-compact、void-native-ui-ipad | 独立模拟器的原生导航测试报告与导出的截图附件，含深浅色、横屏和辅助功能字号。 |
+
+构建 11 的设备包覆盖 iPhone 与 iPad。下载同一提交工作流中的 `void-unsigned-iphone`，解压取得 `void-unsigned.ipa`。该包内附 `Toolchain/NativeUIDemo`。独立模拟器可用 `VOID_LAYOUT_PROFILE=compact bash scripts/ios-build.sh native-layout` 或 `VOID_LAYOUT_PROFILE=ipad bash scripts/ios-build.sh native-layout` 重现原生导航验收。[组件契约与独立示例](NATIVE_UI.md)
 
 向仓库推送 `v` 开头的版本标签会触发发布。发布任务核对 arm64 安装包和 GitHub 附件的 SHA-256。稳定版还需通过模拟器测试。`-dev.` 开发包在发布页注明同一提交的模拟器结果，便于原位验证真机问题。[版本下载](https://github.com/chkf/void/releases)
 

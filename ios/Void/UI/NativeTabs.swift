@@ -109,8 +109,13 @@ struct NativeTabs: UIViewControllerRepresentable {
 
         func tabBarController(_ tabBarController: UITabBarController, didSelect viewController: UIViewController) {
             guard let page, let id = pages.first(where: { $0.value === viewController })?.key, id != selection else { return }
+            let sequence = page.event(nodeID, name: "onChange", value: id, displayedRevision: revision)
+            guard sequence > 0 else {
+                if let current = pages[selection] { tabBarController.selectedViewController = current }
+                return
+            }
             selection = id
-            pendingSequence = page.event(nodeID, name: "onChange", value: id, displayedRevision: revision)
+            pendingSequence = sequence
         }
     }
 }

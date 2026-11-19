@@ -13,10 +13,13 @@ export const Card = "Card", Spacer = "Spacer", ProgressView = "ProgressView";
 // an application inserts or reorders tabs without an explicit React key.
 export function TabView({ children, ...props }) {
   const tabs = [];
+  const ids = new Set();
   function collect(child) {
     if (child == null) return;
     if (isValidElement(child) && child.type === Fragment) return Children.forEach(child.props.children, collect);
     if (!isValidElement(child) || child.type !== Tab) throw Error("TabView 的直接子项必须是 Tab");
+    if (typeof child.props.id !== "string" || ids.has(child.props.id)) throw Error("Tab.id 必须是唯一的字符串");
+    ids.add(child.props.id);
     tabs.push(cloneElement(child, { key: child.props.id }));
   }
   Children.forEach(children, collect);

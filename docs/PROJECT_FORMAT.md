@@ -16,4 +16,6 @@ SwiftUI 项目只需清单和 Swift 源码。每个 IPA 编译一套项目视图
 
 React/TSX 模板在 `app/package.json` 中锁定 React 18.3.1、@runtime/ui 1.0.0 和 @runtime/sdk 1.1.0，随项目提供完整类型和离线接口参考。现有 HTML 项目至少包含 `app/manifest.json` 与一个有效的 HTML 入口。[TSX 模板](../ios/TSXProject) · [SDK 参考](SDK_REFERENCE.md)
 
+使用项目标签栏和主题的 TSX 源码须把 `@runtime/ui` 精确声明为 `1.1.0`。目录格式仍为 1。[组件属性与示例](NATIVE_UI.md)
+
 `app/` 存源码，`assets/` 存资源，`modules/` 存本地模块。私有登记、已运行的产物、共享数据与日志分别按[文件边界](FILESYSTEM.md)处理。

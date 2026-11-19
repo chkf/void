@@ -37,7 +37,10 @@ for (const name of ["ui", "sdk"]) {
 types["/contracts/ui-1.0.d.ts"] = await readFile(join(root, "runtime/ui-1.0.d.ts"), "utf8");
 await copyFile(join(root, "runtime/ui.d.ts"), join(output, "ui.d.ts"));
 await cp(join(root, "examples/native-ui"), join(output, "NativeUIDemo"), { recursive: true });
-await copyFile(join(root, "docs/NATIVE_UI.md"), join(output, "native-ui.md"));
+await copyFile(join(root, "runtime/ui-1.0.d.ts"), join(output, "ui-1.0.d.ts"));
+const uiReference = (await readFile(join(root, "docs/NATIVE_UI.md"), "utf8"))
+  .replaceAll("../runtime/", "").replaceAll("../examples/native-ui", "NativeUIDemo");
+await writeFile(join(output, "native-ui.md"), uiReference);
 await writeFile(join(output, "types.json"), JSON.stringify(types));
 await writeFile(join(output, "versions.json"), JSON.stringify(versions));
 for (const [entry, name] of [["libraries.js", "libraries.js"], ["browser-compiler.mjs", "compiler.js"]]) {

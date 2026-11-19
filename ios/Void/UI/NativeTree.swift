@@ -118,6 +118,9 @@ struct NativeCommit {
     }
 
     init(message: [String: Any]) throws {
+        guard message.keys.allSatisfy({ ["uiVersion", "revision", "eventSequence", "nodes"].contains($0) }) else {
+            throw RuntimeIssue("原生界面提交含未知字段")
+        }
         uiVersion = try message["uiVersion"].map { try Self.counter($0, minimum: 1) } ?? 1
         guard uiVersion == 1 || uiVersion == 2 else { throw RuntimeIssue("不支持原生界面协议 \(uiVersion)，请使用匹配的 void 宿主") }
         revision = try Self.counter(message["revision"], minimum: 1)
@@ -197,7 +200,7 @@ private struct TreeDecoder {
         try consume(rows.count)
         return try rows.map { raw in
             try Task.checkCancellation()
-            guard depth <= 128, let row = raw as? [String: Any], let type = row["type"] as? String,
+            guard depth <= 128, let row = raw as? [String: Any], row.count == 4, let type = row["type"] as? String,
                   let rule = NodeRule.all[type], rule.since <= version else { throw RuntimeIssue("原生控件类型或深度超出协议 \(version) 支持范围") }
             guard let props = row["props"] as? [String: Any], let children = row["children"] as? [Any],
                   rule.container || children.isEmpty else { throw RuntimeIssue("\(type) 属性或子内容无效") }

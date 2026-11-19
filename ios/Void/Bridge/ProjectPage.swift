@@ -264,7 +264,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
         let displayed = displayedRevision ?? revision
         guard valid, tree?.actions[id]?.accepts(name, value) == true,
               displayed == revision || (displayed == priorRevision && priorActions[id]?.accepts(name, value) == true)
-        else { return eventSequence }
+        else { return 0 }
         eventSequence += 1
         let event: [String: Any] = ["id":id,"name":name,"value":value,"sequence":eventSequence,"revision":displayed]
         view.callAsyncJavaScript("window.__voidEvent(event)", arguments: ["event": event], in: nil, in: .page) { [weak self] result in
