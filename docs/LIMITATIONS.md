@@ -1,5 +1,33 @@
 # 验证范围
 
+## 构建 11 的 TSX 原生导航与样式
+
+功能分支 `feat/native-ui-1.1` 基于 dev.10 的 `0d1ef30`。构建提交为 `18dc0ae3eef54f80fde1a524594ccba7e3cf70ce`。Xcode 27.2 生成的 arm64 包使用 `app.chkf.void`、构建号 11、最低 iOS 17.0，设备族包含 iPhone 和 iPad。安装包共 6,215,585 字节，SHA-256 为 `938c0ff880be1264e54fffec0dfa5e2a962922fdb5664f60a27bb7e0d9584d1c`。下载同一份 Actions 附件还可取得独立的 `native-ui-example.zip`。原位安装需要沿用原签名团队、实际 Bundle ID 与对应授权配置。[构建附件](https://github.com/chkf/void/actions/runs/44515969381/artifacts/14527390642) · [签名与安装](BUILD.md) · [与 dev.10 的文件差异](https://github.com/chkf/void/compare/0d1ef306f19ee5f16be548d045fa46bc2fe9039b...18dc0ae3eef54f80fde1a524594ccba7e3cf70ce)
+
+| 实现范围 | 代码入口 |
+| --- | --- |
+| 应用属性与离线构建 | [1.1.0 类型](../runtime/ui.d.ts)、[1.0.0 类型](../runtime/ui-1.0.d.ts)、[React renderer](../runtime/ui.js)、[库注册](../runtime/libraries.js)、[精确版本匹配](../runtime/compiler.mjs)、[IPA 工具链打包](../scripts/prepare-ios.mjs) |
+| Swift 原生界面 | [白名单与资源预算](../ios/Void/UI/NativeTree.swift)、[控件和布局](../ios/Void/UI/NativeNodeView.swift)、[主题与语义色](../ios/Void/UI/NativeAppearance.swift)、[系统标签与页面状态](../ios/Void/UI/NativeTabs.swift) |
+| 宿主协调与兼容 | [项目 WebKit 和事件修订](../ios/Void/Bridge/ProjectPage.swift)、[管理、取消与恢复](../ios/Void/Host/HostView.swift)、[dev.10 已确认产物复用](../ios/Void/Recovery/BuildHistory.swift) |
+
+共享模拟器的多项目回归会等待扫描完成，将目标记录滚入可见区域，必要时关闭遮住末行的结果栏，再实际点击预览。已比较 `90e10d7`、`07361da` 和交付提交的设备 IPA，解包后的 44 项逐字节相同，宿主可执行文件的 SHA-256 均为 `762f661313f2b0b663b5791ea29becab54e4727cb76d9528577910e16cc713a6`。[界面测试改动](https://github.com/chkf/void/compare/90e10d76109ead16c88ac8ee389ded9907fa2dae...18dc0ae3eef54f80fde1a524594ccba7e3cf70ce)
+
+`npm test` 的 14 项测试及 `npm run openspec -- validate --all --strict` 通过。已从正式 dev.10 包取出离线库和类型，与构建 11 对照。旧版 11 个组件和新版 19 个组件的 JS 导出均与各自的 TypeScript 声明吻合。两包的 SDK 方法表、SDK 类型和系统权限用途声明逐项一致。独立 ZIP 的项目文件与新 IPA 内的离线示例逐字节相同。[工具链与设备构建日志](https://github.com/chkf/void/actions/runs/44515969381/job/135531931297) · [属性白名单、默认值和示例](NATIVE_UI.md)
+
+`bash scripts/ios-build.sh release-preview` 在 `18dc0ae` 上通过 15 项原生回归和 1 项真实权限弹窗界面回归。测试项目原先没有权限记录，首次预览时在两个真实弹窗中允许数据库、拒绝文件读取，写入测试记录后冷启动读回，仍保留两项权限选择，全程 89.259 秒。手动重建、坏清单恢复和冷启动组合用例用时 25.513 秒。另有用例核对旧版构建记录字节以及已有 SQLite 的原生首屏。[Release 原目录、首次弹窗与恢复回归](https://github.com/chkf/void/actions/runs/44515969381/job/135531930462)
+
+在 iOS / iPadOS 27.2 上分别运行 `VOID_LAYOUT_PROFILE=compact bash scripts/ios-build.sh native-layout` 和 `VOID_LAYOUT_PROFILE=ipad bash scripts/ios-build.sh native-layout`。对交付提交 `18dc0ae`，iPhone 17e 和 iPad mini 各通过 5 项原生测试、1 项完整界面测试。原生控制器连续发出 21 次选中事件，实际经 WebKit 和 React 往返，最终选中值、页面控制器身份和 WebKit 身份均通过断言。界面用例验证两页和三页切换、禁用按钮、保留输入与滚动位置、长列表、软键盘、横屏恢复、最大辅助功能字号。浅色与深色页面的 XCTest 对比度和元素描述审计均通过，默认语义色另有 4.5:1 数值断言。[iPhone 测试](https://github.com/chkf/void/actions/runs/44515969381/job/135531930908) · [iPad 测试](https://github.com/chkf/void/actions/runs/44515969381/job/135531930818)
+
+每种设备留存 7 张全屏原图，包含浅色、深色、三标签长列表、键盘、最大辅助功能字号，以及横屏的项目与宿主恢复面板。实际 VoiceOver 朗读与手势、iOS 17 设备、已签名的真机覆盖安装仍待验证。[iPhone 截图与 xcresult](https://github.com/chkf/void/actions/runs/44515969381/artifacts/14527916169) · [iPad 截图与 xcresult](https://github.com/chkf/void/actions/runs/44515969381/artifacts/14527452148) · [真机验收步骤](BUILD.md)
+
+常规 iPhone 17 Debug 套件依次运行 `bash scripts/ios-build.sh build-tests`、`bash scripts/ios-build.sh start-simulator`、`VOID_SIMULATOR_FIXTURES=1 VOID_SEPARATE_LOCAL_PICKER=1 bash scripts/ios-build.sh run-tests`。交付提交的首轮有 45/46 项原生测试、6/7 项界面测试通过。手动重建用例在编译阶段超时，随后同一用例报状态转换错误。外部 Files 用例实际点了 Open，XCTest 等待选择器消失超时。这轮通过了目录扫描、选择器取消和中断恢复、旧表单冷启动、真实首次权限选择（49.348 秒）及完整原生导航（111.271 秒）。[Debug 首轮日志](https://github.com/chkf/void/actions/runs/44515969381/job/135531930904) · [首轮 xcresult](https://github.com/chkf/void/actions/runs/44515969381/artifacts/14528851812)
+
+同一提交原样重跑后，仍为 45/46 项原生测试、6/7 项界面测试通过。手动重建再次超时，dev.10 的 Debug 也曾在此阶段超时。外部 Files 的实际导入、预览和重新授权这次通过（104.995 秒）。本机扫描用例在启动宿主时未取得进程 ID，尚未执行扫描。真实首次权限选择和原生导航两轮均通过。[Debug 重跑日志](https://github.com/chkf/void/actions/runs/44515969381/job/135557801774) · [重跑 xcresult](https://github.com/chkf/void/actions/runs/44515969381/artifacts/14533036704) · [dev.10 的 Debug 记录](https://github.com/chkf/void/actions/runs/44463713533/job/135356333924)
+
+较早的 `07361da` 上，Release 手动重建曾在编译阶段超时。该提交的小屏界面测试首轮未在 8 秒内看到第三个标签，重跑则在收起键盘并点另一页后仍看到原输入框。同一提交的常规 iPhone 17 通过了完整导航用例，交付提交的小屏和 iPad 验收结果见上。[Release 首轮](https://github.com/chkf/void/actions/runs/44507629621/job/135503266129) · [iPhone 17e 首轮](https://github.com/chkf/void/actions/runs/44507629621/job/135503266381) · [iPhone 17e 重跑](https://github.com/chkf/void/actions/runs/44507629621/job/135530839785) · [常规 iPhone 17](https://github.com/chkf/void/actions/runs/44507629621/job/135503267022)
+
+独立的 `bash scripts/ios-build.sh local-picker` 用例未通过。系统 Files 没有在本机测试目录同时显示 `app` 与 Open，测试止于系统选择操作。dev.10 正式标签也记录过这一结果。[本轮 Files 记录](https://github.com/chkf/void/actions/runs/44515969381/job/135531930845) · [dev.10 对应记录](https://github.com/chkf/void/actions/runs/44466295745/job/135364768906)
+
 ## v0.1.0-dev.10 首次项目权限弹窗
 
 原 iPhone 的崩溃报告确认，构建 9 在 iOS 27.2.1 上首次询问项目权限时，`SDKSession.require` 经 `SDKPresenter.confirm` 尝试设置系统提示框的呈现代理。UIKit 在主线程触发断言，VoidHost 以 `SIGABRT` 退出。当时另一条线程正在读取项目目录，所以恢复页显示「首屏内容已就绪，正在复核源码」。较早的 SQLite 首屏回归预先授予了数据库权限，跳过了触发闪退的步骤。
