@@ -1,9 +1,10 @@
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum Panel: String, Identifiable {
-    case create, manage, settings, diagnostics
-    var id: String { rawValue }
+private enum Panel: Hashable, Identifiable {
+    case create, manage, settings
+    case diagnostics(UUID?)
+    var id: Self { self }
 }
 
 private struct ObservedFolder: Equatable {
@@ -19,7 +20,6 @@ struct HostView: View {
     init(model: HostModel) { self.model = model; self.folders = model.folders }
     @Environment(\.scenePhase) private var phase
     @State private var panel: Panel?
-    @State private var diagnosticsRequest: UUID?
     @State private var projectName = ""
     @State private var template = ProjectTemplate.swiftUI
 
@@ -90,11 +90,12 @@ struct HostView: View {
                             .accessibilityHidden(!visible)
                     }
                 }
-                .background {
+                .overlay(alignment:.bottomTrailing) {
                     if let compiler = model.compiler {
+                        // A rebuild starts its worker while the previous page is on screen.
+                        // Keep the compiler attached with a visible viewport until it replies.
                         ProjectSurface(compiler:compiler).id(ObjectIdentifier(compiler))
-                            .frame(width:4,height:4).overlay(Color(uiColor:.systemBackground))
-                            .clipped().allowsHitTesting(false).accessibilityHidden(true)
+                            .frame(width:4,height:4).clipped().allowsHitTesting(false).accessibilityHidden(true)
                     }
                 }
                 .safeAreaInset(edge: .bottom) {
@@ -133,7 +134,7 @@ struct HostView: View {
                             Section("上次操作中断") {
                                 Text(verbatim:recoveryMessage).accessibilityIdentifier("preview.interrupted")
                                 if let request = model.interruptedRequestID {
-                                    Button("上次预览诊断") { diagnosticsRequest = request; panel = .diagnostics }
+                                    Button("上次预览诊断") { panel = .diagnostics(request) }
                                         .accessibilityIdentifier("preview.interruptedDetails")
                                 }
                             }
@@ -148,7 +149,7 @@ struct HostView: View {
                                 #endif
                             Button { begin(.local) } label: { Label("扫描本机项目",systemImage:"iphone") }
                                 .accessibilityIdentifier("host.local")
-                            Button { diagnosticsRequest = nil; panel = .diagnostics } label: { Label("目录诊断",systemImage:"list.bullet.rectangle") }
+                            Button { panel = .diagnostics(nil) } label: { Label("目录诊断",systemImage:"list.bullet.rectangle") }
                         }
                         if !model.records.isEmpty {
                             Section("最近项目") { ForEach(model.records) { record in
@@ -216,7 +217,7 @@ struct HostView: View {
                         }.disabled(cleanName.isEmpty)
                     }.navigationTitle("创建项目").toolbar { Button("取消") { panel = nil } }
                 }
-            case .diagnostics: NavigationStack { DirectoryDiagnosticView(request:diagnosticsRequest).toolbar { Button("完成") { panel = nil } } }
+            case .diagnostics(let request): NavigationStack { DirectoryDiagnosticView(request:request).toolbar { Button("完成") { panel = nil } } }
             case .settings: NavigationStack { SettingsView().toolbar { Button("完成") { panel = nil } } }
             case .manage: ManagementView(model:model,close:{ panel = nil },reconnect:{
                 if let id = model.current?.id { begin(.reconnect(id),afterSheet:true) }

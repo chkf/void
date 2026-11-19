@@ -245,7 +245,9 @@ final class FolderPickerTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.staticTexts["preview.interrupted"].waitForExistence(timeout:30),app.debugDescription)
         app.buttons["preview.interruptedDetails"].tap()
-        XCTAssertTrue(app.navigationBars["上次预览诊断"].waitForExistence(timeout:10))
+        XCTAssertTrue(app.navigationBars["上次预览诊断"].waitForExistence(timeout:10),app.debugDescription)
+        let requestLine = app.staticTexts.matching(NSPredicate(format:"label CONTAINS %@", "preview.firstFrame")).firstMatch
+        XCTAssertTrue(requestLine.waitForExistence(timeout:6),app.debugDescription)
         app.buttons["完成"].tap()
         let record = app.buttons["recent." + fixture]
         XCTAssertTrue(record.exists)
