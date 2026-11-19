@@ -138,7 +138,11 @@ struct HostView: View {
                             #endif
                     }
                     }.padding(.horizontal).padding(.vertical, projectTabs ? 0 : 4)
-                        .tint(projectTabs ? Color.primary : nil).background(.bar)
+                        .tint(projectTabs ? Color(uiColor: .label) : nil)
+                        .background {
+                            if projectTabs { Color(uiColor: .systemBackground) }
+                            else { Rectangle().fill(.bar) }
+                        }
                 }
             } else {
                 NavigationStack {
