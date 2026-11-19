@@ -6,6 +6,16 @@
 
 构建 10 通过系统弹窗的「允许」和「不允许」动作接收答复，连续的权限请求等待前一个弹窗关闭。退出项目时取消尚未作答的请求。诊断按预览请求记录权限询问及其结果。原 iPhone 上「健身记录」的预览与训练保存仍待验证。
 
+iOS 27.2 模拟器从 Documents 扫描一个没有授权记录的 TSX 项目，经最近记录预览。界面测试在真实弹窗中允许数据库、拒绝文件读取，收到 `PERMISSION_DENIED`，再从页面写入一条测试记录。冷启动后读回原值，两项权限决定均已保留。Release 用时 91.030 秒，Debug 用时 44.224 秒。另一项 Release 回归在文件协调器占用原目录时关闭待答弹窗，收到了取消结果，随后目录复核完成。[Release 测试](https://github.com/chkf/void/actions/runs/44463713533/job/135356333801) · [Debug 测试](https://github.com/chkf/void/actions/runs/44463713533/job/135356333924)
+
+这轮六项常规界面测试均通过，涵盖外部 Files 导入与重新授权、宿主扫描本机项目、恢复预览和权限选择。组合原生用例在手动重新编译已有页面时超时。单独用系统 Files 进入应用文稿目录的用例也未完成。[常规模拟器](https://github.com/chkf/void/actions/runs/44463713533/job/135356333924) · [独立 Files 模拟器](https://github.com/chkf/void/actions/runs/44463713533/job/135356333636)
+
+正式标签通过全部 10 项 Release 原生回归和 1 项 Release 界面回归。手动重新构建、坏清单恢复及冷启动的组合用例用时 22.892 秒，预置 SQLite 数据的原生首屏用时 8.594 秒，真实弹窗选择与保存后冷启动用时 114.512 秒。[dev.10 标签的 Release 回归](https://github.com/chkf/void/actions/runs/44466295745/job/135364769126)
+
+标签的常规模拟器通过 41 项原生测试及 6 项界面测试中的 5 项。另一项本机扫描界面测试在点扫描前，XCTest 未取得应用进程 ID。同一提交的上一轮通过了这一用例。独立 Files 测试仍未进入应用文稿中的目标文件夹。[标签常规回归](https://github.com/chkf/void/actions/runs/44466295745/job/135364769501) · [标签独立 Files 回归](https://github.com/chkf/void/actions/runs/44466295745/job/135364768906)
+
+已从公开 Release 重新下载 arm64 IPA，文件大小为 6,101,096 字节，SHA-256 与 GitHub 附件摘要一致，为 `e2a22b79f4532aee5e41489ab98842930bf75b9ab74d80d7a4ba089aad01b994`。应用标识为 `app.chkf.void`，构建号为 10，最低系统为 iOS 17.0。可执行文件 UUID 为 `C165F6F6-ED20-32FB-906F-2E344837F290`。已比对构建 9 与 10 的离线工具链及随包模板内容。覆盖安装需要沿用旧版的签名团队和实际应用标识。[公开 IPA](https://github.com/chkf/void/releases/download/v0.1.0-dev.10/void-unsigned.ipa) · [发布记录](https://github.com/chkf/void/actions/runs/44466295745/job/135372019887)
+
 ## v0.1.0-dev.9 恢复页和重新构建
 
 dev.8 候选包的界面测试在「正在等待项目首屏」时结束宿主，再从恢复页点「上次预览诊断」。XCTest 的界面记录显示，按钮打开的是标题为「目录诊断」的总记录页。本版把中断请求编号作为所打开页面的标识，并在界面测试中核对弹出的标题和原请求的首屏阶段。保留旧页面重新编译时，编译器使用一个附着于窗口的小视图，手动构建和冷启动也加入了 Release 回归。[出现问题的模拟器记录](https://github.com/chkf/void/actions/runs/44447162435/job/135301991382)
