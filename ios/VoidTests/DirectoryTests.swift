@@ -347,10 +347,15 @@ final class DirectoryTests: XCTestCase {
         try atomicEditorSave("export const title = '再次预览';","app/src/detail.ts")
         model.refresh()
         let manual = DirectoryTrace("preview-test")
+        // The Mac runner can sample a stalled main thread even when this task cannot resume.
+        let sampleMarker = FileManager.default.temporaryDirectory.appendingPathComponent("void-rebuild-test-pid")
+        try Data(String(ProcessInfo.processInfo.processIdentifier).utf8).write(to:sampleMarker,options:.atomic)
+        defer { try? FileManager.default.removeItem(at:sampleMarker) }
         model.refresh(force:true,trace:manual)
         XCTAssertTrue(model.busy)
         XCTAssertTrue(DirectoryJournal.shared.recent().contains { $0.request == manual.id && $0.stage == "preview.begin" })
         try await wait("手动重新构建") { !model.busy && (model.page?.id != initial.id || model.problem != nil) }
+        try? FileManager.default.removeItem(at:sampleMarker)
         XCTAssertEqual(model.page?.nodes.first?.text("value"),"再次预览",model.problem ?? "")
         let previous = model.page?.id
         try write("{","app/manifest.json")

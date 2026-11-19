@@ -68,6 +68,31 @@ PY
   xcrun simctl terminate "$device" com.apple.DocumentsApp
 }
 
+# Capture only call stacks from the hosted simulator test, outside its main thread.
+sample_slow_rebuild() {
+  local device="$1" container marker pid executable report
+  local end=$((SECONDS + 1200))
+  while (( SECONDS < end )); do
+    container=$(xcrun simctl get_app_container "$device" app.chkf.void data 2>/dev/null) || container=""
+    marker="$container/tmp/void-rebuild-test-pid"
+    if [[ -n "$container" && -f "$marker" ]]; then
+      pid=$(cat "$marker") || return 0
+      [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+      sleep 12
+      [[ -f "$marker" ]] || return 0
+      executable=$(ps -p "$pid" -o comm=) || return 0
+      [[ "$executable" == *"/VoidHost.app/VoidHost" ]] || return 0
+      report="$out/simulator-rebuild.sample"
+      if sample "$pid" 3 5 -file "$report" >/dev/null 2>&1; then
+        echo '重建等待期间的模拟器主线程采样'
+        awk '/Call graph:/{p=1; next} /Binary Images:/{exit} p && /Thread_/ && seen++ {exit} p && n++ < 160 {print}' "$report"
+      fi
+      return 0
+    fi
+    sleep 2
+  done
+}
+
 case "${1:-device}" in
   device)
     xcodebuild "${args[@]}" -configuration Release -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
@@ -105,6 +130,8 @@ case "${1:-device}" in
     bash scripts/ios-build.sh start-simulator
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
+    sample_slow_rebuild "$device" & sample_pid=$!
+    trap 'kill "$sample_pid" 2>/dev/null || true' EXIT
     xcodebuild "${args[@]}" -configuration Release ENABLE_TESTABILITY=YES \
       -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO \
       -only-testing:VoidTests/DirectoryTests/testLocalScanAndRecentSelectionDoNotReadOrStartAProject \
@@ -197,6 +224,8 @@ PY
       touch "$container/tmp/void-sdk-fixtures"
     fi
     result="$out/tests-$(date +%s).xcresult"
+    sample_slow_rebuild "$device" & sample_pid=$!
+    trap 'kill "$sample_pid" 2>/dev/null || true' EXIT
     test_status=0
     if [[ "${VOID_SEPARATE_LOCAL_PICKER:-}" == 1 ]]; then
       args+=(-skip-testing:VoidUITests/FolderPickerTests/testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory)
