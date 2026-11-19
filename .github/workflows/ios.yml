@@ -1,192 +1,120 @@
-name: iOS 原生构建
+name: 核对已测试的构建号 9 并发布
 on:
   push:
-  pull_request:
-  workflow_dispatch:
+    branches: [release/verified-v0.1.0-dev.9.1]
 
 permissions:
   contents: read
+  actions: read
+
+env:
+  GH_REPO: chkf/void
+  TAG: v0.1.0-dev.9.1
+  TAG_SHA: 32e6f0a4d2cbaca5e996f5debf6f4de14c076d8f
+  TEST_SHA: f14e0cf30eec9777923a2bb1ddaec8afe8ee349f
+  TAG_RUN: '44456466314'
+  TEST_RUN: '44457595930'
+  IPA_SHA: 2220a610a7fcc97bf53b3bb926bb4a483eada43df3b44d0dddce36655ffa54a4
 
 jobs:
-  iphone:
-    name: iPhone Release
-    runs-on: xcode-27
-    concurrency:
-      group: ios-${{ github.ref }}-device
-      cancel-in-progress: true
-    timeout-minutes: 35
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
-      VOID_IOS_SDK: '27.2'
+  verify:
+    name: 核对运行结果及每个安装包文件
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.20.0
-          cache: npm
-      - run: npm ci
-      - run: npm run openspec -- validate --all --strict
-      - name: 生成离线工具链并测试 TSX 模板
-        run: npm test
-      - name: 编译及校验 arm64 安装包
+      - name: 验证构建来源与 Xcode 测试结论
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          xcodebuild -version
-          bash scripts/ios-build.sh device
-      - name: 保存未签名的 iPhone 包
-        uses: actions/upload-artifact@v4
-        with:
-          name: void-unsigned-iphone
-          path: .build/ios/void-unsigned.ipa
-          if-no-files-found: error
-
-  preview-release:
-    name: Release 模式下的原目录与 SQLite 首屏
-    runs-on: xcode-27
-    timeout-minutes: 35
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
-      VOID_IOS_SDK: '27.2'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.20.0
-          cache: npm
-      - run: npm ci
-      - run: npm run prepare:ios
-      - run: bash scripts/ios-build.sh release-preview
-
-  local-picker:
-    name: 独立模拟器的本机 Files Open
-    runs-on: xcode-27
-    timeout-minutes: 35
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
-      VOID_IOS_SDK: '27.2'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.20.0
-          cache: npm
-      - run: npm ci
-      - run: npm run prepare:ios
-      - run: bash scripts/ios-build.sh build-tests
-      - run: bash scripts/ios-build.sh start-simulator
-      - run: bash scripts/ios-build.sh local-picker
-      - name: 保存系统选择与首屏结果
-        if: ${{ !cancelled() }}
-        run: |
-          if [[ -d .build/ios/local-picker.xcresult ]]; then
-            ditto -c -k --keepParent .build/ios/local-picker.xcresult .build/ios/local-picker.zip
-          fi
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
-        with:
-          name: void-local-picker-tests
-          path: .build/ios/local-picker.zip
-          if-no-files-found: ignore
-
-  simulator:
-    name: iPhone 模拟器测试
-    runs-on: xcode-27
-    timeout-minutes: 45
-    concurrency:
-      group: ios-${{ github.ref }}-test
-      cancel-in-progress: true
-    env:
-      DEVELOPER_DIR: /Applications/Xcode_27.2.app/Contents/Developer
-      VOID_IOS_SDK: '27.2'
-      VOID_SIMULATOR_FIXTURES: '1'
-      VOID_SEPARATE_LOCAL_PICKER: '1'
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22.20.0
-          cache: npm
-      - run: npm ci
-      - run: npm run prepare:ios
-      - name: 编译模拟器应用与测试
-        run: bash scripts/ios-build.sh build-tests
-      - name: 启动 iPhone 模拟器
-        run: bash scripts/ios-build.sh start-simulator
-      - name: 运行原生单元测试与界面测试
-        run: bash scripts/ios-build.sh run-tests
-      - name: 保存模拟器应用
-        uses: actions/upload-artifact@v4
-        with:
-          name: void-simulator
-          path: .build/ios/void-simulator.zip
-      - name: 保存 Xcode 测试报告
-        if: ${{ !cancelled() }}
-        shell: bash
-        run: |
-          for result in .build/ios/*.xcresult; do
-            if [[ -d "$result" ]]; then ditto -c -k --keepParent "$result" .build/ios/void-tests.zip; fi
+          set -euo pipefail
+          for run in "$TAG_RUN" "$TEST_RUN"; do
+            gh api "repos/$GH_REPO/actions/runs/$run" > "$run.json"
+            gh api "repos/$GH_REPO/actions/runs/$run/jobs?per_page=100" > "jobs-$run.json"
           done
-      - uses: actions/upload-artifact@v4
-        if: ${{ !cancelled() }}
+          python3 - <<'PY'
+          import json, os
+          e = os.environ
+          for role, ref in [('TAG', e['TAG']), ('TEST', 'main')]:
+              run = e[role + '_RUN']
+              metadata = json.load(open(run + '.json'))
+              assert metadata['path'] == '.github/workflows/ios.yml'
+              assert metadata['head_repository']['full_name'] == e['GH_REPO']
+              assert metadata['event'] == 'push' and metadata['status'] == 'completed'
+              assert metadata['head_branch'] == ref and metadata['head_sha'] == e[role + '_SHA']
+              jobs = {j['name']: j['conclusion'] for j in json.load(open('jobs-' + run + '.json'))['jobs']}
+              required = ['iPhone Release', 'iPhone 模拟器测试']
+              if role == 'TEST':
+                  required.append('Release 模式下的原目录与 SQLite 首屏')
+              for job in required:
+                  print(ref, job, jobs.get(job))
+                  assert jobs.get(job) == 'success', job
+              print(ref, '本机系统 Files', jobs['独立模拟器的本机 Files Open'])
+          PY
+      - uses: actions/download-artifact@v4
         with:
-          name: void-tests
-          path: .build/ios/void-tests.zip
-          if-no-files-found: ignore
-
-  release:
-    name: 发布 iPhone 安装包
-    if: >-
-      ${{ !cancelled() && startsWith(github.ref, 'refs/tags/v') && needs.iphone.result == 'success' && needs.preview-release.result == 'success' &&
-          ((needs.simulator.result == 'success' && needs.local-picker.result == 'success') || contains(github.ref_name, '-dev.')) }}
-    needs: [iphone, simulator, preview-release, local-picker]
+          repository: chkf/void
+          github-token: ${{ github.token }}
+          run-id: ${{ env.TAG_RUN }}
+          name: void-unsigned-iphone
+          path: tagged
+      - uses: actions/download-artifact@v4
+        with:
+          repository: chkf/void
+          github-token: ${{ github.token }}
+          run-id: ${{ env.TEST_RUN }}
+          name: void-unsigned-iphone
+          path: tested
+      - name: 比较打包内容
+        run: |
+          set -euo pipefail
+          echo "$IPA_SHA  tagged/void-unsigned.ipa" | sha256sum -c -
+          python3 - <<'PY'
+          import zipfile
+          with zipfile.ZipFile('tagged/void-unsigned.ipa') as tagged, zipfile.ZipFile('tested/void-unsigned.ipa') as tested:
+              names = tagged.namelist()
+              assert len(names) == len(set(names)) == len(tested.namelist())
+              assert set(names) == set(tested.namelist())
+              for name in names:
+                  assert tagged.read(name) == tested.read(name), name
+              print('已逐项核对', len(names), '项安装包内容')
+          PY
+  publish:
+    name: 发布已核对的标签 IPA
+    needs: verify
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
+          repository: chkf/void
+          github-token: ${{ github.token }}
+          run-id: ${{ env.TAG_RUN }}
           name: void-unsigned-iphone
-          path: release
-      - name: 上传已验证的 IPA
-        shell: bash
+      - name: 发布开发预览并核对 GitHub 附件
         env:
           GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          SIMULATOR_RESULT: ${{ needs.simulator.result }}
-          LOCAL_PICKER_RESULT: ${{ needs.local-picker.result }}
         run: |
           set -euo pipefail
-          tag="$GITHUB_REF_NAME"
-          ipa=release/void-unsigned.ipa
-          digest="sha256:$(sha256sum "$ipa" | cut -d' ' -f1)"
-          prerelease=()
-          if [[ "$tag" == *-* ]]; then prerelease=(--prerelease); fi
-          simulator_note='同一提交的 iPhone 模拟器测试已通过。'
-          if [[ "$SIMULATOR_RESULT" != success || "$LOCAL_PICKER_RESULT" != success ]]; then
-            simulator_note='同一提交的模拟器测试尚未全部通过，具体执行结果见下方测试记录。'
+          echo "$IPA_SHA  void-unsigned.ipa" | sha256sum -c -
+          tag_object=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.sha')
+          [[ "$(gh api "repos/$GH_REPO/git/tags/$tag_object" --jq '.object.sha')" == "$TAG_SHA" ]]
+          cat > "$RUNNER_TEMP/void-release.md" <<'NOTES'
+          下载 **void-unsigned.ipa**，沿用已安装 Void 的签名团队和实际 Bundle ID 覆盖安装。支持 iOS 17 及以上。进入「最近项目 → 健身记录 → 预览项目」即可使用原登记。
+
+          原生首屏连续更新合并为首个和最终状态。宿主确认项目页面已显示在窗口后保存构建。遇到中断时，可在「上次预览诊断」查看对应的请求。已取得此前 dev.9 构建号 9 的用户可继续使用原包，包内各项内容相同。
+
+          标签的 40 项原生测试和 5 项界面测试通过。标签的独立 Release 重建用例有过超时。本次用另一轮通过 9 项 Release、40 项原生和 5 项界面测试的构建复核，将两个 iPhone 安装包逐项比对后发布标签原件。系统 Files 直接选择 App 自身目录的独立用例仍未通过。原 iPhone 的退出原因、原项目首屏及训练保存尚待真机验证。
+
+          [标签测试记录](https://github.com/chkf/void/actions/runs/44456466314) · [通过发布与常规模拟器测试的运行](https://github.com/chkf/void/actions/runs/44457595930) · [原位更新说明](https://github.com/chkf/void/blob/main/docs/BUILD.md) · [详细验证结果](https://github.com/chkf/void/blob/main/docs/LIMITATIONS.md)
+          NOTES
+          echo >> "$RUNNER_TEMP/void-release.md"
+          echo "SHA-256 \`$IPA_SHA\`" >> "$RUNNER_TEMP/void-release.md"
+          if ! gh release view "$TAG" --json id >/dev/null 2>&1; then
+            gh release create "$TAG" --verify-tag --draft --prerelease --title "void $TAG · 构建号 9" --notes-file "$RUNNER_TEMP/void-release.md"
           fi
-          notes="$RUNNER_TEMP/void-release.md"
-          cat > "$notes" <<EOF
-          下载下方的 **void-unsigned.ipa**。适用于 iOS 17 及以上的 iPhone，安装前需要使用自己的 Apple 签名。
-
-          沿用原签名团队和已安装版本的实际 Bundle ID 覆盖安装，然后从「最近项目」打开原登记。此版合并连续的原生首屏更新，分别记录网页启动、首次原生调用、内容就绪、源码复核、窗口显示和构建保存。构建资源逐文件保存。恢复页的「上次预览诊断」对应上次中断的请求。
-
-          $simulator_note 原 iPhone 上的系统 Open、原「健身记录」预览和训练保存仍待真机验证。
-
-          [SDK 接口与权限](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/SDK_REFERENCE.md) · [真机签名说明](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/BUILD.md)
-
-          SHA-256：${digest#sha256:}
-
-          [原生构建记录与模拟器测试状态](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)
-          EOF
-          if ! gh release view "$tag" --json id >/dev/null 2>&1; then
-            gh release create "$tag" --verify-tag --draft "${prerelease[@]}" --title "void $tag" --notes-file "$notes"
-          fi
-          api=$(gh release view "$tag" --json apiUrl --jq .apiUrl)
-          asset_digest() {
-            gh api "$api" --jq '.assets[] | select(.name == "void-unsigned.ipa") | .digest'
-          }
-          if [[ -z "$(asset_digest)" ]]; then gh release upload "$tag" "$ipa"; fi
-          [[ "$(asset_digest)" == "$digest" ]]
-          if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft)" == true ]]; then
-            gh release edit "$tag" --draft=false
-          fi
+          api=$(gh release view "$TAG" --json apiUrl --jq '.apiUrl')
+          digest() { gh api "$api" --jq '.assets[] | select(.name == "void-unsigned.ipa") | .digest'; }
+          if [[ -z "$(digest)" ]]; then gh release upload "$TAG" void-unsigned.ipa; fi
+          [[ "$(digest)" == "sha256:$IPA_SHA" ]]
+          if [[ "$(gh release view "$TAG" --json isDraft --jq '.isDraft')" == true ]]; then gh release edit "$TAG" --draft=false; fi
