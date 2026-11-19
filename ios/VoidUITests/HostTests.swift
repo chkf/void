@@ -1,7 +1,27 @@
 import XCTest
 
+extension XCUIApplication {
+    @MainActor func revealScannedProject(_ row: XCUIElement) -> Bool {
+        let status = staticTexts["folder.status"]
+        let found = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", "已找到"), object: status)
+        guard XCTWaiter.wait(for: [found], timeout: 45) == .completed else { return false }
+        let footer = buttons["folder.clear"]
+        guard footer.waitForExistence(timeout: 5) else { return false }
+        // A SwiftUI List can expose an offscreen row before a tap can reach it.
+        // Scan results share this list with the other simulator fixtures.
+        for _ in 0..<8 {
+            if row.exists && row.isHittable {
+                let bounds = row.frame
+                if !bounds.isEmpty && bounds.minY >= frame.minY && bounds.maxY <= footer.frame.minY { return true }
+            }
+            swipeUp()
+        }
+        return false
+    }
+}
+
 final class HostTests: XCTestCase {
-    func testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch() throws {
+    @MainActor func testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch() throws {
         continueAfterFailure = false
         let expected = ProcessInfo.processInfo.environment["VOID_CONSENT_PROJECT"]
         let app = XCUIApplication()
@@ -13,11 +33,13 @@ final class HostTests: XCTestCase {
         app.buttons["host.local"].tap()
         let candidates = app.buttons.matching(NSPredicate(format:"identifier BEGINSWITH %@","recent.Void Consent "))
         let row = expected.map { app.buttons["recent." + $0] } ?? candidates.firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout:45),app.debugDescription)
+        XCTAssertTrue(app.revealScannedProject(row),app.debugDescription)
         if expected == nil { XCTAssertEqual(candidates.count,1,"需要测试脚本准备的独立项目目录") }
         let fixture = String(row.identifier.dropFirst("recent.".count))
         row.tap()
-        app.buttons["project.preview"].tap()
+        let preview = app.buttons["project.preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 15), app.debugDescription)
+        preview.tap()
 
         let database = app.alerts["允许「" + fixture + "」使用项目专属数据库？"]
         XCTAssertTrue(database.waitForExistence(timeout:100),app.debugDescription)

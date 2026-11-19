@@ -50,9 +50,11 @@ final class NativeNavigationTests: XCTestCase {
         let expected = ProcessInfo.processInfo.environment["VOID_NATIVE_UI_PROJECT"]
         let row = expected.map { app.buttons["recent." + $0] } ??
             app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recent.Void Native UI ")).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 45), app.debugDescription)
+        XCTAssertTrue(app.revealScannedProject(row), app.debugDescription)
         row.tap()
-        app.buttons["project.preview"].tap()
+        let preview = app.buttons["project.preview"]
+        XCTAssertTrue(preview.waitForExistence(timeout: 15), app.debugDescription)
+        preview.tap()
 
         // iPadOS exposes a floating tab cell and its nested button with the same title.
         let components = app.buttons["组件"].firstMatch, appearance = app.buttons["外观"].firstMatch, rows = app.buttons["列表"].firstMatch
