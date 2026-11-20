@@ -82,11 +82,12 @@ with_simulator_appearance() (
         if [[ "$request" != "$previous" && "$request" =~ ^[A-Fa-f0-9-]+\ (dark|light)$ ]]; then
           requested_mode=${BASH_REMATCH[1]}
           echo "Applying Simulator appearance $requested_mode"
-          xcrun simctl ui "$device" appearance "$requested_mode"
-          xcrun simctl ui "$device" appearance
-          printf '%s' "$request" > "$runner/tmp/void-test-appearance-applied.tmp"
-          mv "$runner/tmp/void-test-appearance-applied.tmp" "$runner/tmp/void-test-appearance-applied"
-          previous="$request"
+          if xcrun simctl ui "$device" appearance "$requested_mode"; then
+            printf '%s' "$request" > "$runner/tmp/void-test-appearance-applied.tmp"
+            mv "$runner/tmp/void-test-appearance-applied.tmp" "$runner/tmp/void-test-appearance-applied"
+            echo "Applied Simulator appearance $requested_mode"
+            previous="$request"
+          fi
         fi
       fi
       sleep 0.5

@@ -5,16 +5,15 @@ import XCTest
 final class SafeAreaTests: XCTestCase {
     private let dark = [32, 72, 88], light = [200, 232, 224]
 
-    private func systemAppearance(_ mode: String) throws {
+    private func systemAppearance(_ mode: String) async throws {
         let temporary = FileManager.default.temporaryDirectory
         let request = UUID().uuidString + " " + mode
         let applied = temporary.appendingPathComponent("void-test-appearance-applied")
         try Data(request.utf8).write(to: temporary.appendingPathComponent("void-test-appearance"), options: .atomic)
-        let change = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            (try? String(contentsOf: applied, encoding: .utf8)) == request
-        }, object: nil)
-        guard XCTWaiter.wait(for: [change], timeout: 90) == .completed else {
-            throw NSError(domain: "Simulator did not apply " + mode, code: 1)
+        let deadline = ContinuousClock.now + .seconds(90)
+        while (try? String(contentsOf: applied, encoding: .utf8)) != request {
+            guard ContinuousClock.now < deadline else { throw NSError(domain: "Simulator did not apply " + mode, code: 1) }
+            try await Task.sleep(for: .milliseconds(150))
         }
     }
 
@@ -74,11 +73,11 @@ final class SafeAreaTests: XCTestCase {
         }
     }
 
-    func testDarkBackgroundWhileHostDisplaysRecoveryFeedback() throws {
+    func testDarkBackgroundWhileHostDisplaysRecoveryFeedback() async throws {
         executionTimeAllowance = 360
         let device = XCUIDevice.shared, app = XCUIApplication()
         device.orientation = .portrait
-        try systemAppearance("dark")
+        try await systemAppearance("dark")
         try open(app)
         try capture("Dark-Opened", app, above: "Sample screen", rgb: dark)
         let expanded = app.staticTexts["Sample screen"].firstMatch.frame
@@ -131,18 +130,18 @@ final class SafeAreaTests: XCTestCase {
         XCTAssertTrue(app.buttons["host.local"].waitForExistence(timeout: 12))
     }
 
-    func testLightSystemChangesAndScreenWithoutTabsOrTheme() throws {
+    func testLightSystemChangesAndScreenWithoutTabsOrTheme() async throws {
         executionTimeAllowance = 300
         let device = XCUIDevice.shared, app = XCUIApplication()
         device.orientation = .portrait
-        try systemAppearance("light")
+        try await systemAppearance("light")
         try open(app)
         try capture("Light-Opened", app, above: "Sample screen", rgb: light)
-        try systemAppearance("dark")
+        try await systemAppearance("dark")
         try capture("System-Dark", app, above: "Sample screen", rgb: dark)
         app.buttons["Settings"].firstMatch.tap()
         app.buttons["Dark"].tap()
-        try systemAppearance("light")
+        try await systemAppearance("light")
         try capture("Forced-Dark", app, above: "Appearance", rgb: dark)
         app.buttons["Toggle tabs"].tap()
         XCTAssertTrue(app.buttons["Sample"].firstMatch.waitForNonExistence(timeout: 12))
