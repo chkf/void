@@ -19,7 +19,10 @@ extension XCUIApplication {
                 manage.tap()
                 return
             }
-            swipeUp()
+            // In landscape a swipe starting at the screen edge lands on the native tab bar.
+            let start = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
+            let end = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22))
+            start.press(forDuration: 0.05, thenDragTo: end)
         }
         XCTFail("设置中找不到项目管理\n" + debugDescription, file: file, line: line)
     }

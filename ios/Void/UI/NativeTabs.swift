@@ -31,7 +31,12 @@ struct NativeTabs: UIViewControllerRepresentable {
 
         var body: some View {
             VStack(alignment: .leading) {
-                ForEach(tab.children) { NativeNodeView(node: $0, revision: revision, page: page, isPageRoot: tab.children.count == 1) }
+                ForEach(tab.children) {
+                    // iPad's top tab bar owns this space. A nested large-title bar
+                    // re-expands on reselection and moves the visible scroll rows.
+                    NativeNodeView(node: $0, revision: revision, page: page,
+                                   usesPageNavigation: tab.children.count == 1 && UIDevice.current.userInterfaceIdiom == .phone)
+                }
                 if page.legacyManagementContainerID == tab.id { ProjectManagementButton() }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)

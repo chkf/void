@@ -4,7 +4,7 @@ struct NativeNodeView: View {
     let node: NativeNode
     let revision: Int
     let page: ProjectPage
-    var isPageRoot = false
+    var usesPageNavigation = false
     var tabEdges: Edge.Set = .bottom
     @Environment(\.nativePalette) private var palette
 
@@ -92,7 +92,7 @@ struct NativeNodeView: View {
     }
 
     @ViewBuilder private var screen: some View {
-        if isPageRoot, node.children.count == 1, let scroller = node.children.first,
+        if usesPageNavigation, node.children.count == 1, let scroller = node.children.first,
            ["ScrollView", "List", "Form"].contains(scroller.type) {
             let title = node.text("title")
             NavigationStack {

@@ -96,7 +96,7 @@ struct NativeProjectTree<Header: View>: View {
     private func content(_ rows: [NativeNode]) -> some View {
         VStack(alignment: .leading) {
             ForEach(rows) {
-                NativeNodeView(node: $0, revision: revision, page: page, isPageRoot: rows.count == 1, tabEdges: tabEdges)
+                NativeNodeView(node: $0, revision: revision, page: page, usesPageNavigation: rows.count == 1, tabEdges: tabEdges)
             }
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }

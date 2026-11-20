@@ -87,9 +87,10 @@ final class NativeScrollViewportTests: XCTestCase {
         let moved = try capture("Scrolled")
         XCTAssertGreaterThan(scroll.contentOffset.y, rest.y + 12)
         if titled {
-            XCTAssertTrue(descendants(window).compactMap { $0 as? UINavigationBar }.contains {
+            let hasTitleBar = descendants(window).compactMap { $0 as? UINavigationBar }.contains {
                 !$0.isHidden && $0.topItem?.title == "Sample screen"
-            })
+            }
+            XCTAssertEqual(hasTitleBar, phone || !tabs)
         } else if phone {
             try expect(moved, at: statusEdge, rgb: [80, 144, 144])
             // The platform blends the passing header near the clock. Its green channel

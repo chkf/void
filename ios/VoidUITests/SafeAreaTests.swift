@@ -145,7 +145,7 @@ final class SafeAreaTests: XCTestCase {
         try systemAppearance("light")
         try capture("Forced-Dark", app, above: "Appearance", rgb: dark)
         app.buttons["Toggle tabs"].tap()
-        XCTAssertFalse(app.buttons["Sample"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["Sample"].firstMatch.waitForNonExistence(timeout: 12))
         try capture("Dark-NoTabs", app, above: "Appearance", rgb: dark)
         app.buttons["Toggle theme"].tap()
         try capture("System-NoTheme-NoTabs", app, above: "Appearance", rgb: [255, 255, 255])
