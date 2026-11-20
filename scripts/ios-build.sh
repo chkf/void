@@ -43,7 +43,7 @@ import json, pathlib, shutil, sys, uuid
 token = str(uuid.uuid4())
 name = "Void Native UI " + token[:8]
 root = pathlib.Path(sys.argv[1]) / "Documents" / name
-shutil.copytree("examples/native-ui", root)
+shutil.copytree("tests/fixtures/safe-area", root)
 (root / "runtime.json").write_text(json.dumps({"formatVersion": 1, "id": token}))
 manifest = root / "app/manifest.json"
 value = json.loads(manifest.read_bytes())
@@ -285,10 +285,11 @@ PY
     device=$(choose_simulator)
     xcrun simctl bootstatus "$device" -b
     bash scripts/ios-build.sh build-tests
+    xcrun simctl ui "$device" appearance dark
     prepare_native_ui_test "$device"
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
-      -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidTests/NativeTabEventTests \
-      -only-testing:VoidUITests/NativeNavigationTests \
+      -parallel-testing-enabled NO -only-testing:VoidTests/LegacySafeAreaProbe \
+      -only-testing:VoidUITests/LegacySafeAreaScreen \
       -resultBundlePath "$out/layout.xcresult" test-without-building
     ;;
   run-tests)
@@ -296,6 +297,7 @@ PY
     xcrun simctl bootstatus "$device" -b
     install_picker_fixture "$device"
     prepare_consent_test "$device" Debug
+    xcrun simctl ui "$device" appearance dark
     prepare_native_ui_test "$device"
     if [[ "${VOID_SIMULATOR_FIXTURES:-}" == 1 ]]; then
       container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
