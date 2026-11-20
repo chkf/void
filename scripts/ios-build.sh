@@ -68,7 +68,7 @@ PY
 
 # The UI runner requests a real Simulator appearance change while the same app is visible.
 with_simulator_appearance() (
-  local device="$1" runner="" request="" previous=""
+  local device="$1" runner="" request="" previous="" requested_mode
   shift
   local original
   original=$(xcrun simctl ui "$device" appearance)
@@ -80,8 +80,12 @@ with_simulator_appearance() (
       if [[ -n "$runner" && -s "$runner/tmp/void-test-appearance" ]]; then
         request=$(cat "$runner/tmp/void-test-appearance")
         if [[ "$request" != "$previous" && "$request" =~ ^[A-Fa-f0-9-]+\ (dark|light)$ ]]; then
-          xcrun simctl ui "$device" appearance "${BASH_REMATCH[1]}"
-          printf '%s' "$request" > "$runner/tmp/void-test-appearance-applied"
+          requested_mode=${BASH_REMATCH[1]}
+          echo "Applying Simulator appearance $requested_mode"
+          xcrun simctl ui "$device" appearance "$requested_mode"
+          xcrun simctl ui "$device" appearance
+          printf '%s' "$request" > "$runner/tmp/void-test-appearance-applied.tmp"
+          mv "$runner/tmp/void-test-appearance-applied.tmp" "$runner/tmp/void-test-appearance-applied"
           previous="$request"
         fi
       fi

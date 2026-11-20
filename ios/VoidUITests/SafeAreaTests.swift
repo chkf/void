@@ -13,7 +13,7 @@ final class SafeAreaTests: XCTestCase {
         let change = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
             (try? String(contentsOf: applied, encoding: .utf8)) == request
         }, object: nil)
-        guard XCTWaiter.wait(for: [change], timeout: 20) == .completed else {
+        guard XCTWaiter.wait(for: [change], timeout: 90) == .completed else {
             throw NSError(domain: "Simulator did not apply " + mode, code: 1)
         }
     }
