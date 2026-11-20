@@ -245,7 +245,7 @@ case "${1:-device}" in
     sample_slow_rebuild "$device" & sample_pid=$!
     trap 'kill "$sample_pid" 2>/dev/null || true' EXIT
     with_simulator_appearance "$device" xcodebuild "${preview_args[@]}" \
-      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidUITests/SafeAreaTests \
+      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidTests/NativeScrollViewportTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/HostTests/testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch \
       -only-testing:VoidTests/NativeSDKTests/testClosingFirstConsentCancelsWithoutSavingADecision \
       -only-testing:VoidTests/DirectoryTests/testLocalScanAndRecentSelectionDoNotReadOrStartAProject \
@@ -334,7 +334,7 @@ PY
     prepare_native_ui_test "$device"
     with_simulator_appearance "$device" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidTests/NativeTabEventTests \
-      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidUITests/SafeAreaTests \
+      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidTests/NativeScrollViewportTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/NativeNavigationTests \
       -resultBundlePath "$out/layout.xcresult" test-without-building
     ;;

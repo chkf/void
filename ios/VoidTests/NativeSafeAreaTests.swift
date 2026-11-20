@@ -42,7 +42,7 @@ final class NativeSafeAreaTests: XCTestCase {
             }
             for y in [CGFloat(8), window.bounds.midY] {
                 let point = CGPoint(x: window.bounds.width * 0.24, y: y)
-                let actual = pixel(frame, at: point) ?? []
+                let actual = sampleSRGBPixel(frame, at: point) ?? []
                 XCTAssertTrue(actual.count == 3 && zip(actual, expected).allSatisfy { abs($0.0 - $0.1) <= 8 },
                               "\(point) \(actual), expected \(expected)", file: file, line: line)
             }
@@ -111,7 +111,7 @@ final class NativeSafeAreaTests: XCTestCase {
             guard let page = host.presentingPage ?? host.page, page.view.window === window else { return }
             let frame = renderer.image { _ in window.drawHierarchy(in: window.bounds, afterScreenUpdates: false) }
             // The outgoing host overview can still be on the display at the first callback.
-            guard let body = self.pixel(frame, at: CGPoint(x: window.bounds.width * 0.85, y: window.bounds.midY)),
+            guard let body = sampleSRGBPixel(frame, at: CGPoint(x: window.bounds.width * 0.85, y: window.bounds.midY)),
                   zip(body, rgb).allSatisfy({ abs($0.0 - $0.1) <= 8 }) else { return }
             link?.invalidate()
             let attachment = XCTAttachment(data: frame.pngData()!, uniformTypeIdentifier: "public.png")
@@ -143,7 +143,7 @@ final class NativeSafeAreaTests: XCTestCase {
                 samples += [top - 1, top, max(top, (top + tabY) / 2)].map { CGPoint(x: 8, y: $0) }
             }
             for point in samples {
-                let sample = self.pixel(frame, at: point)
+                let sample = sampleSRGBPixel(frame, at: point)
                 XCTAssertEqual(sample?.count, 3)
                 XCTAssertTrue(zip(sample ?? [], rgb).allSatisfy { abs($0.0 - $0.1) <= 8 },
                               "First displayed \(point) \(String(describing: sample)), content \(body)")
@@ -155,17 +155,17 @@ final class NativeSafeAreaTests: XCTestCase {
         await fulfillment(of: [first], timeout: 110)
         await host.showLibrary()
     }
+}
 
-    private func pixel(_ image: UIImage, at point: CGPoint) -> [Int]? {
-        let rect = CGRect(x: floor(point.x * image.scale), y: floor(point.y * image.scale), width: 1, height: 1)
-        guard let crop = image.cgImage?.cropping(to: rect), let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-        var rgba = [UInt8](repeating: 0, count: 4)
-        let drawn = rgba.withUnsafeMutableBytes { bytes in
-            guard let ctx = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
-                                      bytesPerRow: 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
-            ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
-            return true
-        }
-        return drawn ? rgba.prefix(3).map(Int.init) : nil
+func sampleSRGBPixel(_ image: UIImage, at point: CGPoint) -> [Int]? {
+    let rect = CGRect(x: floor(point.x * image.scale), y: floor(point.y * image.scale), width: 1, height: 1)
+    guard let crop = image.cgImage?.cropping(to: rect), let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+    var rgba = [UInt8](repeating: 0, count: 4)
+    let drawn = rgba.withUnsafeMutableBytes { bytes in
+        guard let ctx = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                                  bytesPerRow: 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+        ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        return true
     }
+    return drawn ? rgba.prefix(3).map(Int.init) : nil
 }

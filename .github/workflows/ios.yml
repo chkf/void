@@ -219,7 +219,7 @@ jobs:
           cat > "$notes" <<EOF
           下载下方的 **void-unsigned.ipa**。适用于 iOS / iPadOS 17 及以上设备，安装前需要使用自己的 Apple 签名。
 
-          本版让原生项目的顶部安全区与宿主预览提示使用可见页面的主题背景。下载 **safe-area-sample.zip**，解压后导入 safe-area，即可独立检查深浅色、滚动、键盘和标签切换。真机待验。[源码提交](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
+          原生标签页可在上滑时从系统状态栏后方经过，回到顶端时首行仍避让时间和摄像头。带 Screen.title 的整页滚动容器使用系统大标题与收起后的导航栏。下载 **safe-area-sample.zip**，解压并导入 safe-area，在 Sample 页上滑，或在 Settings 点 Scroll title 查看自绘标题的滚动。真机待验。[源码提交](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
 
           沿用原签名团队和已安装版本的实际 Bundle ID 覆盖安装，然后从「最近项目」打开原登记。项目可锁定 @runtime/ui 1.1.0 配置系统标签栏和样式，原生 SDK 仍为 1.1.0。
 

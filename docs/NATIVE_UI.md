@@ -42,7 +42,7 @@ render(<App />);
 | TabView | `selection: string`、`onChange(id)` | 作为唯一根节点，或 Theme 的唯一直接子节点。只接受 2～5 个直接 Tab，可用数组、Fragment 和条件组合。 |
 | Tab | `id`、`title`、`systemName` 均为字符串，至少一个内容节点 | id 唯一，selection 必须存在。id 和图标名最多 128 个 UTF-8 字节，标题最多 256 个，均须非空且无控制字符。 |
 | ProjectManagementButton | — | 项目设置中的「项目管理」行，点按后打开宿主面板。支持 UI 1.0.0 和 1.1.0。 |
-| Screen | — | `title` 缺省时只显示内容区。标题使用动态字号并标为辅助功能标题。内容占满可用安全区，容器自身不滚动。 |
+| Screen | — | 页面根 Screen 的唯一直接子节点为 ScrollView、List 或 Form 时，`title` 交给系统导航栏。iPhone 竖屏在顶端展示大标题，上滑时收为居中的小标题。省略 `title` 可由滚动内容自行排版标题。其他布局的标题随动态字号排在内容上方。 |
 | ScrollView | — | 原生纵向滚动，可交互式收起键盘。协议 2 拒绝 ScrollView、Form 和 List 互相嵌套或嵌入自身。 |
 | Card | — | `background` 默认 surface。`border` 默认无边框，指定颜色后 `borderWidth` 默认 1（0～8）。`cornerRadius`、`padding` 均默认 12（0～64）。 |
 | VStack | — | `alignment` 为 leading（默认）、center、trailing。`spacing` 为 0～128，省略使用系统间距。 |

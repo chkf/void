@@ -30,17 +30,23 @@ final class SafeAreaTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Sample screen"].waitForExistence(timeout: 100), app.debugDescription)
     }
 
-    private func capture(_ name: String, _ app: XCUIApplication, above title: String, rgb: [Int],
-                         file: StaticString = #filePath, line: UInt = #line) throws {
-        let heading = app.staticTexts[title].firstMatch
-        XCTAssertTrue(heading.waitForExistence(timeout: 12), file: file, line: line)
-        let frame = heading.frame
+    @discardableResult
+    private func display(_ name: String) -> XCUIScreenshot {
         let display = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: display)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
-        let image = try XCTUnwrap(display.image.cgImage)
+        return display
+    }
+
+    private func capture(_ name: String, _ app: XCUIApplication, above title: String, rgb: [Int],
+                         file: StaticString = #filePath, line: UInt = #line) throws {
+        let heading = app.staticTexts[title].firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 12), file: file, line: line)
+        let frame = heading.frame
+        let screenshot = display(name)
+        let image = try XCTUnwrap(screenshot.image.cgImage)
         let scale = CGFloat(image.width) / app.frame.width
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
         func check(_ x: CGFloat, from y: CGFloat, to end: CGFloat) throws {
@@ -75,6 +81,7 @@ final class SafeAreaTests: XCTestCase {
         try systemAppearance("dark")
         try open(app)
         try capture("Dark-Opened", app, above: "Sample screen", rgb: dark)
+        let expanded = app.staticTexts["Sample screen"].firstMatch.frame
         let input = app.textFields["Draft"]
         input.tap()
         input.typeText("saved")
@@ -84,13 +91,23 @@ final class SafeAreaTests: XCTestCase {
             input.typeText("\n")
         }
         app.scrollViews.firstMatch.swipeUp()
-        try capture("Dark-Scrolled", app, above: "Sample screen", rgb: dark)
+        display("Dark-Scrolled")
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            let inline = app.navigationBars["Sample screen"].staticTexts["Sample screen"].firstMatch
+            XCTAssertTrue(inline.waitForExistence(timeout: 12))
+            XCTAssertEqual(inline.frame.midX, app.frame.midX, accuracy: 10)
+            XCTAssertLessThan(inline.frame.height, expanded.height)
+        }
         app.buttons["Settings"].firstMatch.tap()
         try capture("Dark-SecondTab", app, above: "Appearance", rgb: dark)
         app.buttons["Scroll title"].tap()
         app.buttons["Sample"].firstMatch.tap()
         app.scrollViews.firstMatch.swipeDown()
         try capture("Dark-ScrollHeading", app, above: "Scroll heading", rgb: dark)
+        let finger = app.scrollViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5))
+        finger.press(forDuration: 0.08, thenDragTo: finger.withOffset(CGVector(dx: 0, dy: -32)),
+                     withVelocity: .slow, thenHoldForDuration: 0.7)
+        display("Scroll-Heading-Passing-Status")
         app.buttons["Settings"].firstMatch.tap()
         app.buttons["Scroll title"].tap()
         app.buttons["host.manage"].tap()

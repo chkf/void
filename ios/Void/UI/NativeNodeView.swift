@@ -4,6 +4,8 @@ struct NativeNodeView: View {
     let node: NativeNode
     let revision: Int
     let page: ProjectPage
+    var isPageRoot = false
+    var tabEdges: Edge.Set = .bottom
     @Environment(\.nativePalette) private var palette
 
     @ViewBuilder private var children: some View {
@@ -38,16 +40,8 @@ struct NativeNodeView: View {
         switch node.type {
         case "TabView":
             NativeTabs(node: node, revision: revision, page: page)
-                .ignoresSafeArea(.container, edges: .bottom)
-        case "Screen":
-            VStack(alignment: .leading, spacing: 0) {
-                if !node.text("title").isEmpty {
-                    Text(verbatim: node.text("title")).font(.title.bold()).accessibilityAddTraits(.isHeader)
-                        .padding(.horizontal).padding(.vertical, 6)
-                }
-                VStack(alignment: .leading) { children }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
+                .ignoresSafeArea(.container, edges: tabEdges)
+        case "Screen": screen
         case "ScrollView":
             ScrollView(.vertical) {
                 VStack(alignment: .leading) { children }.frame(maxWidth: .infinity, alignment: .leading)
@@ -94,6 +88,30 @@ struct NativeNodeView: View {
                 if node.props["label"] != nil { Text(verbatim: node.text("label")) }
             }
         default: EmptyView() // Theme and Tab are consumed by their owning containers after validation.
+        }
+    }
+
+    @ViewBuilder private var screen: some View {
+        if isPageRoot, node.children.count == 1, let scroller = node.children.first,
+           ["ScrollView", "List", "Form"].contains(scroller.type) {
+            let title = node.text("title")
+            NavigationStack {
+                NativeNodeView(node: scroller, revision: revision, page: page)
+                    .id(scroller.id)
+                    .background { palette.color(.background).ignoresSafeArea(.container) }
+                    .navigationTitle(Text(verbatim: title))
+                    .navigationBarTitleDisplayMode(.large)
+                    .toolbar(title.isEmpty ? .hidden : .automatic, for: .navigationBar)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 0) {
+                if !node.text("title").isEmpty {
+                    Text(verbatim: node.text("title")).font(.title.bold()).accessibilityAddTraits(.isHeader)
+                        .padding(.horizontal).padding(.vertical, 6)
+                }
+                VStack(alignment: .leading) { children }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            }
         }
     }
 

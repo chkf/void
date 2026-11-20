@@ -70,6 +70,7 @@ struct NativeProjectTree<Header: View>: View {
     let revision: Int
     let page: ProjectPage
     let visible: Bool
+    let tabEdges: Edge.Set
     @ViewBuilder var header: Header
     @Environment(\.colorScheme) private var systemScheme
 
@@ -94,7 +95,9 @@ struct NativeProjectTree<Header: View>: View {
 
     private func content(_ rows: [NativeNode]) -> some View {
         VStack(alignment: .leading) {
-            ForEach(rows) { NativeNodeView(node: $0, revision: revision, page: page) }
+            ForEach(rows) {
+                NativeNodeView(node: $0, revision: revision, page: page, isPageRoot: rows.count == 1, tabEdges: tabEdges)
+            }
         }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
