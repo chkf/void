@@ -57,10 +57,19 @@ final class NativeSafeAreaTests: XCTestCase {
             describe("Tabs", tab?.viewIfLoaded)
             describe("Selected", tab?.selectedViewController?.viewIfLoaded)
             describe("WebKit", page.view)
-            let status = self.pixel(frame, at: CGPoint(x: window.bounds.width * 0.24, y: 8))
-            XCTAssertEqual(status?.count, 3)
-            XCTAssertTrue(zip(status ?? [], rgb).allSatisfy { abs($0.0 - $0.1) <= 8 },
-                          "First displayed status \(String(describing: status)), content \(body)")
+            var samples = [CGPoint(x: window.bounds.width * 0.24, y: 8)]
+            if window.traitCollection.userInterfaceIdiom == .phone,
+               let tabView = tab?.viewIfLoaded {
+                let top = window.safeAreaInsets.top
+                let tabY = tabView.convert(tabView.bounds, to: window).minY
+                samples += [top - 1, top, max(top, (top + tabY) / 2)].map { CGPoint(x: 8, y: $0) }
+            }
+            for point in samples {
+                let sample = self.pixel(frame, at: point)
+                XCTAssertEqual(sample?.count, 3)
+                XCTAssertTrue(zip(sample ?? [], rgb).allSatisfy { abs($0.0 - $0.1) <= 8 },
+                              "First displayed \(point) \(String(describing: sample)), content \(body)")
+            }
             first.fulfill()
         }
         link.add(to: .main, forMode: .common)

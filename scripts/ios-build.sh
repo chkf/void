@@ -35,8 +35,8 @@ print(udid)' "$(xcrun --sdk iphonesimulator --show-sdk-version)" "${VOID_IOS_SDK
 }
 
 prepare_native_ui_test() {
-  local device="$1" container
-  xcrun simctl install "$device" "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app"
+  local device="$1" configuration="${2:-Debug}" container
+  xcrun simctl install "$device" "$out/DerivedData/Build/Products/${configuration}-iphonesimulator/VoidHost.app"
   container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
   TEST_RUNNER_VOID_NATIVE_UI_PROJECT=$(python3 - "$container" <<'PY'
 import json, pathlib, shutil, sys, uuid
@@ -65,6 +65,32 @@ PY
   export TEST_RUNNER_VOID_NATIVE_UI_PROJECT
   export TEST_RUNNER_VOID_SAFE_AREA_PROJECT="Void Safe Area ${TEST_RUNNER_VOID_NATIVE_UI_PROJECT##* }"
 }
+
+# The UI runner requests a real Simulator appearance change while the same app is visible.
+with_simulator_appearance() (
+  local device="$1" runner="" request="" previous=""
+  shift
+  local original
+  original=$(xcrun simctl ui "$device" appearance)
+  (
+    while true; do
+      if [[ -z "$runner" || ! -d "$runner" ]]; then
+        runner=$(xcrun simctl get_app_container "$device" app.chkf.void.uitests.xctrunner data 2>/dev/null) || runner=""
+      fi
+      if [[ -n "$runner" && -s "$runner/tmp/void-test-appearance" ]]; then
+        request=$(cat "$runner/tmp/void-test-appearance")
+        if [[ "$request" != "$previous" && "$request" =~ ^[A-Fa-f0-9-]+\ (dark|light)$ ]]; then
+          xcrun simctl ui "$device" appearance "${BASH_REMATCH[1]}"
+          printf '%s' "$request" > "$runner/tmp/void-test-appearance-applied"
+          previous="$request"
+        fi
+      fi
+      sleep 0.5
+    done
+  ) & local watcher=$!
+  trap 'kill "$watcher" 2>/dev/null || true; xcrun simctl ui "$device" appearance "${original##* }" || true' EXIT
+  "$@"
+)
 
 # Seed a user folder in the dedicated simulator's local Files provider. The host
 # app still needs a real pick and security scope to read any of these files.
@@ -190,6 +216,8 @@ case "${1:-device}" in
     unzip -tq "$out/void-unsigned.ipa"
     ditto -c -k --norsrc --keepParent examples/native-ui "$out/native-ui-example.zip"
     unzip -tq "$out/native-ui-example.zip"
+    ditto -c -k --norsrc --keepParent tests/fixtures/safe-area "$out/safe-area-sample.zip"
+    unzip -tq "$out/safe-area-sample.zip"
     ;;
   start-simulator)
     device=$(choose_simulator)
@@ -209,9 +237,11 @@ case "${1:-device}" in
     preview_args=("${args[@]}" -configuration Release ENABLE_TESTABILITY=YES -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO)
     xcodebuild "${preview_args[@]}" build-for-testing
     prepare_consent_test "$device" Release
+    prepare_native_ui_test "$device" Release
     sample_slow_rebuild "$device" & sample_pid=$!
     trap 'kill "$sample_pid" 2>/dev/null || true' EXIT
-    xcodebuild "${preview_args[@]}" \
+    with_simulator_appearance "$device" xcodebuild "${preview_args[@]}" \
+      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/HostTests/testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch \
       -only-testing:VoidTests/NativeSDKTests/testClosingFirstConsentCancelsWithoutSavingADecision \
       -only-testing:VoidTests/DirectoryTests/testLocalScanAndRecentSelectionDoNotReadOrStartAProject \
@@ -298,7 +328,7 @@ PY
     xcrun simctl bootstatus "$device" -b
     bash scripts/ios-build.sh build-tests
     prepare_native_ui_test "$device"
-    xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+    with_simulator_appearance "$device" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidTests/NativeTabEventTests \
       -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/NativeNavigationTests \
@@ -325,7 +355,7 @@ PY
     if [[ "${VOID_SEPARATE_LOCAL_PICKER:-}" == 1 ]]; then
       args+=(-skip-testing:VoidUITests/FolderPickerTests/testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory)
     fi
-    xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+    with_simulator_appearance "$device" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
       -resultBundlePath "$result" test-without-building || test_status=$?
     if [[ "${CI:-}" == true ]] && container=$(xcrun simctl get_app_container "$device" app.chkf.void data); then

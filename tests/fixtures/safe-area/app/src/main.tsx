@@ -6,6 +6,7 @@ function Sample() {
   const [alternate, setAlternate] = useState(false);
   const [themed, setThemed] = useState(true);
   const [tabs, setTabs] = useState(true);
+  const [scrollTitle, setScrollTitle] = useState(false);
   const [selected, select] = useState("sample");
   const [draft, edit] = useState("");
   const settings = <Screen title="Appearance"><ScrollView>
@@ -15,11 +16,13 @@ function Sample() {
     <Button label="Change palette" onPress={() => setAlternate(value => !value)} />
     <Button label="Toggle tabs" onPress={() => setTabs(value => !value)} />
     <Button label="Toggle theme" onPress={() => setThemed(value => !value)} />
+    <Button label="Scroll title" onPress={() => setScrollTitle(value => !value)} />
     <ProjectManagementButton />
   </ScrollView></Screen>;
   const content = tabs ? <TabView selection={selected} onChange={select}>
     <Tab id="sample" title="Sample" systemName="square">
-      <Screen title="Sample screen"><ScrollView>
+      <Screen title={scrollTitle ? undefined : "Sample screen"}><ScrollView>
+        {scrollTitle && <Text value="Scroll heading" font="title" />}
         <TextField label="Draft" value={draft} onChange={edit} />
         {Array.from({ length: 48 }, (_, i) => <Text key={i} value={"Row " + i} />)}
       </ScrollView></Screen>

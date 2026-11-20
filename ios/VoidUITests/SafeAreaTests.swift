@@ -5,6 +5,19 @@ import XCTest
 final class SafeAreaTests: XCTestCase {
     private let dark = [32, 72, 88], light = [200, 232, 224]
 
+    private func systemAppearance(_ mode: String) throws {
+        let temporary = FileManager.default.temporaryDirectory
+        let request = UUID().uuidString + " " + mode
+        let applied = temporary.appendingPathComponent("void-test-appearance-applied")
+        try Data(request.utf8).write(to: temporary.appendingPathComponent("void-test-appearance"), options: .atomic)
+        let change = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            (try? String(contentsOf: applied, encoding: .utf8)) == request
+        }, object: nil)
+        guard XCTWaiter.wait(for: [change], timeout: 20) == .completed else {
+            throw NSError(domain: "Simulator did not apply " + mode, code: 1)
+        }
+    }
+
     private func open(_ app: XCUIApplication) throws {
         app.launchArguments = ["-void.openProjectListOnLaunch", "YES"]
         app.launch()
@@ -58,10 +71,8 @@ final class SafeAreaTests: XCTestCase {
     func testDarkBackgroundWhileHostDisplaysRecoveryFeedback() throws {
         executionTimeAllowance = 360
         let device = XCUIDevice.shared, app = XCUIApplication()
-        let previous = device.appearance
         device.orientation = .portrait
-        device.appearance = .dark
-        defer { device.appearance = previous }
+        try systemAppearance("dark")
         try open(app)
         try capture("Dark-Opened", app, above: "Sample screen", rgb: dark)
         let input = app.textFields["Draft"]
@@ -76,6 +87,12 @@ final class SafeAreaTests: XCTestCase {
         try capture("Dark-Scrolled", app, above: "Sample screen", rgb: dark)
         app.buttons["Settings"].firstMatch.tap()
         try capture("Dark-SecondTab", app, above: "Appearance", rgb: dark)
+        app.buttons["Scroll title"].tap()
+        app.buttons["Sample"].firstMatch.tap()
+        app.scrollViews.firstMatch.swipeDown()
+        try capture("Dark-ScrollHeading", app, above: "Scroll heading", rgb: dark)
+        app.buttons["Settings"].firstMatch.tap()
+        app.buttons["Scroll title"].tap()
         app.buttons["host.manage"].tap()
         app.buttons["host.recovery"].tap()
         app.buttons["host.restore"].tap()
@@ -100,17 +117,15 @@ final class SafeAreaTests: XCTestCase {
     func testLightSystemChangesAndScreenWithoutTabsOrTheme() throws {
         executionTimeAllowance = 300
         let device = XCUIDevice.shared, app = XCUIApplication()
-        let previous = device.appearance
         device.orientation = .portrait
-        device.appearance = .light
-        defer { device.appearance = previous }
+        try systemAppearance("light")
         try open(app)
         try capture("Light-Opened", app, above: "Sample screen", rgb: light)
-        device.appearance = .dark
+        try systemAppearance("dark")
         try capture("System-Dark", app, above: "Sample screen", rgb: dark)
         app.buttons["Settings"].firstMatch.tap()
         app.buttons["Dark"].tap()
-        device.appearance = .light
+        try systemAppearance("light")
         try capture("Forced-Dark", app, above: "Appearance", rgb: dark)
         app.buttons["Toggle tabs"].tap()
         XCTAssertFalse(app.buttons["Sample"].firstMatch.exists)
