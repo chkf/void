@@ -39,6 +39,7 @@ jobs:
           path: |
             .build/ios/void-unsigned.ipa
             .build/ios/native-ui-example.zip
+            .build/ios/safe-area-sample.zip
           if-no-files-found: error
 
   preview-release:
@@ -57,6 +58,17 @@ jobs:
       - run: npm ci
       - run: npm run prepare:ios
       - run: bash scripts/ios-build.sh release-preview
+      - if: ${{ !cancelled() }}
+        run: |
+          if [[ -d .build/ios/release-preview.xcresult ]]; then
+            xcrun xcresulttool export attachments --path .build/ios/release-preview.xcresult --output-path .build/ios/release-screenshots
+          fi
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: void-release-preview-screenshots
+          path: .build/ios/release-screenshots
+          if-no-files-found: ignore
 
   local-picker:
     name: 独立模拟器的本机 Files Open
@@ -207,7 +219,7 @@ jobs:
           cat > "$notes" <<EOF
           下载下方的 **void-unsigned.ipa**。适用于 iOS / iPadOS 17 及以上设备，安装前需要使用自己的 Apple 签名。
 
-          原生项目的背景延伸到状态栏。开发者可将「项目管理」放进子应用自己的设置列表，例如「我的 → 设置」。发布前已在小屏 iPhone 和 iPad 模拟器验证五标签项目的进入和返回路径。示例见附件 **native-ui-example.zip**。[SwiftUI、TSX 和 Web 接入示例](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/RUNTIME.md#在子应用自己的设置里接入项目管理)
+          本版让原生项目的顶部安全区与宿主预览提示使用可见页面的主题背景。下载 **safe-area-sample.zip**，解压后导入 safe-area，即可独立检查深浅色、滚动、键盘和标签切换。真机待验。[源码提交](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
 
           沿用原签名团队和已安装版本的实际 Bundle ID 覆盖安装，然后从「最近项目」打开原登记。项目可锁定 @runtime/ui 1.1.0 配置系统标签栏和样式，原生 SDK 仍为 1.1.0。
 
@@ -223,7 +235,7 @@ jobs:
             gh release create "$tag" --verify-tag --draft "${prerelease[@]}" --title "void $tag" --notes-file "$notes"
           fi
           api=$(gh release view "$tag" --json apiUrl --jq .apiUrl)
-          for file in "$ipa" release/native-ui-example.zip; do
+          for file in "$ipa" release/native-ui-example.zip release/safe-area-sample.zip; do
             name=$(basename "$file")
             expected="sha256:$(sha256sum "$file" | cut -d' ' -f1)"
             query=".assets[] | select(.name == \"$name\") | .digest"

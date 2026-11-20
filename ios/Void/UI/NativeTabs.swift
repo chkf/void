@@ -45,6 +45,14 @@ struct NativeTabs: UIViewControllerRepresentable {
     }
 
     @MainActor
+    private final class TabHost: UIHostingController<Content> {
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            view.backgroundColor = rootView.palette.uiColor(.background)
+        }
+    }
+
+    @MainActor
     final class Coordinator: NSObject, UITabBarControllerDelegate {
         private var pages = [String: UIHostingController<Content>]()
         private var order = [String]()
@@ -85,7 +93,7 @@ struct NativeTabs: UIViewControllerRepresentable {
                     if host.rootView.tab.text("systemName") != tab.text("systemName") { host.tabBarItem.image = NativeSymbol.image(tab.text("systemName")) }
                     host.rootView = content
                 } else {
-                    let host = UIHostingController(rootView: content)
+                    let host = TabHost(rootView: content)
                     host.tabBarItem = UITabBarItem(title: tab.text("title"), image: NativeSymbol.image(tab.text("systemName")), tag: 0)
                     pages[id] = host
                 }

@@ -109,6 +109,7 @@ struct HostView: View {
                         projectControls
                     }
                 }
+                .background { nativeProjectBackground }
                 .environment(\.openProjectSettings, { destination in
                     guard panel == nil, model.current?.id == record.id else { return }
                     panel = destination == .management ? .manage : .settings(record.id)
@@ -232,6 +233,12 @@ struct HostView: View {
         return model.page == nil && model.presentingPage == nil
     }
 
+    @ViewBuilder private var nativeProjectBackground: some View {
+        if let page = model.presentingPage ?? model.page, page.product.mode == .native {
+            NativeProjectBackground(page: page).ignoresSafeArea(.container, edges: .top)
+        }
+    }
+
     private var projectControls: some View {
         VStack(alignment: .leading, spacing: 4) {
             if let problem = model.problem, model.page != nil || model.mode == .swiftui && model.workspaceTemplate == nil {
@@ -264,7 +271,7 @@ struct HostView: View {
         }
         .padding(.horizontal).padding(.vertical, projectTabs ? 0 : 4)
         .background {
-            if projectTabs { Color(uiColor: .systemBackground) }
+            if projectTabs { nativeProjectBackground }
             else { Rectangle().fill(.bar) }
         }
     }

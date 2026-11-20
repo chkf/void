@@ -9,7 +9,11 @@ GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.
 | void-tests | 解压后用 Xcode 打开 xcresult，查看各用例、失败截图及运行设备。 |
 | void-native-ui-compact、void-native-ui-ipad | 独立模拟器的原生导航测试报告与导出的截图附件，含深浅色、横屏和辅助功能字号。 |
 
-构建 13 的设备包覆盖 iPhone 与 iPad。下载同一提交工作流中的 `void-unsigned-iphone`，解压取得 `void-unsigned.ipa`。该包内附 `Toolchain/NativeUIDemo`。独立模拟器可用 `VOID_LAYOUT_PROFILE=compact bash scripts/ios-build.sh native-layout` 或 `VOID_LAYOUT_PROFILE=ipad bash scripts/ios-build.sh native-layout` 重现原生导航验收，包括五标签项目内的设置入口和 iPhone 状态栏背景。[组件契约与独立示例](NATIVE_UI.md)
+构建 14 的设备包覆盖 iPhone 与 iPad。安装同一标签的 `void-unsigned.ipa` 后，打开「项目管理 → 宿主信息」核对宿主版本 0.1.0、构建号 14。原生安全区的改动随宿主安装包交付。打开原登记并预览即可使用新版宿主，项目内的「重新构建」只编译项目源码。[组件契约与独立示例](NATIVE_UI.md)
+
+真机待验。将同一发布中的 `safe-area-sample.zip` 解压并导入 `safe-area` 文件夹。把系统外观设为深色，打开 Sample，比较时间两侧空白和页面背景（`#204858`）。切到系统浅色应同步变为 `#C8E8E0`。在 Settings 中点 Light、Dark 或 Change palette，切回 Sample 检查滚动位置和 Draft 中已输入的文字。展开、收起键盘，横竖屏各转一次，再返回前台。在**这个独立样例**的「项目管理 → 恢复」中首次点「恢复上一可运行版本」，检查错误提示出现时从状态栏到标题的背景。用「重新构建并打开」恢复预览。留存完整屏幕截图，并记录设备型号、系统版本和宿主构建号。[最小项目](../tests/fixtures/safe-area)
+
+模拟器可用 `VOID_LAYOUT_PROFILE=compact bash scripts/ios-build.sh native-layout` 或 `VOID_LAYOUT_PROFILE=ipad bash scripts/ios-build.sh native-layout`。首帧探针在显示刷新时采样宿主窗口，并记录标签容器、选中页面和 WebKit 在窗口中的实际位置。界面测试使用完整显示器截图，采样时转换到 sRGB，每通道容差为 8。
 
 VoiceOver 手势与实际朗读在签名设备上验收。在系统「设置 → 辅助功能」启用 VoiceOver，打开独立示例，左右轻扫可听到当前标签、图标标签、输入框和进度。双点示例里的「设置」标签，确认能找到并打开「项目管理」。输入后切走再回来，核对文本与滚动位置。模拟器测试覆盖辅助功能树、对比度和大字体。[Apple 的辅助技术测试说明](https://developer.apple.com/documentation/accessibility/performing-accessibility-testing-for-your-app)
 
