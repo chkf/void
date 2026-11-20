@@ -27,4 +27,8 @@ mkdir -p "$out/scroll-displays"
   done
 ) & watcher=$!
 trap 'kill "$watcher" 2>/dev/null || true' EXIT
-TEST_RUNNER_VOID_SCROLL_SCREENSHOTS=1 xcodebuild -project ios/Void.xcodeproj -scheme Void -configuration Debug -derivedDataPath "$out/DerivedData" -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO -only-testing:VoidTests/NativeScrollViewportTests -resultBundlePath "$out/scroll.xcresult" test-without-building
+for scenario in testHeaderInTabScrollsBehindStatusBar testDeclaredTitleUsesSystemNavigation; do
+  TEST_RUNNER_VOID_SCROLL_SCREENSHOTS=1 xcodebuild -project ios/Void.xcodeproj -scheme Void -configuration Debug \
+    -derivedDataPath "$out/DerivedData" -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO \
+    -only-testing:VoidTests/NativeScrollViewportTests/"$scenario" -resultBundlePath "$out/$scenario.xcresult" test-without-building
+done
