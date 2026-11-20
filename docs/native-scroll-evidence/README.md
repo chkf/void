@@ -16,6 +16,8 @@ void `0.1.0 (15)` 已作为 `v0.1.0-dev.15` 预发布。源码提交为 `f51f939
 
 构建 14 的标签控制器、选中页和滚动视图都从窗口 y=62 pt 开始。滚动视图和系统标签容器都在这里裁剪，孩子收到的顶部安全区为 0。去掉 TabView，同一滚动视图的窗口起点为 y=0，顶部内容内距为 62 pt，标题能经过时间后方。[无标签对照原图](14-Plain-Scrolled.png) · [构建 14 图层与动作记录](https://github.com/chkf/void/actions/runs/44731898024/job/136273517184)
 
+早期构建 12 还测到一条 1 pt 亮线。在同一窗口只改变隐藏 WKWebView 的透明度就能改变线的颜色，构建 13 已把未请求的画布裁剪至零布局高度。本轮在构建 14 复现了同色区域截断滚动内容。用户照片中的宿主构建号仍须从「宿主信息」核对。[早期细线的单变量实验和原图](https://github.com/chkf/void/blob/0238c500116aa53f70053ca857d8632e3acb658a/docs/safe-area-evidence/README.md)
+
 `HostView.swift` 的 `RunningPage` 判断顶部是否已有宿主控件、相机或画布。`NativeAppearance.swift` 把可用边缘传给根原生节点。`NativeNodeView.swift` 让根标签控制器接管系统顶部内距，为支持的整页滚动布局接入系统导航标题。`NativeTabs.swift` 保留每个 Tab 对应的 hosting controller，iPad 标签页使用原有的页面内标题。项目传入的主题、节点 ID 和输入仍由原运行时管理。[宿主与原生视图改动](https://github.com/chkf/void/compare/v0.1.0-dev.14...v0.1.0-dev.15)
 
 | 自绘标题上移 50 pt 后的 sRGB 背景样本 | x=297.5、y=16 pt | x=297.5、y=56 pt |
@@ -42,7 +44,7 @@ void `0.1.0 (15)` 已作为 `v0.1.0-dev.15` 预发布。源码提交为 `f51f939
 
 iPhone 17 的一次 Release 检查在系统命令返回约 1.6 秒后拍到了原来的浅色，顶部和内容区同色。在相同宿主源码上，另一次独立检查保持页面可见，依次切到深、浅、深。第一次切换在 2.80 秒采到顶部和内容区都为 RGB (81, 119, 128)，3.41 秒两处都到达主题深色 (32, 72, 88)。后两次分别在 0.23 秒和 0.99 秒采到目标色。上述时间包含截图耗时，三次都没有操作页面。[首次检查](https://github.com/chkf/void/actions/runs/44749070323/job/136331908160) · [连续三次系统切换的采样记录](https://github.com/chkf/void/actions/runs/44752489665/job/136343650924) · [系统切换帧](https://github.com/chkf/void/actions/runs/44752489665/artifacts/14637257047)
 
-正式标签的通用 Debug 运行 `VOID_SIMULATOR_FIXTURES=1 VOID_SEPARATE_LOCAL_PICKER=1 bash scripts/ios-build.sh test`。54 个宿主用例中 53 项通过，目录恢复用例报告 `InvalidTransition`。10 个界面用例中 1 项通过，9 项失败，涉及本机扫描、测试项目定位和首次打开。另一台模拟器运行 `bash scripts/ios-build.sh local-picker`，系统 Files 未在预设目录同时显示 app 和 Open。构建 14 的通用检查也曾报告目录恢复失败和系统文件选择问题。本次记录保留各自的结果。[Debug 全量日志](https://github.com/chkf/void/actions/runs/44749070323/job/136331908604) · [独立 Files 日志](https://github.com/chkf/void/actions/runs/44749070323/job/136331907779) · [构建 14 记录](https://github.com/chkf/void/actions/runs/44718077036/job/136247959109)
+正式标签的通用 Debug 先运行 `bash scripts/ios-build.sh build-tests` 和 `bash scripts/ios-build.sh start-simulator`，再运行 `VOID_SIMULATOR_FIXTURES=1 VOID_SEPARATE_LOCAL_PICKER=1 bash scripts/ios-build.sh run-tests`。54 个宿主用例中 53 项通过，目录恢复用例报告 `InvalidTransition`。10 个界面用例中 1 项通过，9 项失败，涉及本机扫描、测试项目定位和首次打开。另一台模拟器运行 `bash scripts/ios-build.sh local-picker`，系统 Files 未在预设目录同时显示 app 和 Open。构建 14 的通用检查也曾报告目录恢复失败和系统文件选择问题。本次记录保留各自的结果。[Debug 全量日志](https://github.com/chkf/void/actions/runs/44749070323/job/136331908604) · [独立 Files 日志](https://github.com/chkf/void/actions/runs/44749070323/job/136331907779) · [构建 14 记录](https://github.com/chkf/void/actions/runs/44718077036/job/136247959109)
 
 ## 真机待验
 
