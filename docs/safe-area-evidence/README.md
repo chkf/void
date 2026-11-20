@@ -47,3 +47,16 @@ VOID_LAYOUT_PROFILE=compact bash scripts/ios-build.sh native-layout
 VOID_LAYOUT_PROFILE=ipad bash scripts/ios-build.sh native-layout
 bash scripts/ios-build.sh release-preview
 ```
+
+## 正式标签验收
+
+| 环境与命令 | 本次结果 |
+| --- | --- |
+| Windows、Node 24.19，`npm test` 与 `npm run openspec -- validate --all --strict` | 14/14 和 1/1 通过。 |
+| iPhone 17，`bash scripts/ios-build.sh release-preview` | 20/20 原生、3/3 界面通过，包括真正的原目录重建、失败恢复、权限弹窗和 SQLite 首屏。[日志](https://github.com/chkf/void/actions/runs/44718077036/job/136226465504) |
+| iPhone 17e、iPad mini，`VOID_LAYOUT_PROFILE=compact` 或 `ipad` 执行 `bash scripts/ios-build.sh native-layout` | 各 10/10 原生、4/4 界面通过。iPhone 17e 原样重跑了上文记录的两个超时。[iPhone 17e 重跑](https://github.com/chkf/void/actions/runs/44718077036/job/136247956789) · [iPad mini](https://github.com/chkf/void/actions/runs/44718077036/job/136226466251) |
+| iPhone 17 常规 Debug，`VOID_SIMULATOR_FIXTURES=1 VOID_SEPARATE_LOCAL_PICKER=1 bash scripts/ios-build.sh run-tests` | 50/51 原生、8/10 界面通过。原目录重建组合用例出现 `InvalidTransition`，Files 取消后未找到预览开关，示例分组标题“主题”的对比度审计失败。此轮安全区的 3 项原生与 2 项界面均通过。旧版表单冷启动、SwiftUI 入口和 HTML 兼容用例也通过。[Debug 日志](https://github.com/chkf/void/actions/runs/44718077036/job/136226466135) · [构建 13 的 Files 与同一标题对比度记录](https://github.com/chkf/void/actions/runs/44676017322/job/136087920844) |
+| 独立 Files，`bash scripts/ios-build.sh local-picker` | 0/1 通过。系统 Files 未在本机目标目录同时显示 app 和 Open，构建 13 上已有相同结果。[本轮](https://github.com/chkf/void/actions/runs/44718077036/job/136226465896) · [构建 13](https://github.com/chkf/void/actions/runs/44709611315/job/136197671815) |
+| 签名设备、iOS 17 实机 | 真机待验。 |
+
+原生运行器为 Apple Silicon，Release 预览使用 macOS 27.2，其余上述模拟器使用 macOS 27.0.1，Xcode 27.2，iOS / iPadOS 27.2。正式发布后重新下载了 `void-unsigned.ipa` 和 `safe-area-sample.zip`，两者均与公开附件摘要及原构建产物逐字节对应。IPA 为 6,251,301 字节，SHA-256 为 `ce994583259fb1139ce0f91d05baeeee5f6747a9ae158aad58afd0203768af5b`。包内为 `app.chkf.void`、版本 0.1.0、构建 14、arm64、最低 iOS 17.0。独立样例压缩包的 4 个文件与标签源码逐字节一致。[公开开发版](https://github.com/chkf/void/releases/tag/v0.1.0-dev.14) · [发布任务](https://github.com/chkf/void/actions/runs/44718077036/job/136257130902)
