@@ -11,6 +11,17 @@ struct Product: Codable {
     private enum CodingKeys: String, CodingKey { case entry, files, mode, revision }
 }
 
+private enum CompilerDeadline: LocalizedError {
+    case startup, compilation
+
+    var errorDescription: String? {
+        switch self {
+        case .startup: return "启动离线编译器超时，已停止本次编译"
+        case .compilation: return "编译项目超时，已停止本次编译"
+        }
+    }
+}
+
 enum Toolchain {
     static func read(_ name: String) throws -> Data {
         guard let url = Bundle.main.url(forResource:"Toolchain",withExtension:nil) else { throw RuntimeIssue("宿主缺少离线构建工具") }
@@ -24,21 +35,22 @@ final class CompilerPage: NSObject, WKNavigationDelegate {
     private let loaded = SDKWait<Void>()
     private let output = SDKWait<[String:Any]>()
     private var closed = false
+    private var startedBuild = false
     private let trace: DirectoryTrace?
 
     init(trace: DirectoryTrace? = nil) {
         self.trace = trace
         let config = WKWebViewConfiguration()
         config.websiteDataStore = .nonPersistent()
-        view = WKWebView(frame:.zero,configuration:config)
+        view = WKWebView(frame:CGRect(x:0,y:0,width:4,height:4),configuration:config)
         super.init()
         view.navigationDelegate = self
     }
 
-    private func wait<T>(_ signal: SDKWait<T>, timeout: Duration, stage: String) async throws -> T {
+    private func wait<T>(_ signal: SDKWait<T>, timeout: Duration, error: CompilerDeadline) async throws -> T {
         let deadline = Task {
             do { try await Task.sleep(for:timeout) } catch { return }
-            signal.finish(.failure(RuntimeIssue(stage + "超时，已停止本次编译")))
+            signal.finish(.failure(error))
         }
         defer { deadline.cancel() }
         return try await signal.value()
@@ -47,11 +59,36 @@ final class CompilerPage: NSObject, WKNavigationDelegate {
     func load(_ url: URL, timeout: Duration = .seconds(45)) async throws {
         try Task.checkCancellation()
         view.load(URLRequest(url:url))
-        try await wait(loaded,timeout:timeout,stage:"启动离线编译器")
+        try await wait(loaded,timeout:timeout,error:.startup)
+    }
+
+    static func start(_ url: URL, trace: DirectoryTrace? = nil, firstTimeout: Duration = .seconds(45),
+                      show: (CompilerPage) -> Void) async throws -> CompilerPage {
+        func attempt(timeout: Duration) async throws -> CompilerPage {
+            try Task.checkCancellation()
+            let page = CompilerPage(trace:trace)
+            show(page)
+            do {
+                try await page.load(url,timeout:timeout)
+                return page
+            } catch {
+                page.stop()
+                throw error
+            }
+        }
+        do {
+            return try await attempt(timeout:firstTimeout)
+        } catch CompilerDeadline.startup {
+            try Task.checkCancellation()
+            // No project code has run yet. A cold WebKit process can stall before its first navigation.
+            trace?.event("compiler.retryStart","重新启动离线编译器")
+            return try await attempt(timeout:.seconds(45))
+        }
     }
 
     func compile(_ input: [String:Any], timeout: Duration = .seconds(120)) async throws -> [String:Any] {
         try Task.checkCancellation()
+        startedBuild = true
         view.callAsyncJavaScript("return await buildProject(input)",arguments:["input":input],in:nil,in:.page) { [weak self] result in
             guard let self, !self.closed else { return }
             self.output.finish(result.flatMap { value in
@@ -59,7 +96,7 @@ final class CompilerPage: NSObject, WKNavigationDelegate {
                 return .success(dictionary)
             })
         }
-        return try await wait(output,timeout:timeout,stage:"编译项目")
+        return try await wait(output,timeout:timeout,error:.compilation)
     }
 
     func stop() {
@@ -67,7 +104,7 @@ final class CompilerPage: NSObject, WKNavigationDelegate {
         closed = true
         loaded.finish(.failure(CancellationError()))
         output.finish(.failure(CancellationError()))
-        view.evaluateJavaScript("globalThis.cancelVoidBuild?.()",completionHandler:nil)
+        if startedBuild { view.evaluateJavaScript("globalThis.cancelVoidBuild?.()",completionHandler:nil) }
         view.stopLoading()
         view.navigationDelegate = nil
     }
@@ -99,10 +136,9 @@ enum BuildEngine {
         let server = try ResourceServer(files:resources,compiler:true)
         defer { server.stop() }
         let base = try await server.start()
-        let page = CompilerPage(trace:trace)
-        showCompiler(page)
-        defer { page.stop(); showCompiler(nil) }
-        try await page.load(base.appendingPathComponent("index.html"))
+        defer { showCompiler(nil) }
+        let page = try await CompilerPage.start(base.appendingPathComponent("index.html"),trace:trace) { showCompiler($0) }
+        defer { page.stop() }
         try await willCompile()
         let response = try await page.compile(["entry":snapshot.info.entry,"mode":snapshot.info.mode.rawValue,"paths":Array(snapshot.files.keys)])
         try Task.checkCancellation()

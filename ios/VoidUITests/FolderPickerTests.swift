@@ -193,8 +193,18 @@ final class FolderPickerTests: XCTestCase {
             let location = entries.first { ["on my iphone","我的 iphone","我的iphone"].contains($0.text) }
             let browse = labels.first { ["browse","浏览"].contains($0.text) && ($0.point.x < 0.3 || $0.point.y > 0.9) }
             if let folder = fixtureRow ?? container {
-                // Files can draw a provider folder without exporting a matching XCTest cell.
-                let target = coordinate(folder)
+                // In Files' icon view the caption can receive taps for renaming. The
+                // separate item count below it identifies a tile; open its thumbnail.
+                let caption = entries.first {
+                    let delta = $0.point.y - folder.point.y
+                    return abs($0.point.x - folder.point.x) < 0.045 && delta > 0 && delta < 0.045
+                        && ($0.text.hasSuffix(" item") || $0.text.hasSuffix(" items") || $0.text.hasSuffix("项"))
+                }
+                var target = coordinate(folder)
+                if let caption {
+                    let lineHeight = (caption.point.y - folder.point.y) * app.frame.height
+                    target = target.withOffset(CGVector(dx: 0, dy: -min(54, max(30, 2.6 * lineHeight))))
+                }
                 if lastFolder == folder.text { target.doubleTap() } else { target.tap() }
                 lastFolder = folder.text
             } else if let place = location ?? browse {

@@ -137,9 +137,12 @@ final class PreviewRecoveryTests: XCTestCase {
         catch { XCTAssertTrue(error is CancellationError) }
         cancelled.stop()
 
-        let next = CompilerPage()
+        var pages = [CompilerPage]()
+        let next = try await CompilerPage.start(url,firstTimeout:.zero) { pages.append($0) }
         defer { next.stop() }
-        try await next.load(url)
+        XCTAssertEqual(pages.count,2,"首次启动超时应仅重试一次")
+        XCTAssertFalse(pages.first === next)
+        XCTAssertTrue(pages.last === next)
         let output = try await next.compile(["delay":0])
         XCTAssertEqual(output["entry"] as? String,"done")
     }
