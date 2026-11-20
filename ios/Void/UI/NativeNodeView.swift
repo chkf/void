@@ -4,6 +4,8 @@ struct NativeNodeView: View {
     let node: NativeNode
     let revision: Int
     let page: ProjectPage
+    var isPageRoot = false
+    var tabEdges: Edge.Set = .bottom
     @Environment(\.nativePalette) private var palette
 
     @ViewBuilder private var children: some View {
@@ -38,15 +40,27 @@ struct NativeNodeView: View {
         switch node.type {
         case "TabView":
             NativeTabs(node: node, revision: revision, page: page)
-                .ignoresSafeArea(.container, edges: .bottom)
+                .ignoresSafeArea(.container, edges: tabEdges)
         case "Screen":
-            VStack(alignment: .leading, spacing: 0) {
-                if !node.text("title").isEmpty {
-                    Text(verbatim: node.text("title")).font(.title.bold()).accessibilityAddTraits(.isHeader)
-                        .padding(.horizontal).padding(.vertical, 6)
+            if isPageRoot, node.children.count == 1, let scroller = node.children.first,
+               ["ScrollView", "List", "Form"].contains(scroller.type) {
+                let title = node.text("title")
+                NavigationStack {
+                    NativeNodeView(node: scroller, revision: revision, page: page)
+                        .background { palette.color(.background).ignoresSafeArea(.container) }
+                        .navigationTitle(Text(verbatim: title))
+                        .navigationBarTitleDisplayMode(.large)
+                        .toolbar(title.isEmpty ? .hidden : .automatic, for: .navigationBar)
                 }
-                VStack(alignment: .leading) { children }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    if !node.text("title").isEmpty {
+                        Text(verbatim: node.text("title")).font(.title.bold()).accessibilityAddTraits(.isHeader)
+                            .padding(.horizontal).padding(.vertical, 6)
+                    }
+                    VStack(alignment: .leading) { children }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                }
             }
         case "ScrollView":
             ScrollView(.vertical) {

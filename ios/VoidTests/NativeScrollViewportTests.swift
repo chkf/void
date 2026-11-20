@@ -87,7 +87,9 @@ final class NativeScrollViewportTests: XCTestCase {
             print("SCROLL collapsed navigation frame=\(bar.convert(bar.bounds, to: window))")
         } else {
             try check(scrolled, x: x, y: top-6, rgb: [80, 144, 144])
-            try check(scrolled, x: x, y: 16, rgb: [80, 144, 144])
+            // On iOS 27 the system softly blends the moving content near the clock.
+            let edge = try sample(scrolled, x: x, y: 16)
+            XCTAssertGreaterThan(Int(edge[1]), 72 + 12, "No moving content behind the status bar: \(edge)")
         }
         scroll.setContentOffset(initial, animated: false)
         try await Task.sleep(for: .milliseconds(150))
@@ -120,6 +122,12 @@ final class NativeScrollViewportTests: XCTestCase {
     }
 
     private func check(_ image: UIImage, x: CGFloat, y: CGFloat, rgb: [Int], file: StaticString = #filePath, line: UInt = #line) throws {
+        let bytes = try sample(image, x: x, y: y)
+        XCTAssertTrue(zip(bytes, rgb).allSatisfy { abs(Int($0.0)-$0.1) <= 8 },
+                      "Viewport (\(x), \(y)) = \(bytes.prefix(3)), expected \(rgb)", file: file, line: line)
+    }
+
+    private func sample(_ image: UIImage, x: CGFloat, y: CGFloat) throws -> [UInt8] {
         let point = CGRect(x: floor(x * image.scale), y: floor(y * image.scale), width: 1, height: 1)
         let crop = try XCTUnwrap(image.cgImage?.cropping(to: point))
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
@@ -129,7 +137,6 @@ final class NativeScrollViewportTests: XCTestCase {
                 bytesPerRow: 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
             ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
         }
-        XCTAssertTrue(zip(bytes, rgb).allSatisfy { abs(Int($0.0)-$0.1) <= 8 },
-                      "Viewport (\(x), \(y)) = \(bytes.prefix(3)), expected \(rgb)", file: file, line: line)
+        return bytes
     }
 }

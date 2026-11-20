@@ -90,7 +90,7 @@ struct HostView: View {
                     }
                     ForEach(mountedPages, id:\.id) { page in
                         let visible = page === (model.presentingPage ?? model.page)
-                        RunningPage(page:page, visible:visible)
+                        RunningPage(page: page, visible: visible, topControlsVisible: projectTabs && showsProjectControls)
                             .zIndex(visible ? 1 : -1)
                             .allowsHitTesting(visible)
                             .accessibilityHidden(!visible)
@@ -105,7 +105,7 @@ struct HostView: View {
                     }
                 }
                 .safeAreaInset(edge: projectTabs ? .top : .bottom, spacing: 0) {
-                    if hostOwnsScreen || model.busy || model.scanStatus != nil || model.problem != nil || (projectTabs && folders.phase != .idle) {
+                    if showsProjectControls {
                         projectControls
                     }
                 }
@@ -233,6 +233,10 @@ struct HostView: View {
         return model.page == nil && model.presentingPage == nil
     }
 
+    private var showsProjectControls: Bool {
+        hostOwnsScreen || model.busy || model.scanStatus != nil || model.problem != nil || (projectTabs && folders.phase != .idle)
+    }
+
     @ViewBuilder private var nativeProjectBackground: some View {
         if let page = model.presentingPage ?? model.page, page.product.mode == .native {
             NativeProjectBackground(page: page).ignoresSafeArea(.container, edges: .top)
@@ -313,7 +317,13 @@ struct RunningPage: View {
     @Environment(\.openProjectSettings) private var openSettings
     @State private var webBackground = UIColor.systemBackground
     let visible: Bool
-    init(page: ProjectPage, visible: Bool) { self.page = page; self.sdk = page.sdk; self.visible = visible }
+    let topControlsVisible: Bool
+    init(page: ProjectPage, visible: Bool, topControlsVisible: Bool) {
+        self.page = page
+        self.sdk = page.sdk
+        self.visible = visible
+        self.topControlsVisible = topControlsVisible
+    }
     var body: some View {
         content.preference(key: ProjectTabsKey.self, value: visible && page.hasTabNavigation)
     }
@@ -330,7 +340,10 @@ struct RunningPage: View {
             }
             .onDisappear { page.onOpenManagement = nil }
         } else {
-            NativeProjectTree(nodes: page.nodes, revision: page.revision, page: page, visible: visible) {
+            // UIKit must own the system top inset for a tab's scroll view to draw through it.
+            // A visible host toolbar, camera preview or canvas owns its space first.
+            let tabEdges: Edge.Set = topControlsVisible || sdk.preview != nil || sdk.canvasHeight > 0 ? .bottom : .vertical
+            NativeProjectTree(nodes: page.nodes, revision: page.revision, page: page, visible: visible, tabEdges: tabEdges) {
                 NativeMediaPreview(sdk: sdk)
                 // WebKit still needs a window and nonempty bounds to confirm the first frame.
                 // Only an explicitly requested canvas occupies space in the project layout.

@@ -31,7 +31,7 @@ struct NativeTabs: UIViewControllerRepresentable {
 
         var body: some View {
             VStack(alignment: .leading) {
-                ForEach(tab.children) { NativeNodeView(node: $0, revision: revision, page: page) }
+                ForEach(tab.children) { NativeNodeView(node: $0, revision: revision, page: page, isPageRoot: tab.children.count == 1) }
                 if page.legacyManagementContainerID == tab.id { ProjectManagementButton() }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
