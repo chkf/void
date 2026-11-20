@@ -329,9 +329,8 @@ PY
     bash scripts/ios-build.sh build-tests
     prepare_native_ui_test "$device"
     with_simulator_appearance "$device" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
-      -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidTests/NativeTabEventTests \
+      -parallel-testing-enabled NO \
       -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidUITests/SafeAreaTests \
-      -only-testing:VoidUITests/NativeNavigationTests \
       -resultBundlePath "$out/layout.xcresult" test-without-building
     ;;
   run-tests)
