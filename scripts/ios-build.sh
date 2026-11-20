@@ -82,11 +82,12 @@ with_simulator_appearance() (
         if [[ "$request" != "$previous" && "$request" =~ ^[A-Fa-f0-9-]+\ (dark|light)$ ]]; then
           requested_mode=${BASH_REMATCH[1]}
           echo "Applying Simulator appearance $requested_mode"
-          xcrun simctl ui "$device" appearance "$requested_mode"
-          xcrun simctl ui "$device" appearance
-          printf '%s' "$request" > "$runner/tmp/void-test-appearance-applied.tmp"
-          mv "$runner/tmp/void-test-appearance-applied.tmp" "$runner/tmp/void-test-appearance-applied"
-          previous="$request"
+          if xcrun simctl ui "$device" appearance "$requested_mode"; then
+            printf '%s' "$request" > "$runner/tmp/void-test-appearance-applied.tmp"
+            mv "$runner/tmp/void-test-appearance-applied.tmp" "$runner/tmp/void-test-appearance-applied"
+            echo "Applied Simulator appearance $requested_mode"
+            previous="$request"
+          fi
         fi
       fi
       sleep 0.5
@@ -234,6 +235,15 @@ case "${1:-device}" in
     fi
     xcodebuild "${args[@]}" -configuration Debug -destination 'generic/platform=iOS Simulator' build-for-testing
     ;;
+  appearance-probe)
+    bash scripts/ios-build.sh start-simulator
+    device=$(choose_simulator)
+    xcrun simctl bootstatus "$device" -b
+    probe_args=("${args[@]}" -configuration Release ENABLE_TESTABILITY=YES -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO)
+    xcodebuild "${probe_args[@]}" build-for-testing
+    prepare_native_ui_test "$device" Release
+    with_simulator_appearance "$device" xcodebuild "${probe_args[@]}" -only-testing:VoidUITests/SafeAreaTests/testLightSystemChangesAndScreenWithoutTabsOrTheme -resultBundlePath "$out/appearance.xcresult" test-without-building
+    ;;
   release-preview)
     bash scripts/ios-build.sh start-simulator
     device=$(choose_simulator)
@@ -245,7 +255,7 @@ case "${1:-device}" in
     sample_slow_rebuild "$device" & sample_pid=$!
     trap 'kill "$sample_pid" 2>/dev/null || true' EXIT
     with_simulator_appearance "$device" xcodebuild "${preview_args[@]}" \
-      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidUITests/SafeAreaTests \
+      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidTests/NativeScrollViewportTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/HostTests/testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch \
       -only-testing:VoidTests/NativeSDKTests/testClosingFirstConsentCancelsWithoutSavingADecision \
       -only-testing:VoidTests/DirectoryTests/testLocalScanAndRecentSelectionDoNotReadOrStartAProject \
@@ -334,7 +344,7 @@ PY
     prepare_native_ui_test "$device"
     with_simulator_appearance "$device" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidTests/NativeTabEventTests \
-      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidUITests/SafeAreaTests \
+      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidTests/NativeScrollViewportTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/NativeNavigationTests \
       -resultBundlePath "$out/layout.xcresult" test-without-building
     ;;

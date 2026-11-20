@@ -17,9 +17,11 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run prepare:ios
-      - run: bash scripts/scroll-edge-probe.sh
+      - run: bash scripts/ios-build.sh appearance-probe
+      - if: always()
+        run: xcrun xcresulttool export attachments --path .build/ios/appearance.xcresult --output-path .build/ios/appearance-displays
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: scroll-viewport-displays
-          path: .build/ios/scroll-displays
+          name: system-appearance-displays
+          path: .build/ios/appearance-displays

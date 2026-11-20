@@ -5,16 +5,15 @@ import XCTest
 final class SafeAreaTests: XCTestCase {
     private let dark = [32, 72, 88], light = [200, 232, 224]
 
-    private func systemAppearance(_ mode: String) throws {
+    private func systemAppearance(_ mode: String) async throws {
         let temporary = FileManager.default.temporaryDirectory
         let request = UUID().uuidString + " " + mode
         let applied = temporary.appendingPathComponent("void-test-appearance-applied")
         try Data(request.utf8).write(to: temporary.appendingPathComponent("void-test-appearance"), options: .atomic)
-        let change = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
-            (try? String(contentsOf: applied, encoding: .utf8)) == request
-        }, object: nil)
-        guard XCTWaiter.wait(for: [change], timeout: 90) == .completed else {
-            throw NSError(domain: "Simulator did not apply " + mode, code: 1)
+        let deadline = ContinuousClock.now + .seconds(90)
+        while (try? String(contentsOf: applied, encoding: .utf8)) != request {
+            guard ContinuousClock.now < deadline else { throw NSError(domain: "Simulator did not apply " + mode, code: 1) }
+            try await Task.sleep(for: .milliseconds(150))
         }
     }
 
@@ -30,17 +29,23 @@ final class SafeAreaTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Sample screen"].waitForExistence(timeout: 100), app.debugDescription)
     }
 
-    private func capture(_ name: String, _ app: XCUIApplication, above title: String, rgb: [Int],
-                         file: StaticString = #filePath, line: UInt = #line) throws {
-        let heading = app.staticTexts[title].firstMatch
-        XCTAssertTrue(heading.waitForExistence(timeout: 12), file: file, line: line)
-        let frame = heading.frame
+    @discardableResult
+    private func display(_ name: String) -> XCUIScreenshot {
         let display = XCUIScreen.main.screenshot()
         let attachment = XCTAttachment(screenshot: display)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
-        let image = try XCTUnwrap(display.image.cgImage)
+        return display
+    }
+
+    private func capture(_ name: String, _ app: XCUIApplication, above title: String, rgb: [Int],
+                         file: StaticString = #filePath, line: UInt = #line) throws {
+        let heading = app.staticTexts[title].firstMatch
+        XCTAssertTrue(heading.waitForExistence(timeout: 12), file: file, line: line)
+        let frame = heading.frame
+        let screenshot = display(name)
+        let image = try XCTUnwrap(screenshot.image.cgImage)
         let scale = CGFloat(image.width) / app.frame.width
         let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
         func check(_ x: CGFloat, from y: CGFloat, to end: CGFloat) throws {
@@ -68,13 +73,14 @@ final class SafeAreaTests: XCTestCase {
         }
     }
 
-    func testDarkBackgroundWhileHostDisplaysRecoveryFeedback() throws {
+    func testDarkBackgroundWhileHostDisplaysRecoveryFeedback() async throws {
         executionTimeAllowance = 360
         let device = XCUIDevice.shared, app = XCUIApplication()
         device.orientation = .portrait
-        try systemAppearance("dark")
+        try await systemAppearance("dark")
         try open(app)
         try capture("Dark-Opened", app, above: "Sample screen", rgb: dark)
+        let expanded = app.staticTexts["Sample screen"].firstMatch.frame
         let input = app.textFields["Draft"]
         input.tap()
         input.typeText("saved")
@@ -84,13 +90,23 @@ final class SafeAreaTests: XCTestCase {
             input.typeText("\n")
         }
         app.scrollViews.firstMatch.swipeUp()
-        try capture("Dark-Scrolled", app, above: "Sample screen", rgb: dark)
+        display("Dark-Scrolled")
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            let inline = app.navigationBars["Sample screen"].staticTexts["Sample screen"].firstMatch
+            XCTAssertTrue(inline.waitForExistence(timeout: 12))
+            XCTAssertEqual(inline.frame.midX, app.frame.midX, accuracy: 10)
+            XCTAssertLessThan(inline.frame.height, expanded.height)
+        }
         app.buttons["Settings"].firstMatch.tap()
         try capture("Dark-SecondTab", app, above: "Appearance", rgb: dark)
         app.buttons["Scroll title"].tap()
         app.buttons["Sample"].firstMatch.tap()
         app.scrollViews.firstMatch.swipeDown()
         try capture("Dark-ScrollHeading", app, above: "Scroll heading", rgb: dark)
+        let finger = app.scrollViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.55, dy: 0.5))
+        finger.press(forDuration: 0.08, thenDragTo: finger.withOffset(CGVector(dx: 0, dy: -32)),
+                     withVelocity: .slow, thenHoldForDuration: 0.7)
+        display("Scroll-Heading-Passing-Status")
         app.buttons["Settings"].firstMatch.tap()
         app.buttons["Scroll title"].tap()
         app.buttons["host.manage"].tap()
@@ -114,21 +130,61 @@ final class SafeAreaTests: XCTestCase {
         XCTAssertTrue(app.buttons["host.local"].waitForExistence(timeout: 12))
     }
 
-    func testLightSystemChangesAndScreenWithoutTabsOrTheme() throws {
+    func testLightSystemChangesAndScreenWithoutTabsOrTheme() async throws {
         executionTimeAllowance = 300
         let device = XCUIDevice.shared, app = XCUIApplication()
         device.orientation = .portrait
-        try systemAppearance("light")
+        try await systemAppearance("light")
         try open(app)
         try capture("Light-Opened", app, above: "Sample screen", rgb: light)
-        try systemAppearance("dark")
+        let size = app.frame.size
+        let space = try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB))
+        func pixel(_ img: CGImage, x: CGFloat, y: CGFloat) throws -> [Int] {
+            let scale = CGFloat(img.width) / size.width
+            let crop = try XCTUnwrap(img.cropping(to: CGRect(x: floor(x*scale), y: floor(y*scale), width: 1, height: 1)))
+            var bytes = [UInt8](repeating: 0, count: 4)
+            try bytes.withUnsafeMutableBytes { buffer in
+                let ctx = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: 1, height: 1, bitsPerComponent: 8,
+                    bytesPerRow: 4, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+                ctx.draw(crop, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            }
+            return bytes.prefix(3).map(Int.init)
+        }
+        for (n, mode) in ["dark", "light", "dark"].enumerated() {
+            try await systemAppearance(mode)
+            let start = Date()
+            let target = mode == "dark" ? dark : light
+            var displayed = false
+            var first = true
+            repeat {
+                let shot = XCUIScreen.main.screenshot()
+                let image = try XCTUnwrap(shot.image.cgImage)
+                let body = try pixel(image, x: size.width * 0.74, y: size.height * 0.42)
+                let top = try pixel(image, x: size.width * 0.24, y: 8)
+                print("SYSTEM transition=\(n) mode=\(mode) elapsed=\(Date().timeIntervalSince(start)) runnerTrait=\(UIScreen.main.traitCollection.userInterfaceStyle.rawValue) body=\(body) top=\(top)")
+                displayed = zip(body,target).allSatisfy { abs($0.0 - $0.1) <= 8 }
+                if first || displayed {
+                    let attachment = XCTAttachment(screenshot: shot)
+                    attachment.name = "System-\(n)-\(mode)-\(displayed ? "resolved" : "pending")"
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+                first = false
+                if displayed {
+                    XCTAssertTrue(zip(top,target).allSatisfy { abs($0.0 - $0.1) <= 8 })
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(350))
+            } while Date().timeIntervalSince(start) < 25
+            XCTAssertTrue(displayed, "The visible page did not follow system \(mode) within 25 seconds")
+        }
         try capture("System-Dark", app, above: "Sample screen", rgb: dark)
         app.buttons["Settings"].firstMatch.tap()
         app.buttons["Dark"].tap()
-        try systemAppearance("light")
+        try await systemAppearance("light")
         try capture("Forced-Dark", app, above: "Appearance", rgb: dark)
         app.buttons["Toggle tabs"].tap()
-        XCTAssertFalse(app.buttons["Sample"].firstMatch.exists)
+        XCTAssertTrue(app.buttons["Sample"].firstMatch.waitForNonExistence(timeout: 12))
         try capture("Dark-NoTabs", app, above: "Appearance", rgb: dark)
         app.buttons["Toggle theme"].tap()
         try capture("System-NoTheme-NoTabs", app, above: "Appearance", rgb: [255, 255, 255])
