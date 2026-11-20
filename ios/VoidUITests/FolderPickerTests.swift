@@ -169,13 +169,14 @@ final class FolderPickerTests: XCTestCase {
         repeat {
             let labels = try pickerLabels()
             let open = labels.first { ["open","打开"].contains($0.text) && $0.point.x > 0.6 && $0.point.y < 0.3 }
-            let entries = labels.filter { $0.point.y > 0.19 && $0.point.y < 0.9 }
+            let searchY = labels.first { $0.point.y < 0.3 && ($0.text.contains("search") || $0.text.contains("搜索")) }?.point.y ?? 0.16
+            let entries = labels.filter { $0.point.y > searchY + 0.015 && $0.point.y < 0.9 }
             let screen = labels.map(\.text)
             if screen != lastScreen {
                 print("Files simulator screen",screen.prefix(40))
                 lastScreen = screen
             }
-            let atFixture = labels.contains { $0.point.y < 0.19 && ($0.text.contains("void picker") || $0.text.contains(String(token.prefix(8)).lowercased())) }
+            let atFixture = labels.contains { $0.point.y < searchY && ($0.text.contains("void picker") || $0.text.contains(String(token.prefix(8)).lowercased())) }
             let hasSourceFolder = entries.contains { $0.text == "app" }
             let hasManifestSibling = entries.contains { ["runtime.json","runtime","assets","modules"].contains($0.text) }
             if let open, hasSourceFolder || (atFixture && hasManifestSibling) {
@@ -191,16 +192,11 @@ final class FolderPickerTests: XCTestCase {
             let container = entries.first { $0.text == "void" }
             let location = entries.first { ["on my iphone","我的 iphone","我的iphone"].contains($0.text) }
             let browse = labels.first { ["browse","浏览"].contains($0.text) && ($0.point.x < 0.3 || $0.point.y > 0.9) }
-            if fixtureRow != nil || container != nil {
-                // Files exposes shared app documents as a Container and ordinary
-                // folders as Folder. Act on the item that owns the navigation action.
-                let identifier = fixtureRow != nil ? fixture + ", Folder" : "void, Container"
-                let cell = app.cells[identifier].firstMatch
-                if cell.waitForExistence(timeout:3) {
-                    if lastFolder == identifier { cell.doubleTap() }
-                    else { cell.tap() }
-                    lastFolder = identifier
-                }
+            if let folder = fixtureRow ?? container {
+                // Files can draw a provider folder without exporting a matching XCTest cell.
+                let target = coordinate(folder)
+                if lastFolder == folder.text { target.doubleTap() } else { target.tap() }
+                lastFolder = folder.text
             } else if let place = location ?? browse {
                 coordinate(place).tap()
                 lastFolder = nil

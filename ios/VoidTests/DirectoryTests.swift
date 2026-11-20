@@ -323,18 +323,25 @@ final class DirectoryTests: XCTestCase {
         defer { window.close() }
         func wait(_ phase: String, _ condition: () -> Bool) async throws {
             let start = ContinuousClock.now
+            var stage = model.scanStatus
+            var progress = start
             var sampled = false
             while !condition() {
                 let elapsed = start.duration(to:.now)
+                if model.scanStatus != stage {
+                    stage = model.scanStatus
+                    progress = .now
+                }
                 if !sampled, elapsed > .seconds(15), let compiler = model.compiler {
                     sampled = true
                     print("重建回归",phase,"编译器附着于测试窗口",compiler.view.window === window.window)
                     let state = "JSON.stringify({visibility:document.visibilityState,worker:typeof activeBuild !== 'undefined',resources:performance.getEntriesByType('resource').length})"
                     compiler.view.evaluateJavaScript(state) { value, _ in print("重建回归网页状态",value as? String ?? "未返回") }
                 }
-                if elapsed >= .seconds(70) {
+                // A build has a 120s compiler deadline of its own. Let a successful
+                // compile enter verification and first-frame checks with time left.
+                if progress.duration(to: .now) >= .seconds(125) || elapsed >= .seconds(210) {
                     let message = phase + "等待超时 · " + (model.scanStatus ?? model.problem ?? "已结束")
-                    XCTFail(message)
                     throw RuntimeIssue(message)
                 }
                 try await Task.sleep(for:.milliseconds(100))
