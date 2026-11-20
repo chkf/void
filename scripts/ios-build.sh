@@ -54,10 +54,16 @@ shutil.copytree(root, profile)
 (profile / "runtime.json").write_text(json.dumps({"formatVersion": 1, "id": str(uuid.uuid4())}))
 (profile / "app/manifest.json").write_text(json.dumps({**value, "name": profile.name}))
 shutil.copyfile("tests/fixtures/profile-settings.tsx", profile / "app/src/main.tsx")
+sample = root.with_name("Void Safe Area " + token[:8])
+shutil.copytree("tests/fixtures/safe-area", sample)
+(sample / "runtime.json").write_text(json.dumps({"formatVersion": 1, "id": str(uuid.uuid4())}))
+manifest = sample / "app/manifest.json"
+manifest.write_text(json.dumps({**json.loads(manifest.read_bytes()), "name": sample.name}))
 print(name)
 PY
   )
   export TEST_RUNNER_VOID_NATIVE_UI_PROJECT
+  export TEST_RUNNER_VOID_SAFE_AREA_PROJECT="Void Safe Area ${TEST_RUNNER_VOID_NATIVE_UI_PROJECT##* }"
 }
 
 # Seed a user folder in the dedicated simulator's local Files provider. The host
@@ -294,6 +300,7 @@ PY
     prepare_native_ui_test "$device"
     xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidTests/NativeTabEventTests \
+      -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/NativeNavigationTests \
       -resultBundlePath "$out/layout.xcresult" test-without-building
     ;;

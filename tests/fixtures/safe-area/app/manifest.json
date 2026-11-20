@@ -1,0 +1,7 @@
+{
+  "name": "Void Safe Area",
+  "version": "1.0.0",
+  "uiMode": "native",
+  "entry": "src/main.tsx",
+  "permissions": []
+}
