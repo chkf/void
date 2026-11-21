@@ -83,6 +83,13 @@ final class FolderRequests: ObservableObject {
         if !active { clearResult() }
         else if request.origin != id { cancel(request.id) }
     }
+    func finishLocalScan() async {
+        guard active, let request, request.purpose == .local else { return }
+        let scan = task
+        cancel(request.id)
+        // Registration may already be committing. Let it finish before starting a picker.
+        if active { await scan?.value }
+    }
     private func start(_ r: FolderRequest, url: URL) {
         phase = .processing; message = "正在检查目录授权和项目文件"
         let lease = selection

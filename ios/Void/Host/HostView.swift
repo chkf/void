@@ -3,8 +3,14 @@ import SwiftUI
 private enum Panel: Hashable, Identifiable {
     case create, manage
     case settings(UUID?)
-    case diagnostics(UUID?)
     var id: Self { self }
+}
+
+private struct ProjectDestination: Hashable {
+    let record: ProjectRecord
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.record.id == rhs.record.id }
+    func hash(into hasher: inout Hasher) { hasher.combine(record.id) }
 }
 
 private struct ObservedFolder: Equatable {
@@ -22,7 +28,8 @@ struct HostView: View {
     @State private var panel: Panel?
     @State private var projectName = ""
     @State private var template = ProjectTemplate.swiftUI
-    @State private var projectPath: [UUID] = []
+    @State private var projectPath: [ProjectDestination] = []
+    @State private var visibleLocalScan: UUID?
     @State private var previewProblemDismissed = false
 
     var body: some View {
@@ -31,10 +38,9 @@ struct HostView: View {
             if hostOwnsScreen {
                 NavigationStack(path: Binding(get: { projectPath }, set: navigate)) {
                     library
-                        .navigationDestination(for: UUID.self) { id in
-                            if let record = model.current, record.id == id {
-                                projectDetails(record)
-                            }
+                        .navigationDestination(for: ProjectDestination.self) { destination in
+                            let record = model.current.flatMap { $0.id == destination.record.id ? $0 : nil }
+                            projectDetails(record ?? destination.record)
                         }
                 }
             }
@@ -65,7 +71,9 @@ struct HostView: View {
             panel = destination == .management ? .manage : .settings(id)
         })
         .onChange(of: model.current?.id, initial: true) { _, id in
-            projectPath = id.map { [$0] } ?? []
+            if projectPath.last?.record.id != id {
+                projectPath = model.current.map { [ProjectDestination(record: $0)] } ?? []
+            }
             previewProblemDismissed = false
         }
         .onChange(of: model.busy ? nil : model.problem) { previewProblemDismissed = false }
@@ -98,7 +106,6 @@ struct HostView: View {
                     .navigationTitle("创建项目")
                     .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { panel = nil } } }
                 }
-            case .diagnostics(let request): NavigationStack { DirectoryDiagnosticView(request:request).toolbar { Button("完成") { panel = nil } } }
             case .settings(let projectID):
                 NavigationStack {
                     Group {
@@ -135,10 +142,6 @@ struct HostView: View {
             if let message = model.recoveryMessage {
                 Section("上次操作中断") {
                     Text(verbatim: message).accessibilityIdentifier("preview.interrupted")
-                    if let request = model.interruptedRequestID {
-                        Button("上次预览诊断") { panel = .diagnostics(request) }
-                            .accessibilityIdentifier("preview.interruptedDetails")
-                    }
                 }
             }
             Section {
@@ -151,23 +154,22 @@ struct HostView: View {
                         #if DEBUG && targetEnvironment(simulator)
                         .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
                         #endif
-                    Button { begin(.local) } label: { Label("扫描本机项目", systemImage: "iphone") }
-                        .accessibilityIdentifier("host.local")
+                    localScanButton
                 }
-                .disabled(folders.active)
-                if let request = processingFolder { folderProgress(request) }
-                Button { panel = .diagnostics(nil) } label: {
-                    Label("目录诊断", systemImage: "list.bullet.rectangle")
-                }
+                .foregroundStyle(.primary)
+                .tint(.primary)
+                .disabled(folders.active && folders.request?.purpose != .local)
+                if let request = processingFolder, request.purpose != .local { folderProgress(request) }
             } footer: {
-                if folders.phase == .succeeded, folders.request?.origin == nil, model.current == nil {
+                if folders.phase == .succeeded, let request = folders.request,
+                   request.purpose != .local, request.origin == nil, model.current == nil {
                     Text(verbatim: folders.message).accessibilityIdentifier("folder.status")
                 }
             }
             if !model.records.isEmpty {
                 Section("最近项目") {
                     ForEach(model.records) { record in
-                        NavigationLink(value: record.id) {
+                        NavigationLink(value: ProjectDestination(record: record)) {
                             VStack(alignment: .leading) {
                                 Text(verbatim: record.name)
                                 if let template = record.pendingTemplate {
@@ -196,17 +198,41 @@ struct HostView: View {
         }
     }
 
-    private func navigate(_ path: [UUID]) {
+    private var localScanButton: some View {
+        let request = folders.request
+        let isLocal = request?.purpose == .local
+        let scanID = isLocal && folders.phase == .processing ? request?.id : nil
+        let showsProgress = scanID != nil && scanID == visibleLocalScan
+        return Button {
+            if showsProgress, let scanID { folders.cancel(scanID) }
+            else { begin(.local) }
+        } label: {
+            HStack {
+                Label(showsProgress ? "取消扫描" : "扫描本机项目", systemImage: "iphone")
+                Spacer()
+                if showsProgress { ProgressView().controlSize(.small).accessibilityHidden(true) }
+            }
+        }
+        .accessibilityIdentifier("host.local")
+        .accessibilityValue(isLocal && (folders.phase == .succeeded || showsProgress) ? folders.message : "")
+        .task(id: scanID) {
+            guard let scanID else { return }
+            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            guard folders.request?.id == scanID, folders.phase == .processing else { return }
+            visibleLocalScan = scanID
+        }
+    }
+
+    private func navigate(_ path: [ProjectDestination]) {
         guard hostOwnsScreen, projectPath != path else { return }
         projectPath = path
         Task {
-            guard projectPath == path, path.last != model.current?.id else { return }
-            if let id = path.last, let record = model.records.first(where: { $0.id == id }) {
-                await model.selectRecent(record)
-            } else if path.isEmpty {
+            guard projectPath == path, path.last?.record.id != model.current?.id else { return }
+            if let destination = path.last {
+                await model.selectRecent(destination.record)
+            } else {
                 await model.showLibrary()
             }
-            if projectPath == path { projectPath = model.current.map { [$0.id] } ?? [] }
         }
     }
 
@@ -242,6 +268,7 @@ struct HostView: View {
             }
         }
         .navigationTitle(record.name)
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) { ProjectSettingsButton() }
         }
@@ -347,8 +374,14 @@ struct HostView: View {
     }
 
     private func begin(_ purpose: FolderPurpose, afterSheet: Bool = false) {
-        _ = folders.begin(purpose,origin:model.current?.id,afterSheet:afterSheet)
-        if afterSheet { panel = nil }
+        let origin = model.current?.id
+        let source = panel
+        Task {
+            if purpose != .local { await folders.finishLocalScan() }
+            guard model.current?.id == origin, panel == source else { return }
+            let request = folders.begin(purpose, origin: origin, afterSheet: afterSheet)
+            if afterSheet && request.purpose == purpose { panel = nil }
+        }
     }
     private var cleanName: String { projectName.trimmingCharacters(in: .whitespacesAndNewlines) }
 }
@@ -467,7 +500,6 @@ private struct ManagementView: View {
             Text(verbatim: folders.message).font(.footnote).foregroundStyle(.secondary)
                 .accessibilityIdentifier("folder.reconnectResult")
         }
-        NavigationLink("目录诊断") { DirectoryDiagnosticView() }
     }
 }
 

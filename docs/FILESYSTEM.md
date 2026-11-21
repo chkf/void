@@ -11,7 +11,13 @@
 
 宿主在同一次目录协调中直接读取 app/manifest.json 和它声明的入口。其余源码以实际子目录名构成相对键，扫描 app/、assets/ 和 modules/。点号开头的临时项会跳过，普通文件名即使带隐藏属性也会读取。遇到读取拒绝、文件未下载、JSON 损坏或路径含符号链接时，界面会显示对应阶段和原因。
 
-项目列表和子应用「设置 → 项目管理」的恢复操作都可打开「目录诊断」。同一请求 ID 的 picker.present、picker.didPick 和 picker.dismiss 分别表示选择器已显示、宿主收到选中回调、选择器已关闭。随后查看 grant.begin、grant.accessor、scan.begin、scan.end 和最终 result。每条记录含耗时，失败时保留系统错误域和代码。选择回调只记录数量和目录末级名。最近 180 条保存在宿主内，重启后可查看。
+目录诊断由宿主在后台记录。Agent 可在模拟器的统一日志中按子系统和类别查询，也可从导出的应用数据容器读取 `Library/Preferences/<实际 Bundle ID>.plist` 的 `void.directoryDiagnostics.v1`。该键保存最近 180 条事件的 JSON 数据，重启后仍可读取。
+
+```sh
+xcrun simctl spawn booted log show --last 15m --info --predicate 'subsystem == "app.chkf.void" AND category == "directory"'
+```
+
+按同一请求 ID 查找 `picker.present`、`picker.didPick`、`picker.dismiss`，可依次核对选择器显示、收到选择回调和关闭的时间。随后查看 `grant.begin`、`grant.accessor`、`scan.begin`、`scan.end` 和最终结果。每条记录含耗时，失败时保留系统错误域和代码。选择回调记录数量和目录末级名。[测试脚本的读取示例](../scripts/ios-build.sh)
 
 每次目录读取操作最多等待 20 秒。「取消」和超时都会调用系统文件协调器的取消方法。已经进入服务商读取的工作可以晚些返回，宿主会丢弃过期结果。[Apple 文件协调取消语义](https://developer.apple.com/documentation/foundation/nsfilecoordinator/cancel())
 

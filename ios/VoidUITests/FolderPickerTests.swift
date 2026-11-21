@@ -113,6 +113,7 @@ final class FolderPickerTests: XCTestCase {
         let row = app.buttons["recent." + fixture]
         XCTAssertTrue(app.revealRecentProject(row), app.debugDescription)
         row.tap()
+        XCTAssertTrue(app.navigationBars[fixture].exists, app.debugDescription)
         let preview = app.buttons["project.preview"]
         XCTAssertTrue(preview.waitForExistence(timeout:12),app.debugDescription)
         XCTAssertTrue(app.navigationBars[fixture].buttons["project.settings"].isHittable)
@@ -123,13 +124,19 @@ final class FolderPickerTests: XCTestCase {
     }
 
     private func scanDocumentsAndPreview() {
-        app.buttons["host.local"].tap()
-        let status = app.staticTexts["folder.status"]
-        let found = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label BEGINSWITH %@", "已找到"),object:status)
-        XCTAssertEqual(XCTWaiter.wait(for:[found],timeout:45),.completed,app.debugDescription)
+        let scan = app.buttons["host.local"]
+        let scanFrame = scan.frame
+        XCTAssertFalse(app.buttons["目录诊断"].exists)
+        scan.tap()
+        XCTAssertTrue(app.waitForLocalScan(), app.debugDescription)
         let firstProject = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recent.")).firstMatch
         XCTAssertTrue(firstProject.exists)
-        XCTAssertLessThan(status.frame.maxY, firstProject.frame.midY)
+        let firstFrame = firstProject.frame
+        scan.tap()
+        XCTAssertTrue(app.waitForLocalScan(), app.debugDescription)
+        XCTAssertEqual(scan.frame, scanFrame)
+        XCTAssertEqual(firstProject.frame, firstFrame)
+        XCTAssertFalse(app.staticTexts["folder.status"].exists)
         openFixtureOverview()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
     }
@@ -258,21 +265,17 @@ final class FolderPickerTests: XCTestCase {
         app.launchEnvironment["VOID_TEST_SLOW_FIRST_FRAME"] = "1"
         openLibrary()
         app.buttons["host.local"].tap()
-        let status = app.staticTexts["folder.status"]
-        let found = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label BEGINSWITH %@", "已找到"),object:status)
-        XCTAssertEqual(XCTWaiter.wait(for:[found],timeout:45),.completed,app.debugDescription)
+        XCTAssertTrue(app.waitForLocalScan(), app.debugDescription)
         openFixtureOverview()
         let stage = app.staticTexts["preview.stage"]
         let frame = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@", "正在等待项目首屏"),object:stage)
         XCTAssertEqual(XCTWaiter.wait(for:[frame],timeout:100),.completed,app.debugDescription)
         app.terminate()
         app.launch()
-        XCTAssertTrue(app.staticTexts["preview.interrupted"].waitForExistence(timeout:30),app.debugDescription)
-        app.buttons["preview.interruptedDetails"].tap()
-        XCTAssertTrue(app.navigationBars["上次预览诊断"].waitForExistence(timeout:10),app.debugDescription)
-        let requestLine = app.staticTexts.matching(NSPredicate(format:"label CONTAINS %@", "preview.firstFrame")).firstMatch
-        XCTAssertTrue(requestLine.waitForExistence(timeout:6),app.debugDescription)
-        app.buttons["完成"].tap()
+        let interruption = app.staticTexts["preview.interrupted"]
+        XCTAssertTrue(interruption.waitForExistence(timeout:30),app.debugDescription)
+        XCTAssertTrue(interruption.label.contains(fixture))
+        XCTAssertFalse(app.buttons["上次预览诊断"].exists)
         let record = app.buttons["recent." + fixture]
         XCTAssertTrue(record.exists)
         openFixtureOverview()

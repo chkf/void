@@ -102,28 +102,3 @@ struct FolderPickerPresenter: UIViewControllerRepresentable {
         }
     }
 }
-
-struct DirectoryDiagnosticView: View {
-    var request: UUID? = nil
-    @State private var rows = DirectoryJournal.shared.recent()
-    private var visible: [DirectoryEvent] {
-        guard let request else { return rows }
-        return rows.filter { $0.request == request || $0.purpose == "iOS" }
-    }
-    var body: some View {
-        ScrollView {
-            VStack(alignment:.leading,spacing:8) {
-                ForEach(visible.reversed()) { row in
-                    Text(verbatim:row.line).font(.caption.monospaced()).frame(maxWidth:.infinity,alignment:.leading)
-                }
-            }.padding().textSelection(.enabled)
-        }.navigationTitle(request == nil ? "目录诊断" : "上次预览诊断")
-            .toolbar {
-                if let id = request ?? rows.last(where:{ ["picker.request","local.request","preview.begin","workspace.begin"].contains($0.stage) })?.request ?? rows.last?.request {
-                    let lines = rows.filter { $0.request == id || $0.purpose == "iOS" }.map(\.line).joined(separator:"\n")
-                    ShareLink(item:lines) { Label("分享这次目录诊断",systemImage:"square.and.arrow.up") }
-                }
-            }
-            .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in rows = DirectoryJournal.shared.recent() }
-    }
-}

@@ -27,11 +27,14 @@ extension XCUIApplication {
         XCTFail("设置中找不到项目管理\n" + debugDescription, file: file, line: line)
     }
 
+    func waitForLocalScan() -> Bool {
+        let found = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "已找到"),
+                                              object: buttons["host.local"])
+        return XCTWaiter.wait(for: [found], timeout: 45) == .completed
+    }
+
     @MainActor func revealScannedProject(_ row: XCUIElement) -> Bool {
-        let status = staticTexts["folder.status"]
-        let found = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", "已找到"), object: status)
-        guard XCTWaiter.wait(for: [found], timeout: 45) == .completed else { return false }
-        return revealRecentProject(row)
+        waitForLocalScan() && revealRecentProject(row)
     }
 
     func revealRecentProject(_ row: XCUIElement) -> Bool {

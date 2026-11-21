@@ -17,16 +17,43 @@ final class SafeAreaTests: XCTestCase {
         }
     }
 
-    private func open(_ app: XCUIApplication) throws {
+    private func open(_ app: XCUIApplication, darkMode: Bool) throws {
         app.launchArguments = ["-void.openProjectListOnLaunch", "YES"]
         app.launch()
         app.buttons["host.local"].tap()
         let name = try XCTUnwrap(ProcessInfo.processInfo.environment["VOID_SAFE_AREA_PROJECT"])
         let row = app.buttons["recent." + name]
-        guard app.revealScannedProject(row) else { throw NSError(domain: "Missing fixture " + name, code: 1) }
+        XCTAssertTrue(app.waitForLocalScan(), app.debugDescription)
+        try checkLibraryActions(app, darkMode: darkMode)
+        guard app.revealRecentProject(row) else { throw NSError(domain: "Missing fixture " + name, code: 1) }
         row.tap()
+        XCTAssertTrue(app.navigationBars[name].exists, app.debugDescription)
         app.buttons["project.preview"].tap()
         XCTAssertTrue(app.staticTexts["Sample screen"].waitForExistence(timeout: 100), app.debugDescription)
+    }
+
+    private func checkLibraryActions(_ app: XCUIApplication, darkMode: Bool) throws {
+        let displayImage = display(darkMode ? "Library-Dark" : "Library-Light")
+        let image = try XCTUnwrap(displayImage.image.cgImage)
+        let scale = CGFloat(image.width) / app.frame.width
+        let area = app.buttons["host.create"].frame.union(app.buttons["host.local"].frame)
+        let rows = try XCTUnwrap(image.cropping(to: area.applying(CGAffineTransform(scaleX: scale, y: scale))))
+        let strideBytes = rows.width * 4
+        var pixels = [UInt8](repeating: 0, count: strideBytes * rows.height)
+        try pixels.withUnsafeMutableBytes { bytes in
+            let context = try XCTUnwrap(CGContext(data: bytes.baseAddress, width: rows.width, height: rows.height,
+                bitsPerComponent: 8, bytesPerRow: strideBytes, space: try XCTUnwrap(CGColorSpace(name: CGColorSpace.sRGB)),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+            context.draw(rows, in: CGRect(x: 0, y: 0, width: CGFloat(rows.width), height: CGFloat(rows.height)))
+        }
+        var ink = 0, blue = 0
+        for i in stride(from: 0, to: pixels.count, by: 4) {
+            let r = Int(pixels[i]), g = Int(pixels[i + 1]), b = Int(pixels[i + 2])
+            if darkMode ? min(r, g, b) > 220 : max(r, g, b) < 40 { ink += 1 }
+            if b - r > 64 && b - g > 24 { blue += 1 }
+        }
+        XCTAssertGreaterThan(ink, 100)
+        XCTAssertLessThan(blue, 20)
     }
 
     @discardableResult
@@ -78,7 +105,7 @@ final class SafeAreaTests: XCTestCase {
         let device = XCUIDevice.shared, app = XCUIApplication()
         device.orientation = .portrait
         try await systemAppearance("dark")
-        try open(app)
+        try open(app, darkMode: true)
         try capture("Dark-Opened", app, above: "Sample screen", rgb: dark)
         let expanded = app.staticTexts["Sample screen"].firstMatch.frame
         let input = app.textFields["Draft"]
@@ -139,7 +166,7 @@ final class SafeAreaTests: XCTestCase {
         let device = XCUIDevice.shared, app = XCUIApplication()
         device.orientation = .portrait
         try await systemAppearance("light")
-        try open(app)
+        try open(app, darkMode: false)
         try capture("Light-Opened", app, above: "Sample screen", rgb: light)
         try await systemAppearance("dark")
         try capture("System-Dark", app, above: "Sample screen", rgb: dark)

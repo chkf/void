@@ -68,6 +68,35 @@ final class FolderRequestTests: XCTestCase {
     }
 
     @MainActor
+    func testImportCanFollowALocalScanThatHasStartedSaving() async throws {
+        let flow = FolderRequests()
+        let saving = expectation(description: "本机扫描开始保存")
+        var finishWrite: CheckedContinuation<Void, Never>?
+        flow.process = { request, _ in
+            try request.commit.begin()
+            await withCheckedContinuation { finishWrite = $0; saving.fulfill() }
+            return "已登记"
+        }
+        let scan = flow.begin(.local, origin: nil)
+        await fulfillment(of: [saving], timeout: 3)
+        let finish = try XCTUnwrap(finishWrite)
+        let picker = Task {
+            await flow.finishLocalScan()
+            return flow.begin(.importFolder, origin: nil)
+        }
+        await Task.yield()
+        XCTAssertEqual(flow.request?.id, scan.id)
+        finish.resume()
+        let next = await picker.value
+        XCTAssertNotEqual(next.id, scan.id)
+        XCTAssertEqual(next.purpose, .importFolder)
+        XCTAssertEqual(flow.phase, .presenting)
+        let result = DirectoryJournal.shared.recent().last { $0.request == scan.id }
+        XCTAssertEqual(result?.stage, "local.result")
+        XCTAssertEqual(result?.detail, "OK")
+    }
+
+    @MainActor
     func testProjectSwitchAfterCommitWaitsForActualSaveResult() async throws {
         let flow = FolderRequests(), project = UUID()
         var finishWrite: CheckedContinuation<Void,Never>?

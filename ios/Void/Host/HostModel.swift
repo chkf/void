@@ -48,7 +48,6 @@ final class HostModel: ObservableObject {
     private let products: ProductStore
     private let previewRecovery: PreviewRecovery
     private var recoveredAttempt: PreviewAttempt?
-    var interruptedRequestID: UUID? { recoveredAttempt?.request }
     private let usesAppCatalog: Bool
     private let storage: URL
     private var networkHosts: [String] = []
@@ -97,7 +96,7 @@ final class HostModel: ObservableObject {
                 recoveryMessage = "「" + original.name + "」上次在「" + stage + "」时中断。"
                 DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
             } else if usesAppCatalog, let (id,stage) = PreviewRecovery.interruptedLocalScan(DirectoryJournal.shared.recent()) {
-                recoveryMessage = "上次本机目录检查中断，可在目录诊断查看最后一步。"
+                recoveryMessage = "上次扫描本机项目时中断，可以重新扫描。"
                 DirectoryTrace("local",id:id).event("local.interrupted",stage)
             } else if !UserDefaults.standard.bool(forKey: "void.openProjectListOnLaunch"),
                       let id = catalog.last, let record = records.first(where:{ $0.id == id }) {

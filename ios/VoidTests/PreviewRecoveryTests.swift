@@ -67,6 +67,9 @@ final class PreviewRecoveryTests: XCTestCase {
         XCTAssertNil(host.current)
         XCTAssertEqual(host.records.map(\.id),[original.id])
         XCTAssertTrue(host.recoveryMessage?.contains("正在编译项目") == true)
+        let diagnostic = DirectoryJournal().recent().last { $0.request == active }
+        XCTAssertEqual(diagnostic?.stage, "preview.interrupted")
+        XCTAssertEqual(diagnostic?.detail, PreviewStage.compile.rawValue)
         let pending = try await recovery.pending()
         XCTAssertEqual(pending?.request,active)
         let window = try await PreviewTestWindow(host)
