@@ -57,7 +57,7 @@ final class FolderPickerTests: XCTestCase {
         let gone = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:openButton)
         XCTAssertEqual(XCTWaiter.wait(for:[gone],timeout:15),.completed,app.debugDescription)
     }
-    private func cancelPicker() {
+    private func cancelPicker(returningTo control: XCUIElement) {
         // Drag the actual UIKit grabber. Files exposes an out-of-process Cancel element
         // whose accessibility action has itself timed out on the CI simulator.
         let handle = named(["Sheet Grabber","表单抓取按钮"],in:app.buttons)
@@ -70,9 +70,11 @@ final class FolderPickerTests: XCTestCase {
         top.press(forDuration:0.15,thenDragTo:bottom)
         let gone = XCTNSPredicateExpectation(predicate:NSPredicate(format:"exists == false"),object:handle)
         XCTAssertEqual(XCTWaiter.wait(for:[gone],timeout:25),.completed,app.debugDescription)
-        let done = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@","已取消目录操作"),object:app.staticTexts["folder.status"])
-        XCTAssertEqual(XCTWaiter.wait(for:[done],timeout:12),.completed,app.debugDescription)
-        app.buttons["folder.clear"].tap()
+        let ready = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true AND enabled == true AND hittable == true"), object: control)
+        XCTAssertEqual(XCTWaiter.wait(for: [ready], timeout: 12), .completed, app.debugDescription)
+        XCTAssertFalse(app.staticTexts["folder.status"].exists)
+        XCTAssertFalse(app.buttons["folder.clear"].exists)
+        XCTAssertFalse(app.alerts.firstMatch.exists)
     }
 
     private func openLibrary(localFixture: Bool = true) {
@@ -99,9 +101,8 @@ final class FolderPickerTests: XCTestCase {
     }
     private func importAndPreview() {
         app.buttons["host.import"].tap(); selectExternalDirectory()
-        let status = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@","已找到「我的项目」"),object:app.staticTexts["folder.status"])
-        XCTAssertEqual(XCTWaiter.wait(for:[status],timeout:25),.completed,app.debugDescription)
-        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:95),app.debugDescription)
+        XCTAssertFalse(app.staticTexts["folder.status"].exists)
     }
     private func reconnect() {
         app.openProjectManagement()
@@ -110,10 +111,13 @@ final class FolderPickerTests: XCTestCase {
 
     private func openFixtureOverview() {
         let row = app.buttons["recent." + fixture]
-        XCTAssertTrue(row.waitForExistence(timeout:12),app.debugDescription)
+        XCTAssertTrue(app.revealRecentProject(row), app.debugDescription)
         row.tap()
         let preview = app.buttons["project.preview"]
         XCTAssertTrue(preview.waitForExistence(timeout:12),app.debugDescription)
+        XCTAssertTrue(app.navigationBars[fixture].buttons["project.settings"].isHittable)
+        XCTAssertFalse(app.buttons["project.library"].exists)
+        XCTAssertFalse(app.staticTexts["folder.status"].exists)
         XCTAssertFalse(app.staticTexts["preview.stage"].exists)
         preview.tap()
     }
@@ -123,6 +127,9 @@ final class FolderPickerTests: XCTestCase {
         let status = app.staticTexts["folder.status"]
         let found = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label BEGINSWITH %@", "已找到"),object:status)
         XCTAssertEqual(XCTWaiter.wait(for:[found],timeout:45),.completed,app.debugDescription)
+        let firstProject = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recent.")).firstMatch
+        XCTAssertTrue(firstProject.exists)
+        XCTAssertLessThan(status.frame.maxY, firstProject.frame.midY)
         openFixtureOverview()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
     }
@@ -229,19 +236,22 @@ final class FolderPickerTests: XCTestCase {
         repeat {
             if let allow = try pickerLabels().first(where:{ ["allow","允许"].contains($0.text) }) { coordinate(allow).tap(); break }
         } while Date() < end
-        let selected = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@","已找到「" + fixture + "」"),
-                                                  object:app.staticTexts["folder.status"])
-        XCTAssertEqual(XCTWaiter.wait(for:[selected],timeout:35),.completed,app.debugDescription)
-        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:85),app.debugDescription)
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:120),app.debugDescription)
+        XCTAssertFalse(app.staticTexts["folder.status"].exists)
+        app.openProjectManagement()
+        app.buttons["host.switch"].tap()
+        XCTAssertTrue(app.buttons["recent." + fixture].waitForExistence(timeout:12),app.debugDescription)
     }
 
     func testSystemOpenImportsPreviewsAndReconnectsOriginal() {
         openLibrary(localFixture:false)
         importAndPreview()
         reconnect(); selectExternalDirectory()
-        expectation(for:NSPredicate(format:"label == %@", "已核验原项目目录"),evaluatedWith:app.staticTexts["folder.status"])
-        waitForExpectations(timeout:25)
-        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:30),app.debugDescription)
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:55),app.debugDescription)
+        app.openProjectManagement()
+        let result = app.staticTexts["folder.reconnectResult"]
+        XCTAssertTrue(result.waitForExistence(timeout:12),app.debugDescription)
+        XCTAssertEqual(result.label, "已核验原项目目录")
     }
 
     func testInterruptedFirstFrameReturnsToOriginalProjectList() {
@@ -271,10 +281,14 @@ final class FolderPickerTests: XCTestCase {
 
     func testSystemDismissalAndInterruptionKeepPreviousProject() {
         openLibrary()
-        app.buttons["host.import"].tap(); cancelPicker()
+        app.buttons["host.import"].tap()
+        cancelPicker(returningTo: app.buttons["host.local"])
         scanDocumentsAndPreview()
-        reconnect(); cancelPicker()
-        XCTAssertTrue(app.switches["显示问候"].firstMatch.exists,app.debugDescription)
+        reconnect()
+        let returnFromSettings = app.buttons["返回"]
+        cancelPicker(returningTo: returnFromSettings)
+        returnFromSettings.tap()
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:8),app.debugDescription)
         reconnect()
         XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
         app.terminate(); app.launch()

@@ -25,9 +25,10 @@ final class FolderRequests: ObservableObject {
     @Published private(set) var message = ""
     private var selection: SelectionLease?
     private var task: Task<Void,Never>?
-    private var pickerClosed = false
+    @Published private var pickerClosed = false
     private var presented = false
     var active: Bool { [.presenting,.selected,.processing].contains(phase) }
+    var failureMessage: String? { phase == .failed && pickerClosed ? message : nil }
     var process: ((FolderRequest,URL) async throws -> String)?
 
     @discardableResult
@@ -78,9 +79,9 @@ final class FolderRequests: ObservableObject {
         finish(r,.cancelled,"已取消目录操作",error:CancellationError())
     }
     func changeProject(to id: UUID?) {
-        guard let request, request.origin != id else { return }
-        if active { cancel(request.id) }
-        else { clearResult() }
+        guard let request else { return }
+        if !active { clearResult() }
+        else if request.origin != id { cancel(request.id) }
     }
     private func start(_ r: FolderRequest, url: URL) {
         phase = .processing; message = "正在检查目录授权和项目文件"

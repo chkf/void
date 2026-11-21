@@ -1,5 +1,4 @@
 import SwiftUI
-import UniformTypeIdentifiers
 
 private enum Panel: Hashable, Identifiable {
     case create, manage
@@ -15,11 +14,6 @@ private struct ObservedFolder: Equatable {
     let monitor: Bool
 }
 
-private struct ProjectTabsKey: PreferenceKey {
-    static let defaultValue = false
-    static func reduce(value: inout Bool, nextValue: () -> Bool) { value = value || nextValue() }
-}
-
 struct HostView: View {
     @ObservedObject var model: HostModel
     @ObservedObject var folders: FolderRequests
@@ -28,151 +22,54 @@ struct HostView: View {
     @State private var panel: Panel?
     @State private var projectName = ""
     @State private var template = ProjectTemplate.swiftUI
-    @State private var projectTabs = false
+    @State private var projectPath: [UUID] = []
+    @State private var previewProblemDismissed = false
 
     var body: some View {
         ZStack {
-            if let record = model.current {
-                ZStack {
-                    Color(uiColor:.systemBackground)
-                    switch model.screen {
-                    case .overview:
-                        NavigationStack {
-                            List {
-                                LabeledContent("版本",value:record.version)
-                                Button {
-                                    model.refresh(force:true,remember:true)
-                                } label: {
-                                    Label("预览项目",systemImage:"play.fill")
-                                }.disabled(model.busy).accessibilityIdentifier("project.preview")
-                                if let problem = model.problem {
-                                    Section("预览提示") { Text(verbatim:problem).textSelection(.enabled) }
-                                }
-                            }.navigationTitle(record.name)
-                        }
-                    case .workspace(let template):
-                        NavigationStack {
-                            List {
-                                Section {
-                                    LabeledContent("项目模板", value: template.title)
-                                    VStack(alignment: .leading, spacing: 5) {
-                                        Text("编辑这个入口文件")
-                                        Text(verbatim: template.entry).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                                    }
-                                    Button { model.refresh(force: true) } label: {
-                                        Label(model.busy ? "正在预览" : "预览项目", systemImage: "play.fill")
-                                    }.disabled(model.busy).accessibilityIdentifier("project.preview")
-                                } header: { Text("开始开发") } footer: {
-                                    Text("用编辑器打开项目文件夹。保存页面后，点「预览项目」查看效果。")
-                                }
-                                if let problem = model.problem {
-                                    Section("预览提示") { Text(verbatim: problem).textSelection(.enabled) }
-                                }
-                            }
-                            .navigationTitle(record.name)
-                        }
-                    case .swiftUI(let id): ProjectContentView(projectName: record.name).id(id)
-                    case .script: Color.clear
-                    case nil:
-                        if let entry = model.waitingEntry {
-                            NavigationStack {
-                                ContentUnavailableView {
-                                    Label("等待第一个页面", systemImage:"doc.badge.plus")
-                                } description: {
-                                    Text("请在项目文件夹中创建 " + entry + "。保存后会自动打开。")
-                                } actions: {
-                                    Button("重新检查") { model.refresh(force:true) }
-                                }.navigationTitle(record.name)
-                            }
-                        } else if let problem = model.problem {
-                            ContentUnavailableView("项目未能打开", systemImage: "folder.badge.questionmark", description: Text(verbatim: problem))
-                        } else { ProgressView("正在打开" + record.name) }
-                    }
-                    ForEach(mountedPages, id:\.id) { page in
-                        let visible = page === (model.presentingPage ?? model.page)
-                        RunningPage(page: page, visible: visible, topControlsVisible: projectTabs && showsProjectControls)
-                            .zIndex(visible ? 1 : -1)
-                            .allowsHitTesting(visible)
-                            .accessibilityHidden(!visible)
-                    }
-                }
-                .overlay(alignment:.bottomTrailing) {
-                    if let compiler = model.compiler {
-                        // A rebuild starts its worker while the previous page is on screen.
-                        // Keep the compiler attached with a visible viewport until it replies.
-                        ProjectSurface(compiler:compiler).id(ObjectIdentifier(compiler))
-                            .frame(width:4,height:4).clipped().allowsHitTesting(false).accessibilityHidden(true)
-                    }
-                }
-                .safeAreaInset(edge: projectTabs ? .top : .bottom, spacing: 0) {
-                    if showsProjectControls {
-                        projectControls
-                    }
-                }
-                .background { nativeProjectBackground }
-                .environment(\.openProjectSettings, { destination in
-                    guard panel == nil, model.current?.id == record.id else { return }
-                    panel = destination == .management ? .manage : .settings(record.id)
-                })
-            } else {
-                NavigationStack {
-                    List {
-                        if let recoveryMessage = model.recoveryMessage {
-                            Section("上次操作中断") {
-                                Text(verbatim:recoveryMessage).accessibilityIdentifier("preview.interrupted")
-                                if let request = model.interruptedRequestID {
-                                    Button("上次预览诊断") { panel = .diagnostics(request) }
-                                        .accessibilityIdentifier("preview.interruptedDetails")
-                                }
+            Color(uiColor: .systemBackground)
+            if hostOwnsScreen {
+                NavigationStack(path: Binding(get: { projectPath }, set: navigate)) {
+                    library
+                        .navigationDestination(for: UUID.self) { id in
+                            if let record = model.current, record.id == id {
+                                projectDetails(record)
                             }
                         }
-                        Section {
-                            Button { projectName = ""; template = .swiftUI; panel = .create } label: { Label("创建项目", systemImage: "plus") }
-                                .accessibilityIdentifier("host.create")
-                            Button { begin(.importFolder) } label: { Label("导入文件夹", systemImage:"folder") }
-                                .accessibilityIdentifier("host.import")
-                                #if DEBUG && targetEnvironment(simulator)
-                                .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
-                                #endif
-                            Button { begin(.local) } label: { Label("扫描本机项目",systemImage:"iphone") }
-                                .accessibilityIdentifier("host.local")
-                            Button { panel = .diagnostics(nil) } label: { Label("目录诊断",systemImage:"list.bullet.rectangle") }
-                        }
-                        if !model.records.isEmpty {
-                            Section("最近项目") { ForEach(model.records) { record in
-                                Button { Task { await model.selectRecent(record) } } label: {
-                                    VStack(alignment: .leading) {
-                                        Text(verbatim: record.name)
-                                        if let template = record.pendingTemplate {
-                                            Text(template.title + " · 待预览").font(.caption).foregroundStyle(.secondary)
-                                        } else if let date = record.opened {
-                                            Text(date, style: .relative).font(.caption).foregroundStyle(.secondary)
-                                        }
-                                    }
-                                }.accessibilityIdentifier("recent." + record.name)
-                                    .swipeActions(edge: .trailing) {
-                                        Button(role: .destructive) { Task { await model.removeRecent(record.id) } } label: {
-                                            Label("移除记录", systemImage: "trash")
-                                        }.accessibilityIdentifier("recent.remove")
-                                    }
-                            } }
-                        }
-                    }
-                    .navigationTitle("项目")
-                    .toolbar {
-                        Button { panel = .settings(nil) } label: { Label("设置", systemImage: "gearshape") }
-                            .accessibilityIdentifier("host.settings")
-                    }
                 }
             }
-        }
-        .onPreferenceChange(ProjectTabsKey.self) { projectTabs = $0 }
-        .background { FolderPickerPresenter(flow:folders).frame(width:0,height:0) }
-        .safeAreaInset(edge:.bottom, spacing: 0) {
-            if folders.phase != .idle && (!projectTabs || model.current == nil) {
-                folderFeedback.padding(.horizontal).padding(.vertical,6).background(.bar)
+            if let record = model.current, case .swiftUI(let id) = model.screen {
+                ProjectContentView(projectName: record.name).id(id)
+            }
+            ForEach(mountedPages, id: \.id) { page in
+                let visible = page === (model.presentingPage ?? model.page)
+                RunningPage(page: page, visible: visible, topControlsVisible: showsPreviewFeedback)
+                    .zIndex(visible ? 1 : -1)
+                    .allowsHitTesting(visible)
+                    .accessibilityHidden(!visible)
             }
         }
+        .overlay(alignment: .bottomTrailing) {
+            if let compiler = model.compiler {
+                // WebKit needs a window and a nonempty viewport while it prepares the next page.
+                ProjectSurface(compiler: compiler).id(ObjectIdentifier(compiler))
+                    .frame(width: 4, height: 4).clipped().allowsHitTesting(false).accessibilityHidden(true)
+            }
+        }
+        .safeAreaInset(edge: .top, spacing: 0) {
+            if showsPreviewFeedback { previewFeedback }
+        }
+        .background { nativeProjectBackground }
+        .environment(\.openProjectSettings, { [id = model.current?.id] destination in
+            guard panel == nil, let id, model.current?.id == id else { return }
+            panel = destination == .management ? .manage : .settings(id)
+        })
+        .onChange(of: model.current?.id, initial: true) { _, id in
+            projectPath = id.map { [$0] } ?? []
+            previewProblemDismissed = false
+        }
+        .onChange(of: model.busy ? nil : model.problem) { previewProblemDismissed = false }
+        .background { FolderPickerPresenter(flow: folders).frame(width: 0, height: 0) }
         .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in folders.updateProgress() }
         .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)) { _ in model.memoryWarning() }
         .task { await model.load() }
@@ -197,7 +94,9 @@ struct HostView: View {
                             }.accessibilityIdentifier("project.createLocal")
                             Button("选择其他文件夹…") { begin(.create(cleanName,template),afterSheet:true) }
                         }.disabled(cleanName.isEmpty)
-                    }.navigationTitle("创建项目").toolbar { Button("取消") { panel = nil } }
+                    }
+                    .navigationTitle("创建项目")
+                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { panel = nil } } }
                 }
             case .diagnostics(let request): NavigationStack { DirectoryDiagnosticView(request:request).toolbar { Button("完成") { panel = nil } } }
             case .settings(let projectID):
@@ -217,15 +116,157 @@ struct HostView: View {
             case .manage: NavigationStack { management }
             }
         }
-        .alert("项目操作失败", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
-            Button("好") { model.notice = nil }
-        } message: { Text(verbatim: model.notice ?? "") }
+        .alert(model.notice == nil ? "目录操作失败" : "项目操作失败", isPresented: Binding(
+            get: { alertMessage != nil },
+            set: { if !$0 { dismissAlert() } }
+        ), presenting: alertMessage) { _ in
+            Button("好", role: .cancel) {}
+        } message: { Text(verbatim: $0) }
     }
 
     private var management: some View {
-        ManagementView(model: model, close: { panel = nil }, reconnect: {
+        ManagementView(model: model, folders: folders, close: { panel = nil }, reconnect: {
             if let id = model.current?.id { begin(.reconnect(id), afterSheet: true) }
         })
+    }
+
+    private var library: some View {
+        List {
+            if let message = model.recoveryMessage {
+                Section("上次操作中断") {
+                    Text(verbatim: message).accessibilityIdentifier("preview.interrupted")
+                    if let request = model.interruptedRequestID {
+                        Button("上次预览诊断") { panel = .diagnostics(request) }
+                            .accessibilityIdentifier("preview.interruptedDetails")
+                    }
+                }
+            }
+            Section {
+                Group {
+                    Button { projectName = ""; template = .swiftUI; panel = .create } label: {
+                        Label("创建项目", systemImage: "plus")
+                    }.accessibilityIdentifier("host.create")
+                    Button { begin(.importFolder) } label: { Label("导入文件夹", systemImage: "folder") }
+                        .accessibilityIdentifier("host.import")
+                        #if DEBUG && targetEnvironment(simulator)
+                        .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
+                        #endif
+                    Button { begin(.local) } label: { Label("扫描本机项目", systemImage: "iphone") }
+                        .accessibilityIdentifier("host.local")
+                }
+                .disabled(folders.active)
+                if let request = processingFolder { folderProgress(request) }
+                Button { panel = .diagnostics(nil) } label: {
+                    Label("目录诊断", systemImage: "list.bullet.rectangle")
+                }
+            } footer: {
+                if folders.phase == .succeeded, folders.request?.origin == nil, model.current == nil {
+                    Text(verbatim: folders.message).accessibilityIdentifier("folder.status")
+                }
+            }
+            if !model.records.isEmpty {
+                Section("最近项目") {
+                    ForEach(model.records) { record in
+                        NavigationLink(value: record.id) {
+                            VStack(alignment: .leading) {
+                                Text(verbatim: record.name)
+                                if let template = record.pendingTemplate {
+                                    Text(template.title + " · 待预览").font(.caption).foregroundStyle(.secondary)
+                                } else if let date = record.opened {
+                                    Text(date, style: .relative).font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                        .accessibilityIdentifier("recent." + record.name)
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) { Task { await model.removeRecent(record.id) } } label: {
+                                Label("移除记录", systemImage: "trash")
+                            }.accessibilityIdentifier("recent.remove")
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("项目")
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { panel = .settings(nil) } label: { Label("设置", systemImage: "gearshape") }
+                    .accessibilityIdentifier("host.settings")
+            }
+        }
+    }
+
+    private func navigate(_ path: [UUID]) {
+        guard hostOwnsScreen, projectPath != path else { return }
+        projectPath = path
+        Task {
+            guard projectPath == path, path.last != model.current?.id else { return }
+            if let id = path.last, let record = model.records.first(where: { $0.id == id }) {
+                await model.selectRecent(record)
+            } else if path.isEmpty {
+                await model.showLibrary()
+            }
+            if projectPath == path { projectPath = model.current.map { [$0.id] } ?? [] }
+        }
+    }
+
+    private func projectDetails(_ record: ProjectRecord) -> some View {
+        List {
+            if let template = record.pendingTemplate {
+                Section {
+                    LabeledContent("项目模板", value: template.title)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("编辑这个入口文件")
+                        Text(verbatim: template.entry).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+                    }
+                    previewAction(remember: false)
+                } header: { Text("开始开发") } footer: {
+                    Text("用编辑器打开项目文件夹。保存页面后，点「预览项目」查看效果。")
+                }
+            } else {
+                Section {
+                    LabeledContent("版本", value: record.version)
+                    previewAction(remember: true)
+                }
+            }
+            if let request = processingFolder { folderProgress(request) }
+            if let entry = model.waitingEntry, !model.busy {
+                Section("等待第一个页面") {
+                    Text("请在项目文件夹中创建 " + entry + (model.shouldMonitor ? "。保存后会自动打开。" : "，然后点「重新检查」。"))
+                        .textSelection(.enabled)
+                }
+            } else if let problem = model.problem, !model.busy {
+                Section(model.screen == nil ? "项目未能打开" : "预览提示") {
+                    Text(verbatim: problem).textSelection(.enabled).accessibilityIdentifier("preview.error")
+                }
+            }
+        }
+        .navigationTitle(record.name)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) { ProjectSettingsButton() }
+        }
+    }
+
+    @ViewBuilder private func previewAction(remember: Bool) -> some View {
+        if model.busy {
+            previewProgress
+        } else {
+            Button { model.refresh(force: true, remember: remember) } label: {
+                if model.waitingEntry == nil { Label("预览项目", systemImage: "play.fill") }
+                else { Label("重新检查", systemImage: "arrow.clockwise") }
+            }.accessibilityIdentifier("project.preview")
+        }
+    }
+
+    private var alertMessage: String? {
+        if let notice = model.notice { return notice }
+        guard panel == nil, let request = folders.request, request.origin == model.current?.id else { return nil }
+        return folders.failureMessage
+    }
+
+    private func dismissAlert() {
+        if model.notice != nil { model.notice = nil }
+        else if folders.failureMessage != nil { folders.clearResult() }
     }
 
     private var hostOwnsScreen: Bool {
@@ -233,8 +274,17 @@ struct HostView: View {
         return model.page == nil && model.presentingPage == nil
     }
 
-    private var showsProjectControls: Bool {
-        hostOwnsScreen || model.busy || model.scanStatus != nil || model.problem != nil || (projectTabs && folders.phase != .idle)
+    private var processingFolder: FolderRequest? {
+        guard folders.phase == .processing, let request = folders.request, request.origin == model.current?.id else { return nil }
+        return request
+    }
+
+    private var visiblePreviewProblem: String? {
+        model.busy || previewProblemDismissed ? nil : model.problem
+    }
+
+    private var showsPreviewFeedback: Bool {
+        !hostOwnsScreen && (model.busy || processingFolder != nil || visiblePreviewProblem != nil)
     }
 
     @ViewBuilder private var nativeProjectBackground: some View {
@@ -243,39 +293,27 @@ struct HostView: View {
         }
     }
 
-    private var projectControls: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            if let problem = model.problem, model.page != nil || model.mode == .swiftui && model.workspaceTemplate == nil {
-                Text(verbatim: problem).font(.caption).lineLimit(projectTabs ? 1 : 3).textSelection(.enabled)
-                    .accessibilityIdentifier("preview.error")
-            }
-            if projectTabs && folders.phase != .idle && (!model.busy || folders.active) {
-                folderFeedback
-            }
-            HStack {
-                if model.busy {
-                    ProgressView()
-                    Text(model.scanStatus ?? "正在准备预览").font(.caption).lineLimit(2).accessibilityIdentifier("preview.stage")
-                    Button { model.cancelScan() } label: { Text("取消").frame(minWidth: 44, minHeight: 44) }
-                        .fixedSize(horizontal: true, vertical: false).accessibilityIdentifier("scan.cancel")
-                } else if let status = model.scanStatus { Text(status).font(.caption) }
-                if model.problem != nil && model.screen != nil && model.workspaceTemplate == nil && !model.showingOverview {
-                    Label(model.mode == .swiftui ? "查看构建说明" : "更新失败", systemImage: "exclamationmark.circle")
-                        .foregroundStyle(.secondary)
-                }
-                if model.workspaceTemplate != nil || model.showingOverview {
-                    Button { Task { await model.showLibrary() } } label: { Label("项目列表", systemImage: "list.bullet") }
-                        .accessibilityIdentifier("project.library")
-                }
-                Spacer(minLength: 0)
-                if hostOwnsScreen || model.problem != nil {
-                    ProjectSettingsButton()
+    private var previewFeedback: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let request = processingFolder { folderProgress(request) }
+            else if model.busy { previewProgress }
+            if let problem = visiblePreviewProblem {
+                HStack {
+                    Text(verbatim: problem).font(.subheadline).lineLimit(2).accessibilityIdentifier("preview.error")
+                    Spacer(minLength: 4)
+                    Menu {
+                        Button { panel = .manage } label: { ProjectManagementLabel() }
+                        Button("收起提示") { previewProblemDismissed = true }
+                    } label: {
+                        Label("预览选项", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
                 }
             }
         }
-        .padding(.horizontal).padding(.vertical, projectTabs ? 0 : 4)
+        .padding(.horizontal)
         .background {
-            if projectTabs { nativeProjectBackground }
+            if (model.presentingPage ?? model.page)?.product.mode == .native { nativeProjectBackground }
             else { Rectangle().fill(.bar) }
         }
     }
@@ -289,18 +327,22 @@ struct HostView: View {
         return pages
     }
 
-    private var folderFeedback: some View {
+    private var previewProgress: some View {
+        progressRow(model.scanStatus ?? "正在准备预览", statusID: "preview.stage", cancelID: "scan.cancel", cancel: model.cancelScan)
+    }
+
+    private func folderProgress(_ request: FolderRequest) -> some View {
+        progressRow(folders.message, statusID: "folder.status", cancelID: "folder.cancel") { folders.cancel(request.id) }
+    }
+
+    private func progressRow(_ message: String, statusID: String, cancelID: String, cancel: @escaping () -> Void) -> some View {
         HStack {
-            if folders.phase == .processing { ProgressView() }
-            Text(verbatim: folders.message).font(.footnote).lineLimit(projectTabs ? 2 : nil).accessibilityIdentifier("folder.status")
-            Spacer(minLength: 0)
-            if let request = folders.request, folders.active {
-                Button { folders.cancel(request.id) } label: { Text("取消").frame(minWidth: 44, minHeight: 44) }
-                    .accessibilityIdentifier("folder.cancel")
-            } else {
-                Button { folders.clearResult() } label: { Text("关闭").frame(minWidth: 44, minHeight: 44) }
-                    .accessibilityIdentifier("folder.clear")
-            }
+            ProgressView().accessibilityHidden(true)
+            Text(verbatim: message).font(.subheadline).accessibilityIdentifier(statusID)
+            Spacer(minLength: 4)
+            Button(action: cancel) { Text("取消").frame(minWidth: 44, minHeight: 44) }
+                .fixedSize(horizontal: true, vertical: false).buttonStyle(.borderless)
+                .accessibilityIdentifier(cancelID)
         }
     }
 
@@ -324,10 +366,7 @@ struct RunningPage: View {
         self.visible = visible
         self.topControlsVisible = topControlsVisible
     }
-    var body: some View {
-        content.preference(key: ProjectTabsKey.self, value: visible && page.hasTabNavigation)
-    }
-    @ViewBuilder private var content: some View {
+    @ViewBuilder var body: some View {
         if page.product.mode == .web {
             VStack(spacing: 0) {
                 NativeMediaPreview(sdk: sdk)
@@ -358,6 +397,7 @@ struct RunningPage: View {
 
 private struct ManagementView: View {
     @ObservedObject var model: HostModel
+    @ObservedObject var folders: FolderRequests
     var close: () -> Void
     var reconnect: () -> Void
     @State private var rename = false
@@ -421,7 +461,12 @@ private struct ManagementView: View {
         }
         Button("重新扫描并预览") { close(); model.refresh(force: true, remember: true) }
             .accessibilityIdentifier("host.rescan")
-        Button("重新授权文件夹", action: reconnect).accessibilityIdentifier("host.reconnect")
+        Button("重新授权文件夹", action: reconnect)
+            .disabled(folders.active).accessibilityIdentifier("host.reconnect")
+        if let id = model.current?.id, folders.request?.purpose == .reconnect(id), folders.phase == .succeeded {
+            Text(verbatim: folders.message).font(.footnote).foregroundStyle(.secondary)
+                .accessibilityIdentifier("folder.reconnectResult")
+        }
         NavigationLink("目录诊断") { DirectoryDiagnosticView() }
     }
 }

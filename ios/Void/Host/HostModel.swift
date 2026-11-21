@@ -256,10 +256,10 @@ final class HostModel: ObservableObject {
 
     func showLibrary() async {
         folders.changeProject(to:nil)
+        clear()
+        current = nil
         do {
             try await library.forgetLast()
-            clear()
-            current = nil
             try await list()
         } catch { notice = error.localizedDescription }
     }

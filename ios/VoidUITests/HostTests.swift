@@ -31,20 +31,16 @@ extension XCUIApplication {
         let status = staticTexts["folder.status"]
         let found = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label BEGINSWITH %@", "已找到"), object: status)
         guard XCTWaiter.wait(for: [found], timeout: 45) == .completed else { return false }
-        let footer = buttons["folder.clear"]
-        guard footer.waitForExistence(timeout: 5) else { return false }
+        return revealRecentProject(row)
+    }
+
+    func revealRecentProject(_ row: XCUIElement) -> Bool {
         // A SwiftUI List can expose an offscreen row before a tap can reach it.
         // Scan results share this list with the other simulator fixtures.
         for _ in 0..<8 {
             if row.exists {
                 let bounds = row.frame
-                if !bounds.isEmpty && frame.contains(CGPoint(x: bounds.midX, y: bounds.midY)) {
-                    if footer.exists && bounds.maxY > footer.frame.minY {
-                        footer.tap()
-                        continue
-                    }
-                    if row.isHittable { return true }
-                }
+                if !bounds.isEmpty && frame.contains(CGPoint(x: bounds.midX, y: bounds.midY)) && row.isHittable { return true }
             }
             swipeUp()
         }
@@ -115,11 +111,19 @@ final class HostTests: XCTestCase {
         let preview = app.buttons["project.preview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 20), app.debugDescription)
         XCTAssertFalse(app.staticTexts["项目未能打开"].exists)
-        XCTAssertTrue(app.projectSettingsButton.isHittable)
+        let bar = app.navigationBars[name]
+        XCTAssertTrue(bar.buttons["project.settings"].isHittable)
         XCTAssertFalse(app.buttons["host.manage"].exists)
         app.terminate()
         app.launch()
         XCTAssertTrue(preview.waitForExistence(timeout: 15))
+        let back = bar.buttons.matching(NSPredicate(format: "identifier != %@", "project.settings")).firstMatch
+        XCTAssertTrue(back.isHittable)
+        back.tap()
+        let recent = app.buttons["recent." + name]
+        XCTAssertTrue(recent.waitForExistence(timeout: 10))
+        recent.tap()
+        XCTAssertTrue(preview.waitForExistence(timeout: 10))
         preview.tap()
         let toggle = app.switches["显示问候"].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 90), app.debugDescription)

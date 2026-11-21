@@ -10,7 +10,7 @@ GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.
 | void-native-ui-compact、void-native-ui-ipad | 独立模拟器的原生导航测试报告与导出的截图附件，含深浅色、横屏和辅助功能字号。 |
 | void-release-preview-screenshots | Release 配置的模拟器预览截图，含安全区首帧与完整显示器截图。 |
 
-构建 15 的设备包覆盖 iPhone 与 iPad。安装同一标签的 `void-unsigned.ipa` 后，打开「项目管理 → 宿主信息」核对宿主版本 0.1.0、构建号 15。原生滚动与标题的改动随宿主安装包交付。打开原登记并预览即可使用新版宿主，项目内的「重新构建」只编译项目源码。[组件契约与独立示例](NATIVE_UI.md)
+构建 16 的设备包覆盖 iPhone 与 iPad。安装同一标签的 `void-unsigned.ipa` 后，打开「项目管理 → 宿主信息」可核对宿主版本 0.1.0、构建号 16。项目概览使用系统返回导航，设置在右上角。项目列表中的扫描进度和结果会随列表滚动。[宿主操作说明](RUNTIME.md)
 
 真机待验。将同一发布中的 `safe-area-sample.zip` 解压并导入 `safe-area` 文件夹。把系统外观设为深色，打开 Sample，比较时间两侧空白和页面背景（`#204858`）。切到系统浅色应同步变为 `#C8E8E0`。在 Settings 中点 Light、Dark 或 Change palette，切回 Sample 检查滚动位置和 Draft 中已输入的文字。展开、收起键盘，横竖屏各转一次，再返回前台。在**这个独立样例**的「项目管理 → 恢复」中首次点「恢复上一可运行版本」，检查错误提示出现时从状态栏到标题的背景。用「重新构建并打开」恢复预览。留存完整屏幕截图，并记录设备型号、系统版本和宿主构建号。[最小项目](../tests/fixtures/safe-area)
 
