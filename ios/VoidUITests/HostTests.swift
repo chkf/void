@@ -14,25 +14,29 @@ extension XCUIApplication {
 
     func returnToProjectList(file: StaticString = #filePath, line: UInt = #line) {
         let manage = buttons["host.manage"].firstMatch
-        if !manage.exists || !manage.isHittable {
+        if !manage.exists {
             let settings = projectSettingsButton
             guard settings.waitForExistence(timeout: 12) else {
                 return XCTFail("找不到项目设置\n" + debugDescription, file: file, line: line)
             }
             settings.tap()
-            for _ in 0..<6 {
-                if manage.exists && manage.isHittable { break }
-                // In landscape a swipe starting at the screen edge lands on the native tab bar.
-                let start = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
-                let end = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22))
-                start.press(forDuration: 0.05, thenDragTo: end)
+        }
+        let library = navigationBars["所有项目"]
+        for _ in 0..<6 {
+            if manage.exists {
+                let bounds = manage.frame
+                let center = CGPoint(x: bounds.midX, y: bounds.midY)
+                if !bounds.isEmpty && !bounds.isInfinite && frame.contains(center) {
+                    manage.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                    if library.waitForExistence(timeout: 3) { return }
+                }
             }
+            // In landscape a swipe starting at the screen edge lands on the native tab bar.
+            let start = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
+            let end = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22))
+            start.press(forDuration: 0.05, thenDragTo: end)
         }
-        guard manage.exists && manage.isHittable else {
-            return XCTFail("设置中找不到项目管理\n" + debugDescription, file: file, line: line)
-        }
-        manage.tap()
-        XCTAssertTrue(navigationBars["所有项目"].waitForExistence(timeout: 12), debugDescription, file: file, line: line)
+        XCTAssertTrue(library.waitForExistence(timeout: 12), debugDescription, file: file, line: line)
     }
 
     func revealRecentProject(_ row: XCUIElement) -> Bool {
@@ -104,8 +108,10 @@ final class HostTests: XCTestCase {
         app.buttons["host.github"].tap()
         XCTAssertTrue(app.textFields["github.address"].waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["github.clone"].isEnabled)
-        app.navigationBars.buttons.firstMatch.tap()
-        app.buttons["取消"].tap()
+        app.navigationBars["从 GitHub 导入"].buttons["BackButton"].tap()
+        let cancelCreation = app.navigationBars["创建项目"].buttons["取消"]
+        XCTAssertTrue(cancelCreation.waitForExistence(timeout: 8), app.debugDescription)
+        cancelCreation.tap()
         app.buttons["host.settings"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 8))
         let settingsElements = app.descendants(matching: .any)
@@ -128,7 +134,7 @@ final class HostTests: XCTestCase {
         app.buttons["settings.language"].tap()
         app.buttons["language.zh-Hans"].tap()
         XCTAssertTrue(app.navigationBars["语言"].waitForExistence(timeout: 8))
-        app.navigationBars.buttons.firstMatch.tap()
+        app.navigationBars["语言"].buttons["BackButton"].tap()
         app.buttons["完成"].tap()
         create.tap()
         let field = app.textFields["project.name"]

@@ -51,13 +51,19 @@ final class FolderPickerTests: XCTestCase {
             if inAppDocuments && !project.exists {
                 listViewInFiles()
                 XCTAssertTrue(documents.waitForExistence(timeout: 30), app.debugDescription)
-                documents.tap()
-                if !project.waitForExistence(timeout: 20), documents.exists && documents.isHittable {
-                    documents.doubleTap()
+                let disclosure = documents.buttons["DisclosureTriangle"]
+                if disclosure.exists && documents.value as? String == "Collapsed" {
+                    disclosure.tap()
+                } else {
+                    documents.staticTexts["void"].firstMatch.tap()
                 }
             }
             XCTAssertTrue(project.waitForExistence(timeout: 35), app.debugDescription)
-            project.tap()
+            if inAppDocuments && project.staticTexts[title].firstMatch.exists {
+                project.staticTexts[title].firstMatch.tap()
+            } else {
+                project.tap()
+            }
             if !source.waitForExistence(timeout: 12), project.exists && project.isHittable && !project.isSelected {
                 project.doubleTap()
             }
@@ -91,10 +97,12 @@ final class FolderPickerTests: XCTestCase {
         XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
         let cancel = named(["Cancel","取消","Close","关闭"], in: navigation.buttons)
         let handle = named(["Sheet Grabber","表单抓取按钮"],in:app.buttons)
-        if handle.exists && (preferSwipe || !cancel.isHittable) {
-            let top = handle.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+        if preferSwipe || !cancel.exists {
+            // The expanded Files sheet can hide its grabber and move Cancel into the overflow menu.
+            let grip = handle.exists ? handle : navigation
+            let top = grip.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
             let bottom = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95))
-            top.press(forDuration:0.15,thenDragTo:bottom)
+            top.press(forDuration: 0.1, thenDragTo: bottom, withVelocity: .fast, thenHoldForDuration: 0)
         } else {
             XCTAssertTrue(cancel.waitForExistence(timeout: 10), app.debugDescription)
             cancel.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
