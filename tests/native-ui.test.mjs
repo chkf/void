@@ -162,6 +162,27 @@ test("快速切换合并到最终选中值，受控拒绝也确认序号，过�
   ui.replies.shift()();
 });
 
+test("同一输入框连续键入时保留完整文字，并同步 React 拒绝的编辑", async () => {
+  const ui = session();
+  const react = ui.context.__voidLibraries.react;
+  const { render, TextField } = ui.context.__voidLibraries["@runtime/ui@1.1.0"];
+  function Draft() {
+    const [value, edit] = react.useState("");
+    return react.createElement(TextField, { label: "Draft", value, onChange: next => {
+      if (next.length <= 5) edit(next);
+    } });
+  }
+  render(react.createElement(Draft));
+  const { id } = ui.find(node => node.type === "TextField");
+  const displayedRevision = ui.commits[0].revision;
+  for (const value of ["s", "sa", "sav", "save", "saved", "saved!"]) {
+    ui.event(id, "onChange", value, displayedRevision);
+    await settle();
+  }
+  assert.equal(ui.find(node => node.type === "TextField").props.value, "saved");
+  assert.equal(ui.commits.at(-1).eventSequence, 6);
+});
+
 test("WebKit 序列化前报告无效回调、非有限数值和嵌套样式", () => {
   const ui = session();
   const { render, Theme, Button, ProgressView } = ui.context.__voidLibraries["@runtime/ui@1.1.0"];

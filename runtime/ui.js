@@ -165,8 +165,15 @@ export const nativeUI = { ...legacyUI, Theme, TabView, Tab, Screen, ScrollView, 
 globalThis.__voidEvent = ({ id, name, value, sequence, revision: displayedRevision }) => {
   if (!Number.isSafeInteger(sequence) || sequence <= eventSequence) return;
   const key = id + "/" + name;
+  const current = callbacks.get(key);
+  // The native editor sends the whole string. Its mounted field keeps the same
+  // id while React can render several times before SwiftUI refreshes the binding.
+  if (current?.node.type === TextField && typeof value === "string" &&
+      Number.isSafeInteger(displayedRevision) && displayedRevision > 0 && displayedRevision < revision) {
+    displayedRevision = revision;
+  }
   if (displayedRevision != null && displayedRevision !== revision && displayedRevision !== revision - 1) {
-    if (callbacks.get(key)?.node.type === "TabView") {
+    if (current?.node.type === "TabView") {
       // A late selection cannot call its expired closure. Release the matching
       // native optimistic selection by acknowledging the current controlled value.
       eventSequence = sequence;
@@ -177,12 +184,12 @@ globalThis.__voidEvent = ({ id, name, value, sequence, revision: displayedRevisi
   eventSequence = sequence;
   const handlers = displayedRevision === revision - 1 ? previousCallbacks : callbacks;
   const handler = handlers.get(key);
-  if (!handler || !callbacks.has(key) || (handler.node.type === Button && handler.node.props.disabled === true)) return;
+  if (!handler || !current || (handler.node.type === Button && handler.node.props.disabled === true)) return;
   if (handler.node.type === "TabView" && !handler.node.children.some(tab => !tab.hidden && tab.props.id === value)) {
     if (sentSequence < sequence) publish();
     return;
   }
   reconciler.batchedUpdates(handler.callback, value);
-  // Even a controlled selection that the application declines needs an ACK.
-  if (handler.node.type === "TabView" && sentSequence < sequence) publish();
+  // A controlled field or tab may keep its value without triggering a React render.
+  if ((handler.node.type === TextField || handler.node.type === "TabView") && sentSequence < sequence) publish();
 };

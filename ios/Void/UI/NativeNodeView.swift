@@ -220,13 +220,15 @@ private struct NativeInput: View {
 
     var body: some View {
         TextField(node.text("label"), text: Binding(get: { draft }, set: { value in
+            let sequence = page.event(node.id, name: "onChange", value: value)
+            guard sequence > 0 else { return }
             draft = value
-            sent = page.event(node.id, name: "onChange", value: value, displayedRevision: revision)
+            sent = sequence
         }))
         .frame(minHeight: page.uiVersion == 2 ? 44 : nil)
         .onChange(of: revision) {
             let value = node.text("value")
-            if page.acknowledged >= sent && draft != value { draft = value }
+            if revision == page.revision && page.acknowledged >= sent && draft != value { draft = value }
         }
     }
 }
