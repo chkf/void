@@ -1,0 +1,16 @@
+"NSPhotoLibraryUsageDescription" = "Let approved projects read the photos and videos you select.";
+"NSPhotoLibraryAddUsageDescription" = "Save images and videos created by your projects to Photos.";
+"NSCameraUsageDescription" = "Show the camera, take photos, or record video when you choose to in a project.";
+"NSMicrophoneUsageDescription" = "Capture sound for the audio or video recording you start.";
+"NSLocationWhenInUseUsageDescription" = "Share location and heading with approved projects while they are open.";
+"NSCalendarsFullAccessUsageDescription" = "Read or change calendar events for projects you approve.";
+"NSCalendarsWriteOnlyAccessUsageDescription" = "Add events that you create in a project to your calendar.";
+"NSRemindersFullAccessUsageDescription" = "Let approved projects manage reminders and lists.";
+"NSContactsUsageDescription" = "Read or update contacts that you choose.";
+"NSBluetoothAlwaysUsageDescription" = "Find and connect to the Bluetooth accessories you choose while the project is open.";
+"NFCReaderUsageDescription" = "Read or write NFC tags that you bring near the device.";
+"NSHealthShareUsageDescription" = "Let approved projects read the health data types you select.";
+"NSHealthUpdateUsageDescription" = "Save approved health samples to the Health app.";
+"NSHomeKitUsageDescription" = "View home accessories, update their settings, or run scenes at your request.";
+"NSFaceIDUsageDescription" = "Verify actions you initiate in a project using Face ID.";
+"NSLocalNetworkUsageDescription" = "Connect to the local network services declared by a project you approve.";

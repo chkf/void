@@ -1,6 +1,12 @@
 import XCTest
 
 extension XCUIApplication {
+    func confirmProjectLaunch(file: StaticString = #filePath, line: UInt = #line) {
+        let launch = alerts.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", "project.launch", "启动")).firstMatch
+        XCTAssertTrue(launch.waitForExistence(timeout: 20), debugDescription, file: file, line: line)
+        launch.tap()
+    }
+
     var projectSettingsButton: XCUIElement {
         buttons.matching(NSPredicate(format: "identifier == %@ OR (label == %@ AND identifier != %@)",
                                      "project.settings", "设置", "host.settings")).firstMatch
@@ -61,9 +67,7 @@ final class HostTests: XCTestCase {
         if expected == nil { XCTAssertEqual(candidates.count,1,"需要测试脚本准备的独立项目目录") }
         let fixture = String(row.identifier.dropFirst("project.row.".count))
         row.tap()
-        let preview = app.buttons["project.preview"]
-        XCTAssertTrue(preview.waitForExistence(timeout: 15), app.debugDescription)
-        preview.tap()
+        app.confirmProjectLaunch()
 
         let database = app.alerts["允许「" + fixture + "」使用项目专属数据库？"]
         XCTAssertTrue(database.waitForExistence(timeout:100),app.debugDescription)
@@ -95,9 +99,12 @@ final class HostTests: XCTestCase {
         }
         XCTAssertFalse(app.buttons["扫描本机项目"].exists)
         XCTAssertTrue(app.navigationBars["所有项目"].exists)
+        XCTAssertFalse(app.buttons["host.github"].exists)
+        create.tap()
         app.buttons["host.github"].tap()
         XCTAssertTrue(app.textFields["github.address"].waitForExistence(timeout: 8))
         XCTAssertFalse(app.buttons["github.clone"].isEnabled)
+        app.navigationBars.buttons.firstMatch.tap()
         app.buttons["取消"].tap()
         app.buttons["host.settings"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 8))
@@ -107,6 +114,21 @@ final class HostTests: XCTestCase {
             XCTAssertFalse(settingsElements.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.exists)
         }
         XCTAssertFalse(app.buttons["host.manage"].exists)
+        app.buttons["settings.language"].tap()
+        app.buttons["language.en"].tap()
+        XCTAssertTrue(app.navigationBars["Language"].waitForExistence(timeout: 8))
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.navigationBars["All Projects"].waitForExistence(timeout: 12))
+        create.tap()
+        XCTAssertTrue(app.navigationBars["Create Project"].exists)
+        XCTAssertEqual(app.buttons["host.github"].label, "Import from GitHub")
+        app.buttons["Cancel"].tap()
+        app.buttons["host.settings"].tap()
+        app.buttons["settings.language"].tap()
+        app.buttons["language.zh-Hans"].tap()
+        XCTAssertTrue(app.navigationBars["语言"].waitForExistence(timeout: 8))
+        app.navigationBars.buttons.firstMatch.tap()
         app.buttons["完成"].tap()
         create.tap()
         let field = app.textFields["project.name"]
@@ -116,24 +138,27 @@ final class HostTests: XCTestCase {
         let name = "Test-" + String(UUID().uuidString.prefix(8))
         field.typeText(name)
         app.buttons["project.createLocal"].tap()
-        let preview = app.buttons["project.preview"]
-        XCTAssertTrue(preview.waitForExistence(timeout: 20), app.debugDescription)
-        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "app/src/main.tsx")).firstMatch.exists)
-        XCTAssertFalse(app.staticTexts["项目未能打开"].exists)
-        let bar = app.navigationBars[name]
-        XCTAssertTrue(bar.buttons["project.settings"].isHittable)
-        XCTAssertFalse(app.buttons["host.manage"].exists)
+        let created = app.alerts["项目已创建"]
+        XCTAssertTrue(created.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertEqual(Set(created.buttons.allElementsBoundByIndex.map(\.label)), ["打开 OpenMinis", "完成"])
+        created.buttons["打开 OpenMinis"].tap()
+        let unavailable = app.alerts["无法打开 OpenMinis"]
+        XCTAssertTrue(unavailable.waitForExistence(timeout: 12), app.debugDescription)
+        XCTAssertTrue(unavailable.buttons["前往 App Store"].exists)
+        unavailable.buttons["取消"].tap()
         app.terminate()
         app.launch()
-        XCTAssertTrue(preview.waitForExistence(timeout: 15))
-        let back = bar.buttons.matching(NSPredicate(format: "identifier != %@", "project.settings")).firstMatch
-        XCTAssertTrue(back.isHittable)
-        back.tap()
         let recent = app.buttons["project.row." + name]
-        XCTAssertTrue(recent.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.revealRecentProject(recent))
         recent.tap()
-        XCTAssertTrue(preview.waitForExistence(timeout: 10))
-        preview.tap()
+        let launch = app.alerts["启动项目？"]
+        XCTAssertTrue(launch.waitForExistence(timeout: 10))
+        XCTAssertEqual(Set(launch.buttons.allElementsBoundByIndex.map(\.label)), ["启动", "取消"])
+        XCTAssertTrue(launch.staticTexts[name].exists)
+        launch.buttons["取消"].tap()
+        XCTAssertTrue(app.navigationBars["所有项目"].exists)
+        recent.tap()
+        app.confirmProjectLaunch()
         let toggle = app.switches["显示问候"].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 90), app.debugDescription)
         XCTAssertTrue(app.projectSettingsButton.exists)
@@ -159,19 +184,17 @@ final class HostTests: XCTestCase {
         app.returnToProjectList()
         XCTAssertTrue(app.revealRecentProject(recent))
         recent.press(forDuration: 1)
+        XCTAssertFalse(app.buttons["重命名"].exists)
         app.buttons["详情"].tap()
         XCTAssertTrue(app.navigationBars["项目详情"].waitForExistence(timeout: 8))
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format:
             "label CONTAINS %@ OR value == %@", "1.0.0", "1.0.0")).firstMatch.waitForExistence(timeout: 10))
-        app.buttons["完成"].tap()
-        recent.press(forDuration: 1)
-        app.buttons["重命名"].tap()
-        let alert = app.alerts["重命名项目"]
+        let nameRow = app.buttons["project.editName"]
+        nameRow.tap()
+        let alert = app.alerts["修改项目名称"]
         XCTAssertEqual(alert.textFields.firstMatch.value as? String, name)
         alert.buttons["取消"].tap()
-        XCTAssertTrue(recent.exists)
-        recent.press(forDuration: 1)
-        app.buttons["重命名"].tap()
+        nameRow.tap()
         let edit = alert.textFields.firstMatch
         edit.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
         edit.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: name.count))
@@ -179,6 +202,10 @@ final class HostTests: XCTestCase {
         let renamed = "Notes-" + String(UUID().uuidString.prefix(8))
         edit.typeText(renamed)
         alert.buttons["保存"].tap()
+        let renamedDetail = app.buttons.matching(NSPredicate(format: "identifier == %@ AND (label CONTAINS %@ OR value == %@)",
+            "project.editName", renamed, renamed)).firstMatch
+        XCTAssertTrue(renamedDetail.waitForExistence(timeout: 12), app.debugDescription)
+        app.buttons["完成"].tap()
         let row = app.buttons["project.row." + renamed]
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(recent.exists)
@@ -186,8 +213,9 @@ final class HostTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.revealRecentProject(row))
         row.tap()
-        XCTAssertTrue(app.navigationBars[renamed].waitForExistence(timeout: 10))
-        app.returnToProjectList()
+        XCTAssertTrue(launch.waitForExistence(timeout: 10))
+        XCTAssertTrue(launch.staticTexts[renamed].exists)
+        launch.buttons["取消"].tap()
         row.swipeLeft()
         let remove = app.buttons["project.row.remove"]
         if remove.exists { remove.tap() }

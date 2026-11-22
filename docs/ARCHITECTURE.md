@@ -2,7 +2,7 @@
 
 | 源码 | 当前职责 |
 | --- | --- |
-| ios/Void/Host | SwiftUI 项目列表、长按重命名、设置和会话切换。子应用的管理入口返回项目列表。宿主持有当前页面与正在启动的候选页面。 |
+| ios/Void/Host | SwiftUI 项目列表、启动确认、详情中的重命名和语言设置。子应用的管理入口返回项目列表。宿主持有当前页面与正在启动的候选页面。 |
 | ios/Void/Projects | 目录授权、协调读写、项目登记、目录身份校验、修订扫描和变更通知。 |
 | ios/TSXProject | 新建项目的 React / TSX 模板，包含页面入口、依赖声明和项目清单。 |
 | ios/StarterProject/app/SwiftUI | 既有 SwiftUI 项目的原生视图。Xcode 将它编译进宿主，打开项目时核对 Swift 源码并呈现视图。 |

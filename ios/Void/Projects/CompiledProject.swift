@@ -6,7 +6,7 @@ enum CompiledProject {
 
     static func validate(_ snapshot: SourceSnapshot) throws {
         guard snapshot.info.entry == entry else {
-            throw RuntimeIssue("app/manifest.json · 此安装包的 SwiftUI 入口为 " + entry)
+            throw RuntimeIssue(HostLanguage.format("app/manifest.json · 此安装包的 SwiftUI 入口为 %@", entry))
         }
         guard let template = Bundle.main.url(forResource: ProjectTemplate.swiftUI.rawValue, withExtension: nil) else {
             throw RuntimeIssue("安装包缺少 SwiftUI 项目资源")

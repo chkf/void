@@ -3,7 +3,7 @@ import Foundation
 struct FolderAccessIssue: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }
-    var errorDescription: String? { message }
+    var errorDescription: String? { HostLanguage.text(message) }
 }
 
 final class SelectionLease {
@@ -81,6 +81,14 @@ struct FolderGrant: Codable, Equatable {
         guard let a = try? location(self), let b = try? location(other) else { return false }
         return a == b
     }
+    func renamingFolder(to name: String) throws -> Self {
+        if bookmark != nil {
+            // A bookmark to the project itself follows its move. A parent grant needs the new leaf.
+            return Self(bookmark: bookmark, child: child.isEmpty ? "" : name)
+        }
+        guard !localComponents.isEmpty else { throw RuntimeIssue("无法重命名 void 文稿目录") }
+        return Self(bookmark: nil, child: name, localFolder: localComponents.dropLast().joined(separator: "/"))
+    }
     func withRoot<T>(_ body: (URL) throws -> T) throws -> T {
         guard child.isEmpty || ProjectFiles.component(child) else { throw DirectoryIssue(kind:.outside,item:"登记目录") }
         var stale = false
@@ -102,12 +110,12 @@ struct FolderGrant: Codable, Equatable {
     }
 
     func coordinated<T>(write: Bool = false, writingOptions: NSFileCoordinator.WritingOptions = .forMerging,
+                        coordinator: NSFileCoordinator = NSFileCoordinator(),
                         io: DirectoryIO? = nil, trace: DirectoryTrace? = nil, _ body: (URL) throws -> T) throws -> T {
         trace?.event("grant.begin",bookmark == nil ? "Documents" : "bookmark")
         do {
             let value = try withRoot { root in
                 try io?.check()
-                let coordinator = NSFileCoordinator()
                 func coordinate() throws -> T {
                     var error: NSError?
                     var result: Result<T,Error>?

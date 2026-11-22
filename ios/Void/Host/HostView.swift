@@ -2,17 +2,9 @@ import SwiftUI
 
 private enum Panel: Hashable, Identifiable {
     case create
-    case github
     case details(UUID)
     case settings(UUID?)
     var id: Self { self }
-}
-
-private struct ProjectDestination: Hashable {
-    let record: ProjectRecord
-
-    static func == (lhs: Self, rhs: Self) -> Bool { lhs.record.id == rhs.record.id }
-    func hash(into hasher: inout Hasher) { hasher.combine(record.id) }
 }
 
 private struct ObservedFolder: Equatable {
@@ -27,22 +19,23 @@ struct HostView: View {
     @ObservedObject var folders: FolderRequests
     init(model: HostModel) { self.model = model; self.folders = model.folders }
     @Environment(\.scenePhase) private var phase
+    @Environment(\.openURL) private var openURL
+    @AppStorage(HostLanguage.key) private var language = HostLanguage.chinese
     @State private var panel: Panel?
+    @State private var sheetPresented = false
     @State private var projectName = ""
-    @State private var renameTarget: ProjectRecord?
-    @State private var projectPath: [ProjectDestination] = []
+    @State private var showOpenMinisDownload = false
     @State private var previewProblemDismissed = false
+    private var watchesProjectList: Bool { phase == .active && model.observesProjectList && !folders.active }
 
     var body: some View {
         ZStack {
             Color(uiColor: .systemBackground)
             if hostOwnsScreen {
-                NavigationStack(path: Binding(get: { projectPath }, set: navigate)) {
-                    library
-                        .navigationDestination(for: ProjectDestination.self) { destination in
-                            let record = model.current.flatMap { $0.id == destination.record.id ? $0 : nil }
-                            projectDetails(record ?? destination.record)
-                        }
+                NavigationStack {
+                    library.safeAreaInset(edge: .top, spacing: 0) {
+                        if let record = model.current { launchStatus(record) }
+                    }
                 }
             }
             if let record = model.current, case .swiftUI(let id) = model.screen {
@@ -74,72 +67,71 @@ struct HostView: View {
             case .settings: panel = .settings(id)
             }
         })
-        .onChange(of: model.current?.id, initial: true) { _, id in
-            if projectPath.last?.record.id != id {
-                projectPath = model.current.map { [ProjectDestination(record: $0)] } ?? []
-            }
-            previewProblemDismissed = false
-        }
+        .onChange(of: model.current?.id) { previewProblemDismissed = false }
         .onChange(of: model.busy ? nil : model.problem) { previewProblemDismissed = false }
-        .background { FolderPickerPresenter(flow: folders).frame(width: 0, height: 0) }
+        .background { FolderPickerPresenter(flow: folders) }
         .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in folders.updateProgress() }
         .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)) { _ in model.memoryWarning() }
         .task { await model.load() }
-        .task(id: phase == .active && model.observesProjectList) {
-            if phase == .active && model.observesProjectList { await model.observeLocalProjects() }
+        .task(id: watchesProjectList) {
+            if watchesProjectList { await model.observeLocalProjects() }
         }
         .task(id:ObservedFolder(project:model.current?.id,grant:model.current?.grant,
                                 active:phase == .active,monitor:model.shouldMonitor)) {
             if phase == .active && model.shouldMonitor { await model.monitor() }
         }
-        .sheet(item:$panel,onDismiss:{ folders.sheetClosed() }) { selection in
-            switch selection {
-            case .create:
-                NavigationStack {
-                    Form {
-                        TextField("项目名称", text: $projectName).accessibilityIdentifier("project.name")
-                        Section {
-                            Button("在此 iPhone 创建") {
-                                let name = cleanName
-                                panel = nil
-                                Task { await model.create(name, parent: nil) }
-                            }.accessibilityIdentifier("project.createLocal")
-                            Button("选择其他文件夹…") {
-                                begin(.create(cleanName), afterSheet: true)
-                            }
-                        }.disabled(cleanName.isEmpty)
-                    }
-                    .navigationTitle("创建项目")
-                    .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { panel = nil } } }
-                }
-            case .settings(let projectID):
-                NavigationStack {
-                    Group {
-                        if let record = model.current, record.id == projectID {
-                            Form {
-                                Section(record.name) {
-                                    Button(action: returnToLibrary) { ProjectManagementLabel() }
-                                        .accessibilityIdentifier("host.manage")
-                                }
-                            }.navigationTitle("设置")
-                        } else { SettingsView().navigationTitle("设置") }
-                    }.toolbar { Button("完成") { panel = nil } }
-                }
-            case .github:
-                GitHubImportView { source in
-                    panel = nil
-                    Task { await model.cloneAndRun(source) }
-                }
-            case .details(let id):
-                ProjectInfoView(id: id, model: model)
-            }
+        .sheet(item:$panel,onDismiss:{ sheetPresented = false; folders.sheetClosed() }) { selection in
+            panelContent(selection)
+                .onAppear { sheetPresented = true }
+                .environment(\.locale, Locale(identifier: language.rawValue))
         }
-        .alert(model.notice == nil ? "目录操作失败" : "项目操作失败", isPresented: Binding(
-            get: { alertMessage != nil },
+        .alert(model.notice == nil ? Text("目录操作失败") : Text("项目操作失败"), isPresented: Binding(
+            get: { alertMessage != nil && !sheetPresented },
             set: { if !$0 { dismissAlert() } }
         ), presenting: alertMessage) { _ in
             Button("好", role: .cancel) {}
         } message: { Text(verbatim: $0) }
+        .environment(\.locale, Locale(identifier: language.rawValue))
+    }
+
+    @ViewBuilder private func panelContent(_ selection: Panel) -> some View {
+        switch selection {
+        case .create:
+            NavigationStack {
+                Form {
+                    Section {
+                        TextField("项目名称", text: $projectName).accessibilityIdentifier("project.name")
+                        Button("在此 iPhone 创建") {
+                            let name = cleanName
+                            panel = nil
+                            Task { await model.create(name, parent: nil) }
+                        }.disabled(cleanName.isEmpty).accessibilityIdentifier("project.createLocal")
+                        Button("选择其他文件夹…") {
+                            begin(.create(cleanName), afterSheet: true)
+                        }.disabled(cleanName.isEmpty)
+                    } header: { Text("普通创建") }
+                    Section {
+                        NavigationLink {
+                            GitHubImportView { source in
+                                panel = nil
+                                Task { await model.cloneAndRun(source) }
+                            }
+                        } label: { Label("从 GitHub 导入", systemImage: "arrow.down.circle") }
+                        .accessibilityIdentifier("host.github")
+                    }
+                }
+                .navigationTitle("创建项目")
+                .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { panel = nil } } }
+            }
+        case .settings(let projectID):
+            NavigationStack {
+                SettingsView(project: model.current.flatMap { $0.id == projectID ? $0 : nil }, returnToLibrary: returnToLibrary)
+                    .navigationTitle("设置")
+                    .toolbar { Button("完成") { panel = nil } }
+            }
+        case .details(let id):
+            ProjectInfoView(id: id, model: model)
+        }
     }
 
     private func returnToLibrary() {
@@ -147,7 +139,6 @@ struct HostView: View {
         panel = nil
         Task {
             guard model.current?.id == id else { return }
-            projectPath.removeAll()
             await model.showLibrary()
         }
     }
@@ -172,18 +163,16 @@ struct HostView: View {
                         #if DEBUG && targetEnvironment(simulator)
                         .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
                         #endif
-                    Button { panel = .github } label: { Label("从 GitHub 导入", systemImage: "arrow.down.circle") }
-                        .accessibilityIdentifier("host.github")
                 }
                 .foregroundStyle(.primary)
                 .tint(.primary)
-                .disabled(folders.active || model.gitActivity != nil)
+                .disabled(model.current != nil || folders.active || model.gitActivity != nil)
                 if let request = processingFolder { folderProgress(request) }
-                if let activity = model.gitActivity { ProgressView(activity) }
+                if let activity = model.gitActivity { ProgressView(HostLanguage.text(activity)) }
             } footer: {
                 if folders.phase == .succeeded, let request = folders.request,
                    request.origin == nil, model.current == nil {
-                    Text(verbatim: folders.message).accessibilityIdentifier("folder.status")
+                    Text(verbatim: HostLanguage.text(folders.message)).accessibilityIdentifier("folder.status")
                 } else {
                     Text("void 文稿中的项目会自动出现在这里。导入外部文件夹时，会将项目复制到 void 文稿。")
                 }
@@ -191,21 +180,13 @@ struct HostView: View {
             if !model.records.isEmpty {
                 Section {
                     ForEach(model.records) { record in
-                        NavigationLink(value: ProjectDestination(record: record)) {
-                            VStack(alignment: .leading) {
-                                Text(verbatim: record.name)
-                                if let template = record.pendingTemplate {
-                                    Text(template.title + " · 待预览").font(.caption).foregroundStyle(.secondary)
-                                }
-                            }
+                        Button { model.requestLaunch(record) } label: {
+                            Text(verbatim: record.name).foregroundStyle(.primary)
+                                .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                         }
                         .accessibilityIdentifier("project.row." + record.name)
                         .contextMenu {
                             Button { panel = .details(record.id) } label: { Label("详情", systemImage: "info.circle") }
-                            Button {
-                                projectName = record.name
-                                renameTarget = record
-                            } label: { Label("重命名", systemImage: "pencil") }
                             if record.github != nil {
                                 Button { Task { await model.pullAndRun(record.id) } } label: {
                                     Label("拉取并运行", systemImage: "arrow.down.circle")
@@ -218,89 +199,66 @@ struct HostView: View {
                             }.accessibilityIdentifier("project.row.remove")
                         }
                     }
-                }.disabled(model.gitActivity != nil || folders.active)
+                }.disabled(model.current != nil || model.gitActivity != nil || folders.active)
             }
         }
         .navigationTitle("所有项目")
-        .alert("重命名项目", isPresented: Binding(
-            get: { renameTarget != nil },
-            set: { if !$0 { renameTarget = nil } }
-        ), presenting: renameTarget) { record in
-            TextField("项目名称", text: $projectName)
-            Button("保存") {
-                let name = cleanName
-                Task { await model.rename(record.id, to: name) }
-            }.disabled(cleanName.isEmpty)
+        .alert(model.projectPrompt?.kind == .created ? Text("项目已创建") : Text("启动项目？"), isPresented: Binding(
+            get: { model.projectPrompt != nil && panel == nil && !sheetPresented },
+            set: { if !$0 { model.projectPrompt = nil } }
+        ), presenting: model.projectPrompt) { prompt in
+            switch prompt.kind {
+            case .created:
+                Button("打开 OpenMinis", action: openOpenMinis)
+                Button("完成", role: .cancel) {}
+            case .confirmLaunch:
+                Button("启动") { Task { await model.open(prompt.record) } }
+                    .accessibilityIdentifier("project.launch")
+                Button("取消", role: .cancel) {}
+            }
+        } message: { Text(verbatim: $0.record.name) }
+        .alert("无法打开 OpenMinis", isPresented: $showOpenMinisDownload) {
+            Button("前往 App Store") { openURL(URL(string: "https://apps.apple.com/app/id6759188481")!) }
             Button("取消", role: .cancel) {}
-        }
+        } message: { Text("项目已保存在所选文件夹。你可以安装 OpenMinis 后继续编辑。") }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { panel = .settings(nil) } label: { Label("设置", systemImage: "gearshape") }
-                    .disabled(model.gitActivity != nil)
+                    .disabled(model.current != nil || model.gitActivity != nil)
                     .accessibilityIdentifier("host.settings")
             }
         }
     }
 
-    private func navigate(_ path: [ProjectDestination]) {
-        guard hostOwnsScreen, projectPath != path else { return }
-        projectPath = path
-        Task {
-            guard projectPath == path, path.last?.record.id != model.current?.id else { return }
-            if let destination = path.last {
-                await model.selectProject(destination.record)
-            } else {
-                await model.showLibrary()
-            }
+    private func openOpenMinis() {
+        openURL(URL(string: "minis://")!) { opened in
+            if !opened { showOpenMinisDownload = true }
         }
     }
 
-    private func projectDetails(_ record: ProjectRecord) -> some View {
-        List {
-            if let template = record.pendingTemplate {
-                Section {
-                    LabeledContent("项目模板", value: template.title)
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("编辑这个入口文件")
-                        Text(verbatim: template.entry).font(.callout.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
-                    }
-                    previewAction(remember: false)
-                } header: { Text("开始开发") } footer: {
-                    Text("用编辑器打开项目文件夹。保存页面后，点「预览项目」查看效果。")
-                }
+    private func launchStatus(_ record: ProjectRecord) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(verbatim: record.name).font(.headline)
+            if model.busy || (model.problem == nil && model.scanStatus == nil && model.waitingEntry == nil) {
+                progressRow(model.scanStatus ?? "正在准备预览", statusID: "preview.stage", cancelID: "scan.cancel", cancel: returnToLibrary)
             } else {
-                Section {
-                    previewAction(remember: true)
+                if let entry = model.waitingEntry {
+                    if model.shouldMonitor { Text("请在项目文件夹中创建 \(entry)。保存后会自动打开。").textSelection(.enabled) }
+                    else { Text("请在项目文件夹中创建 \(entry)，然后点「重新检查」。").textSelection(.enabled) }
+                } else if let problem = model.problem {
+                    Text(verbatim: HostLanguage.text(problem)).textSelection(.enabled).accessibilityIdentifier("preview.error")
                 }
-            }
-            if let request = processingFolder { folderProgress(request) }
-            if let entry = model.waitingEntry, !model.busy {
-                Section("等待第一个页面") {
-                    Text("请在项目文件夹中创建 " + entry + (model.shouldMonitor ? "。保存后会自动打开。" : "，然后点「重新检查」。"))
-                        .textSelection(.enabled)
-                }
-            } else if let problem = model.problem, !model.busy {
-                Section(model.screen == nil ? "项目未能打开" : "预览提示") {
-                    Text(verbatim: problem).textSelection(.enabled).accessibilityIdentifier("preview.error")
+                HStack {
+                    Button("重新检查") { model.refresh(force: true, remember: true) }.accessibilityIdentifier("project.retry")
+                    Spacer()
+                    Button("返回项目列表", action: returnToLibrary)
                 }
             }
         }
-        .navigationTitle(record.name)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) { ProjectSettingsButton() }
-        }
-    }
-
-    @ViewBuilder private func previewAction(remember: Bool) -> some View {
-        if model.busy {
-            previewProgress
-        } else {
-            Button { model.refresh(force: true, remember: remember) } label: {
-                if model.waitingEntry == nil { Label("预览项目", systemImage: "play.fill") }
-                else { Label("重新检查", systemImage: "arrow.clockwise") }
-            }.accessibilityIdentifier("project.preview")
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
+        .background(.bar)
     }
 
     private var alertMessage: String? {
@@ -344,7 +302,7 @@ struct HostView: View {
             else if model.busy { previewProgress }
             if let problem = visiblePreviewProblem {
                 HStack {
-                    Text(verbatim: problem).font(.subheadline).lineLimit(2).accessibilityIdentifier("preview.error")
+                    Text(verbatim: HostLanguage.text(problem)).font(.subheadline).lineLimit(2).accessibilityIdentifier("preview.error")
                     Spacer(minLength: 4)
                     Menu {
                         Button("返回项目列表", action: returnToLibrary)
@@ -383,7 +341,7 @@ struct HostView: View {
     private func progressRow(_ message: String, statusID: String, cancelID: String, cancel: @escaping () -> Void) -> some View {
         HStack {
             ProgressView().accessibilityHidden(true)
-            Text(verbatim: message).font(.subheadline).accessibilityIdentifier(statusID)
+            Text(verbatim: HostLanguage.text(message)).font(.subheadline).accessibilityIdentifier(statusID)
             Spacer(minLength: 4)
             Button(action: cancel) { Text("取消").frame(minWidth: 44, minHeight: 44) }
                 .fixedSize(horizontal: true, vertical: false).buttonStyle(.borderless)
@@ -441,9 +399,37 @@ struct RunningPage: View {
 }
 
 private struct SettingsView: View {
+    let project: ProjectRecord?
+    let returnToLibrary: () -> Void
+    @AppStorage(HostLanguage.key) private var language = HostLanguage.chinese
     var body: some View {
         Form {
-            LabeledContent("版本", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")
+            if let project {
+                Section(project.name) {
+                    Button(action: returnToLibrary) { ProjectManagementLabel() }
+                        .accessibilityIdentifier("host.manage")
+                }
+            }
+            NavigationLink {
+                List(HostLanguage.allCases, id: \.self) { choice in
+                    Button {
+                        language = choice
+                    } label: {
+                        HStack {
+                            Text(verbatim: choice.displayName).foregroundStyle(.primary)
+                            Spacer()
+                            if choice == language { Image(systemName: "checkmark") }
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityAddTraits(choice == language ? .isSelected : [])
+                    .accessibilityIdentifier("language." + choice.rawValue)
+                }.navigationTitle("语言")
+            } label: { LabeledContent("语言", value: language.displayName) }
+            .accessibilityIdentifier("settings.language")
+            if project == nil {
+                LabeledContent("版本", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")
+            }
         }
     }
 }

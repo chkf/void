@@ -274,7 +274,7 @@ case "${1:-device}" in
       -only-testing:VoidTests/NativeContractTests \
       -only-testing:VoidTests/NativeTabEventTests \
       -only-testing:VoidTests/PreviewRecoveryTests/testRecoveryUsesTheInterruptedRequestEvenAfterNewerFolderScan \
-      -only-testing:VoidTests/PreviewRecoveryTests/testNewWorkspaceRemainsSelectedAfterADifferentInterruptedPreview \
+      -only-testing:VoidTests/PreviewRecoveryTests/testCreatingAProjectKeepsAnEarlierInterruptionUntilLaunchIsConfirmed \
       -resultBundlePath "$out/release-preview.xcresult" test-without-building
     ;;
   test)
@@ -389,7 +389,7 @@ try:
         events = json.loads(plistlib.load(preferences).get("void.directoryDiagnostics.v1", b"[]"))
 except (OSError, ValueError, plistlib.InvalidFileException):
     events = []
-actual = {e["request"] for e in events if e["stage"] in ("picker.willPresent", "picker.didPick")}
+actual = {e["request"] for e in events if e["stage"] in ("picker.present", "picker.didPick")}
 for e in events:
     if e["request"] in actual or e["stage"] == "fixture.ready":
         print(e["request"], e["purpose"], e["stage"], f'+{e["milliseconds"]}ms',

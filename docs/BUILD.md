@@ -24,7 +24,7 @@ VoiceOver 手势与实际朗读在签名设备上验收。在系统「设置 →
 
 向仓库推送 `v` 开头的版本标签会触发发布。发布任务核对 arm64 安装包和 GitHub 附件的 SHA-256。稳定版还需通过模拟器测试。`-dev.` 开发包在发布页注明同一提交的模拟器结果，便于原位验证真机问题。[版本下载](https://github.com/chkf/void/releases)
 
-原位更新请沿用旧版的签名团队、实际 Bundle ID 和已有应用标识配置，覆盖安装以保留原有数据容器。安装后在「所有项目」点原记录，再点「预览项目」。
+原位更新请沿用旧版的签名团队、实际 Bundle ID 和已有应用标识配置，覆盖安装以保留原有数据容器。安装后在「所有项目」点原记录，在弹窗中确认启动。
 
 Xcode 首次构建时通过 Swift Package Manager 获取工程中固定提交的 libgit2 1.9.2。Git 克隆与拉取使用该库提供的 HTTPS 传输。[依赖源码](https://github.com/ibrahimcetin/libgit2/tree/52287b0914f300f916b58fec80e13d8dd8f6824f)
 

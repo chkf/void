@@ -45,6 +45,7 @@ struct Catalog: Codable {
     var last: UUID?
     // A clone or pull records the next identity before publishing its working directory.
     var pendingInstall: ProjectRecord?
+    var pendingRename: ProjectRecord?
 
     var projects: [ProjectRecord] {
         records.filter(\.isListed).sorted {
@@ -93,6 +94,26 @@ actor ProjectLibrary {
             result.pendingInstall = nil
             needsSave = true
         }
+        if let next = result.pendingRename, let index = result.records.firstIndex(where: { $0.id == next.id }) {
+            // The folder move and the catalog write can be separated by a process exit.
+            let completed = try? next.grant.coordinated(write: true) { root -> ProjectRecord? in
+                guard root.lastPathComponent == next.name, try Self.directoryKey(root) == next.directoryKey else { return nil }
+                let (info, files) = try ProjectSourceReader().configuration(root)
+                guard info.declaredID == next.declaredID else { return nil }
+                if info.name != next.name { try ProjectFiles.rename(next.name, at: root, manifestData: files["app/manifest.json"]) }
+                var record = next
+                record.version = info.version
+                return record
+            }
+            if let completed {
+                result.records[index] = completed
+                result.pendingRename = nil
+                needsSave = true
+            } else if (try? result.records[index].grant.withRoot(Self.directoryKey)) == next.directoryKey {
+                result.pendingRename = nil
+                needsSave = true
+            }
+        }
         if needsSave { result.schemaVersion = 2; try save(result) }
         return result
     }
@@ -126,6 +147,13 @@ actor ProjectLibrary {
         let key: String
         let snapshot: SourceSnapshot
         let sameLocations: Set<UUID>
+
+        func hasSameLocation(as record: ProjectRecord) -> Bool {
+            if grant.bookmark == nil && record.grant.bookmark == nil {
+                return grant.sameLocation(as: record.grant)
+            }
+            return grant == record.grant || sameLocations.contains(record.id)
+        }
     }
 
     // Keep the working copies off the project list until every selected project is valid.
@@ -144,7 +172,7 @@ actor ProjectLibrary {
             for project in projects {
                 let name = project.grant.child
                 if manager.fileExists(atPath: FolderGrant.documents.appendingPathComponent(name).path) {
-                    throw RuntimeIssue("void 文稿中已有「" + name + "」，请更改文件夹名称后再导入")
+                    throw RuntimeIssue(HostLanguage.format("void 文稿中已有「%@」，请更改文件夹名称后再导入", name))
                 }
             }
             var published: [Observation] = []
@@ -195,7 +223,7 @@ actor ProjectLibrary {
     private static func observation(grant: FolderGrant, key: String, snapshot: SourceSnapshot,
                                     known: [ProjectRecord], io: DirectoryIO) throws -> Observation {
         var matches = Set<UUID>()
-        for record in known where record.directoryKey != key {
+        for record in known where record.directoryKey != key && (grant.bookmark != nil || record.grant.bookmark != nil) {
             try io.check()
             if record.grant.sameLocation(as:grant) { matches.insert(record.id) }
         }
@@ -206,14 +234,14 @@ actor ProjectLibrary {
         let info = observed.snapshot.info
         if let expected = record.declaredID, expected != info.declaredID { throw DirectoryIssue(kind:.identity,item:"runtime.json") }
         if record.directoryKey == observed.key { return }
-        guard observed.sameLocations.contains(record.id), let expected = record.declaredID,
+        guard observed.hasSameLocation(as: record), let expected = record.declaredID,
               observed.snapshot.files["runtime.json"] != nil, info.runtimeID == expected else {
             throw DirectoryIssue(kind:.identity,item:"登记目录")
         }
     }
 
-    private func register(_ observations: [Observation], template: ProjectTemplate? = nil, commit: DirectoryCommit? = nil,
-                          onlyNew: Bool = false, staging: ImportStaging? = nil,
+    private func register(_ observations: [Observation], commit: DirectoryCommit? = nil,
+                          automaticDiscovery: Bool = false, staging: ImportStaging? = nil,
                           git: (id: UUID, source: GitHubCheckout)? = nil) throws -> [ProjectRecord] {
         try Task.checkCancellation()
         let originalCatalog = try catalog()
@@ -222,14 +250,32 @@ actor ProjectLibrary {
         for o in observations {
             let info = o.snapshot.info
             let original = staging?.originals[o.grant.child] ?? o
-            let existing = catalog.records.first { $0.directoryKey == original.key || original.sameLocations.contains($0.id) || $0.grant == original.grant }
-            if git != nil, existing != nil { throw RuntimeIssue("此目录已登记，请从项目列表打开或拉取更新") }
-            if onlyNew {
-                let location = FolderGrant.documents.appendingPathComponent(o.grant.child)
-                guard existing == nil, (try? Self.directoryKey(location)) == o.key else { continue }
+            let candidates = catalog.records.filter {
+                (!automaticDiscovery || $0.grant.bookmark == nil) &&
+                    ($0.directoryKey == original.key || original.hasSameLocation(as: $0))
             }
+            var existing = candidates.first { $0.directoryKey == original.key && $0.declaredID == info.declaredID }
+                ?? candidates.first { info.runtimeID != nil && $0.declaredID == info.runtimeID }
+            if automaticDiscovery {
+                let location = FolderGrant.documents.appendingPathComponent(o.grant.child)
+                guard (try? Self.directoryKey(location)) == o.key else { continue }
+                if existing == nil {
+                    existing = candidates.first { $0.declaredID == nil && $0.directoryKey == o.key && $0.grant.sameLocation(as: o.grant) }
+                }
+                if let prior = existing {
+                    guard prior.isListed else { continue }
+                    if prior.directoryKey == o.key && prior.declaredID == info.declaredID && prior.grant.sameLocation(as: o.grant) &&
+                        prior.name == info.name && prior.version == info.version { continue }
+                } else if !candidates.isEmpty && info.runtimeID == nil {
+                    // A reused location or filesystem identifier alone cannot establish project identity.
+                    guard let id = info.declaredID, candidates.allSatisfy({ $0.declaredID != nil && $0.declaredID != id }) else { continue }
+                }
+            } else {
+                existing = existing ?? candidates.first
+            }
+            if git != nil, existing != nil { throw RuntimeIssue("此目录已登记，请从项目列表打开或拉取更新") }
             if let id = info.declaredID, catalog.records.contains(where:{ $0.declaredID == id && $0.id != existing?.id }) {
-                if onlyNew { continue }
+                if automaticDiscovery { continue }
                 throw RuntimeIssue("另一目录已登记相同的项目 id，原登记已保留")
             }
             if staging != nil, catalog.records.contains(where: {
@@ -240,12 +286,11 @@ actor ProjectLibrary {
                 try Self.matched(original,prior)
                 prior.grant = o.grant; prior.directoryKey = o.key
                 prior.declaredID = info.declaredID; prior.name = info.name; prior.version = info.version
-                if let template { prior.pendingTemplate = template }
                 prior.isListed = true
                 record = prior
             } else {
                 record = ProjectRecord(id:git?.id ?? UUID(),grant:o.grant,directoryKey:o.key,declaredID:info.declaredID,
-                    name:info.name,version:info.version,pendingTemplate:template,github:git?.source)
+                    name:info.name,version:info.version,pendingTemplate:nil,github:git?.source)
             }
             if let index = catalog.records.firstIndex(where:{$0.id == record.id}) { catalog.records[index] = record }
             else { catalog.records.append(record) }
@@ -254,7 +299,6 @@ actor ProjectLibrary {
         try Task.checkCancellation()
         guard !found.isEmpty else { return [] }
         try commit?.begin()
-        if template != nil, let created = found.first { catalog.last = created.id }
         if let staging {
             if git != nil {
                 var pending = originalCatalog
@@ -267,53 +311,72 @@ actor ProjectLibrary {
         return found
     }
 
-    // Only inspect the configurations of immediate child folders. Existing records include
-    // hidden projects, which an automatic refresh must not add back.
     func recognizeLocalProjects() async throws -> Bool {
-        let known = try catalog().records
-        let keys = Set(known.map(\.directoryKey))
-        let localRecords = known.filter { $0.grant.bookmark == nil }
-        let observations = try await DirectoryIO.run { io in
+        let names = try await DirectoryIO.run { io in
             let documents = FolderGrant(bookmark: nil, child: "")
-            return try documents.coordinated(io: io) { root -> [Observation] in
-                let reader = ProjectSourceReader()
-                let folders = try reader.list(root, "void 文稿", io: io).sorted { $0.lastPathComponent < $1.lastPathComponent }
-                return try folders.compactMap { url in
-                    try io.check()
-                    guard let key = try? Self.directoryKey(url), !keys.contains(key),
-                          let (info, files) = try? reader.configuration(url, io: io) else { return nil }
-                    let grant = FolderGrant(bookmark: nil, child: url.lastPathComponent)
-                    let snapshot = SourceSnapshot(info: info, files: files, revision: "")
-                    return try Self.observation(grant: grant, key: key, snapshot: snapshot, known: localRecords, io: io)
-                }
+            return try documents.coordinated(io: io) { root in
+                try FileManager.default.contentsOfDirectory(atPath: root.path)
             }
         }
-        guard !observations.isEmpty else { return false }
-        let added = try register(observations, onlyNew: true)
-        return !added.isEmpty
+        var observations: [Observation] = []
+        for name in names.sorted() where !name.hasPrefix(".") && ProjectFiles.component(name) {
+            try Task.checkCancellation()
+            let grant = FolderGrant(bookmark: nil, child: name)
+            // A busy or incomplete folder must not consume the read deadline of its siblings.
+            let project = try? await DirectoryIO.run { io in
+                try Self.inspect(grant, known: [], incomplete: true, trace: nil, io: io, contents: .configuration)
+            }
+            if let project { observations.append(project) }
+        }
+        let changes = try register(observations, automaticDiscovery: true)
+        return !changes.isEmpty
     }
 
     func create(name: String, parent: URL?, trace: DirectoryTrace? = nil, commit: DirectoryCommit? = nil) async throws -> ProjectRecord {
-        let observed = try await DirectoryIO.run(trace:trace) { io -> Observation in
-            let parent = try parent.map { try FolderGrant.selected($0,trace:trace) } ?? FolderGrant(bookmark:nil,child:"")
-            var child = parent; child.child = name
-            return try parent.coordinated(write:true,io:io,trace:trace) { root in
-                var prepared: Observation?
-                _ = try ProjectFiles.create(name,in:root,io:io) { staging in
-                    trace?.event("scan.begin")
-                    do {
-                        let snapshot = try ProjectFiles.snapshot(at:staging,trace:trace,io:io)
-                        prepared = Observation(grant:child,key:try Self.directoryKey(staging),snapshot:snapshot,sameLocations:[])
-                        trace?.event("scan.end","OK")
-                    } catch { trace?.event("scan.end","失败",error:error); throw error }
+        let stageName = ".void-new-" + UUID().uuidString
+        let destination = try parent.map { try FolderGrant.selected($0, trace: trace) } ?? FolderGrant(bookmark: nil, child: "")
+        defer { try? destination.withRoot { try FileManager.default.removeItem(at: $0.appendingPathComponent(stageName)) } }
+        let preparedID = try await DirectoryIO.run(trace: trace) { io in
+            try destination.coordinated(write: true, io: io, trace: trace) { root in
+                let staging = root.appendingPathComponent(stageName)
+                do {
+                    try ProjectFiles.prepare(name, at: staging, io: io)
+                    let (info, _) = try ProjectSourceReader().configuration(staging, io: io)
+                    guard let runtimeID = info.runtimeID else { throw DirectoryIssue(kind: .identity, item: "runtime.json") }
                     try io.check()
-                    try commit?.begin()
+                    return runtimeID
+                } catch {
+                    try? FileManager.default.removeItem(at: staging)
+                    throw error
                 }
-                guard let prepared else { throw DirectoryIssue(kind:.provider,item:"创建项目") }
-                return prepared
             }
         }
-        return try register([observed],template:.tsx,commit:commit)[0]
+        try Task.checkCancellation()
+        var catalog = try catalog()
+        return try destination.coordinated(write: true, trace: trace) { root in
+            let staging = root.appendingPathComponent(stageName)
+            let target = root.appendingPathComponent(name, isDirectory: true)
+            let manager = FileManager.default
+            guard !manager.fileExists(atPath: target.path) else { throw RuntimeIssue("此位置已有同名文件或目录") }
+            try Task.checkCancellation()
+            try commit?.begin()
+            try manager.moveItem(at: staging, to: target)
+            do {
+                var grant = destination
+                grant.child = name
+                // A provider can give the published folder a different ID from the staging folder.
+                let (published, _) = try ProjectSourceReader().configuration(target)
+                guard published.runtimeID == preparedID else { throw DirectoryIssue(kind: .identity, item: "runtime.json") }
+                let record = ProjectRecord(id: UUID(), grant: grant, directoryKey: try Self.directoryKey(target),
+                    declaredID: published.declaredID, name: published.name, version: published.version, pendingTemplate: .tsx)
+                catalog.records.append(record)
+                try save(catalog)
+                return record
+            } catch {
+                try manager.moveItem(at: target, to: staging)
+                throw error
+            }
+        }
     }
 
     private static func children(of grant: FolderGrant, trace: DirectoryTrace?, io: DirectoryIO) throws -> [FolderGrant] {
@@ -351,7 +414,7 @@ actor ProjectLibrary {
         let known = try catalog().records
         let observations = try await DirectoryIO.run(trace:trace) { io in
             try choices.map {
-                try Self.inspect($0,known:known,incomplete:true,trace:trace,io:io,contents:.fingerprint)
+                try Self.inspect($0,known:known,incomplete:true,trace:trace,io:io,contents:.configuration)
             }
         }
         return try register(observations,commit:commit)
@@ -399,7 +462,7 @@ actor ProjectLibrary {
         let copy = staging.directory.appendingPathComponent(source.name)
         let grant = FolderGrant(bookmark: nil, child: source.name)
         guard !manager.fileExists(atPath: FolderGrant.documents.appendingPathComponent(source.name).path) else {
-            throw RuntimeIssue("void 文稿中已有「" + source.name + "」，请选择已有项目")
+            throw RuntimeIssue(HostLanguage.format("void 文稿中已有「%@」，请选择已有项目", source.name))
         }
         let (commit, observation) = try await Task.detached(priority: .userInitiated) {
             let commit = try transfer(source.address, copy)
@@ -499,9 +562,13 @@ actor ProjectLibrary {
 
     private static func readRegistered(_ record: ProjectRecord, trace: DirectoryTrace?, contents: Contents) async throws -> Observation {
         try await DirectoryIO.run(trace:trace) { io in
-            do { return try inspect(record.grant,known:[record],incomplete:contents == .configuration,trace:trace,io:io,contents:contents) }
-            catch let error as DirectoryIssue where ["登记目录","外部目录授权","原目录书签","目录协调"].contains(error.item) {
+            do {
+                let observed = try inspect(record.grant,known:[record],incomplete:contents == .configuration,trace:trace,io:io,contents:contents)
+                try matched(observed, record)
+                return observed
+            } catch let error as DirectoryIssue where error.kind != .identity && ["登记目录","外部目录授权","原目录书签","目录协调"].contains(error.item) {
                 guard let local = try locateLocal(record,trace:trace,io:io,contents:contents) else { throw error }
+                try matched(local, record)
                 trace?.event("grant.recovered","Documents"); return local
             }
         }
@@ -539,27 +606,72 @@ actor ProjectLibrary {
         _ = try register([observed],commit:commit)
     }
 
-    func rename(_ id: UUID, name: String) async throws {
+    @discardableResult
+    func rename(_ id: UUID, name: String) async throws -> ProjectRecord {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { throw RuntimeIssue("项目名称不能为空") }
+        guard ProjectFiles.component(name), !name.hasPrefix(".") else { throw RuntimeIssue("请输入有效的项目文件夹名称") }
         guard let record = try catalog().projects.first(where: { $0.id == id }) else { throw RuntimeIssue("项目已从列表移除") }
         let located = try await Self.readRegistered(record, trace: nil, contents: .configuration)
         try Self.matched(located, record)
-        let updated = try await DirectoryIO.run { io -> Observation in
-            try located.grant.coordinated(write: true, io: io) { root in
-                guard try Self.directoryKey(root) == located.key else { throw DirectoryIssue(kind: .identity, item: "目录") }
-                let (info, configuration) = try ProjectSourceReader().configuration(root, io: io)
-                guard info.declaredID == located.snapshot.info.declaredID else { throw DirectoryIssue(kind: .identity, item: "runtime.json") }
-                try io.check()
-                let manifest = "app/manifest.json"
-                var files = configuration
-                files[manifest] = try ProjectFiles.rename(name, at: root, manifestData: configuration[manifest])
-                let renamed = try ProjectFiles.metadata(files, folderName: root.lastPathComponent)
-                return Observation(grant: located.grant, key: located.key,
-                    snapshot: SourceSnapshot(info: renamed, files: files, revision: ""), sameLocations: located.sameLocations)
+        var catalog = try catalog()
+        guard let index = catalog.records.firstIndex(where: { $0.id == id && $0.isListed }),
+              catalog.records[index].grant == record.grant, catalog.records[index].directoryKey == record.directoryKey,
+              !pulling.contains(id), catalog.pendingRename == nil else { throw RuntimeIssue("项目正在更新，请稍后重试") }
+        let coordinator = NSFileCoordinator()
+        return try located.grant.coordinated(write: true, writingOptions: .forMoving, coordinator: coordinator) { root in
+            guard try Self.directoryKey(root) == located.key else { throw DirectoryIssue(kind: .identity, item: "登记目录") }
+            let (info, files) = try ProjectSourceReader().configuration(root)
+            guard info.declaredID == located.snapshot.info.declaredID,
+                  !catalog.records.contains(where: { $0.id != id && info.declaredID != nil && $0.declaredID == info.declaredID }) else {
+                throw DirectoryIssue(kind: .identity, item: "runtime.json")
+            }
+            var next = catalog.records[index]
+            next.grant = try located.grant.renamingFolder(to: name)
+            next.name = name
+            next.version = info.version
+            next.declaredID = info.declaredID
+            next.directoryKey = located.key
+            let target = root.deletingLastPathComponent().appendingPathComponent(name, isDirectory: true)
+            let move = root.lastPathComponent != name
+            let caseOnly = move && (try? Self.directoryKey(target)) == located.key
+            if move && !caseOnly && FileManager.default.fileExists(atPath: target.path) { throw RuntimeIssue("此位置已有同名文件或目录") }
+            try Task.checkCancellation()
+            catalog.pendingRename = next
+            try save(catalog)
+            var moved = false
+            var wroteManifest = false
+            let manifest = "app/manifest.json"
+            do {
+                if move {
+                    coordinator.item(at: root, willMoveTo: target)
+                    let status = caseOnly ? Darwin.rename(root.path, target.path) : renamex_np(root.path, target.path, UInt32(RENAME_EXCL))
+                    guard status == 0 else { throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
+                    coordinator.item(at: root, didMoveTo: target)
+                    moved = true
+                }
+                try ProjectFiles.rename(name, at: target, manifestData: files[manifest])
+                wroteManifest = true
+                if next.grant.bookmark != nil && next.grant.child.isEmpty {
+                    next.grant.bookmark = try target.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+                }
+                next.directoryKey = try Self.directoryKey(target)
+                catalog.records[index] = next
+                catalog.pendingRename = nil
+                try save(catalog)
+                return next
+            } catch {
+                if wroteManifest { try files[manifest]?.write(to: target.appendingPathComponent(manifest), options: .atomic) }
+                if moved {
+                    coordinator.item(at: target, willMoveTo: root)
+                    try FileManager.default.moveItem(at: target, to: root)
+                    coordinator.item(at: target, didMoveTo: root)
+                }
+                catalog.records[index] = record
+                catalog.pendingRename = nil
+                try save(catalog)
+                throw error
             }
         }
-        try updateRecord(updated, record: record, updateLast: false)
     }
 
     func forgetLast() throws {
@@ -573,16 +685,6 @@ actor ProjectLibrary {
         try updateRecord(observed, record: record, updateLast: false)
         guard let updated = try catalog().records.first(where: { $0.id == id }) else { throw CancellationError() }
         return updated
-    }
-
-    @discardableResult
-    func selectWorkspace(_ id: UUID) async throws -> [String] {
-        guard let record = try catalog().projects.first(where:{$0.id == id}) else { throw RuntimeIssue("项目已从列表移除") }
-        let trace = DirectoryTrace("workspace")
-        trace.event("workspace.begin")
-        let observed = try await Self.readRegistered(record,trace:trace,contents:.configuration)
-        try updateRecord(observed,record:record,updateLast:true)
-        return observed.snapshot.info.permissions
     }
 
     func finishFirstPreview(_ id: UUID) throws {

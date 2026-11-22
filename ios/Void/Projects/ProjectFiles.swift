@@ -4,7 +4,7 @@ import Foundation
 struct RuntimeIssue: LocalizedError {
     let message: String
     init(_ message: String) { self.message = message }
-    var errorDescription: String? { message }
+    var errorDescription: String? { HostLanguage.text(message) }
 }
 
 enum UIMode: String, Codable { case swiftui, native, web }
@@ -12,15 +12,12 @@ enum UIMode: String, Codable { case swiftui, native, web }
 struct MissingProjectEntry: LocalizedError {
     let path: String
     let mode: UIMode
-    var errorDescription: String? { "请在项目文件夹中创建 " + path + "，保存后即可预览。" }
+    var errorDescription: String? { HostLanguage.format("请在项目文件夹中创建 %@，保存后即可预览。", path) }
 }
 
 enum ProjectTemplate: String, Codable {
     case swiftUI = "StarterProject"
     case tsx = "TSXProject"
-
-    var entry: String { self == .swiftUI ? "app/" + CompiledProject.entry : "app/src/main.tsx" }
-    var title: String { self == .swiftUI ? "SwiftUI" : "React / TSX" }
 }
 
 struct ProjectInfo {
@@ -54,7 +51,7 @@ enum ProjectFiles {
     }
 
     static func dictionary(_ bytes: Data?, file: String) throws -> [String: Any] {
-        guard let bytes else { throw RuntimeIssue("缺少 " + file) }
+        guard let bytes else { throw RuntimeIssue(HostLanguage.format("缺少 %@", file)) }
         do {
             guard let object = try JSONSerialization.jsonObject(with: bytes) as? [String: Any] else {
                 throw RuntimeIssue("需要 JSON 对象")
@@ -154,16 +151,11 @@ enum ProjectFiles {
         return data
     }
 
-    static func create(_ name: String, in parent: URL, io: DirectoryIO? = nil,
-                       beforePublish: (URL) throws -> Void = { _ in }) throws -> URL {
+    static func prepare(_ name: String, at staging: URL, io: DirectoryIO? = nil) throws {
         guard component(name), !name.hasPrefix(".") else { throw RuntimeIssue("请输入有效的项目文件夹名称") }
-        let target = parent.appendingPathComponent(name, isDirectory: true)
-        guard !manager.fileExists(atPath: target.path) else { throw RuntimeIssue("此位置已有同名文件或目录") }
         guard let source = Bundle.main.url(forResource: ProjectTemplate.tsx.rawValue, withExtension: nil) else {
             throw RuntimeIssue("宿主缺少项目模板")
         }
-        let staging = parent.appendingPathComponent(".void-new-" + UUID().uuidString)
-        defer { if manager.fileExists(atPath: staging.path) { try? manager.removeItem(at: staging) } }
         try manager.copyItem(at: source, to: staging)
         let config: [String: Any] = ["formatVersion": 1, "id": UUID().uuidString]
         try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
@@ -177,7 +169,14 @@ enum ProjectFiles {
             try manager.createDirectory(at: staging.appendingPathComponent(path), withIntermediateDirectories: true)
         }
         try io?.check()
-        try beforePublish(staging)
+    }
+
+    static func create(_ name: String, in parent: URL, io: DirectoryIO? = nil) throws -> URL {
+        let staging = parent.appendingPathComponent(".void-new-" + UUID().uuidString)
+        defer { try? manager.removeItem(at: staging) }
+        try prepare(name, at: staging, io: io)
+        let target = parent.appendingPathComponent(name, isDirectory: true)
+        guard !manager.fileExists(atPath: target.path) else { throw RuntimeIssue("此位置已有同名文件或目录") }
         try manager.moveItem(at: staging, to: target)
         return target
     }

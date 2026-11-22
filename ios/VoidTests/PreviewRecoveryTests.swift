@@ -72,7 +72,7 @@ final class PreviewRecoveryTests: XCTestCase {
         await host.showLibrary()
     }
 
-    func testNewWorkspaceRemainsSelectedAfterADifferentInterruptedPreview() async throws {
+    func testCreatingAProjectKeepsAnEarlierInterruptionUntilLaunchIsConfirmed() async throws {
         let prefix = "恢复-" + UUID().uuidString
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent(prefix)
         let firstName = prefix + "-A", nextName = prefix + "-B"
@@ -89,17 +89,30 @@ final class PreviewRecoveryTests: XCTestCase {
         XCTAssertNil(host.current)
         XCTAssertNotNil(host.recoveryMessage)
         await host.create(nextName,parent:nil)
-        let next = try XCTUnwrap(host.current)
+        XCTAssertEqual(host.projectPrompt?.kind, .created)
+        let next = try XCTUnwrap(host.records.first { $0.name == nextName })
+        XCTAssertNil(host.current)
         let catalog = try await library.catalog()
-        XCTAssertEqual(catalog.last,next.id)
+        XCTAssertNil(catalog.last)
         XCTAssertEqual(Set(catalog.records.map(\.id)),[first.id,next.id])
-        let acknowledged = try await recovery.pending()
-        XCTAssertNil(acknowledged)
+        let pending = try await recovery.pending()
+        XCTAssertEqual(pending?.project, first.id)
         let relaunched = HostModel(storage:storage)
         await relaunched.load()
-        XCTAssertEqual(relaunched.current?.id,next.id)
-        XCTAssertEqual(relaunched.workspaceTemplate,.tsx)
+        XCTAssertNil(relaunched.current)
+        XCTAssertNotNil(relaunched.recoveryMessage)
+        let window = try await PreviewTestWindow(relaunched)
+        defer { window.close() }
+        await relaunched.open(next)
+        let end = ContinuousClock.now + .seconds(115)
+        while relaunched.busy && ContinuousClock.now < end { try await Task.sleep(for: .milliseconds(100)) }
+        XCTAssertNotNil(relaunched.page, relaunched.problem ?? "")
         XCTAssertNil(relaunched.recoveryMessage)
+        let launched = try await library.catalog()
+        XCTAssertEqual(launched.last, next.id)
+        let completed = try await recovery.pending()
+        XCTAssertNil(completed)
+        await relaunched.showLibrary()
     }
 
     func testCompilerTimeoutAndCancellationReleaseARealWebKitWait() async throws {

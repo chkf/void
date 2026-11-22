@@ -51,10 +51,12 @@ final class RuntimeTests: XCTestCase {
         try JSONEncoder().encode(catalog).write(to: storage.appendingPathComponent("projects.json"), options: .atomic)
         let host = HostModel(storage: storage)
         await host.load()
-        XCTAssertEqual(host.workspaceTemplate, .swiftUI)
+        XCTAssertNil(host.projectPrompt)
+        XCTAssertTrue(host.records.contains { $0.id == record.id })
+        XCTAssertNil(host.current)
         XCTAssertNil(host.problem)
-        host.refresh(force: true)
-        try await wait { (host.workspaceTemplate == nil && host.screen != nil) || host.problem != nil || host.notice != nil }
+        await host.open(record)
+        try await wait { host.screen != nil || host.problem != nil || host.notice != nil }
         guard case let .swiftUI(original)? = host.screen else { return XCTFail(host.problem ?? host.notice ?? "缺少 SwiftUI 页面") }
         XCTAssertNil(host.page)
         XCTAssertNil(host.candidate)
@@ -95,11 +97,12 @@ final class RuntimeTests: XCTestCase {
         host.folders.dismissed(request.id)
         try await wait { !host.folders.active }
         XCTAssertEqual(host.folders.phase, .succeeded, host.folders.message)
-        XCTAssertEqual(host.workspaceTemplate, .tsx)
+        XCTAssertNil(host.current)
+        XCTAssertEqual(host.projectPrompt?.kind, .created)
+        let record = try XCTUnwrap(host.records.first { $0.name == "笔记" })
+        host.projectPrompt = nil
         let window = try await PreviewTestWindow(host)
         defer { window.close() }
-        XCTAssertEqual(Set(host.permissions), ["files.read", "files.write"])
-        let record = try XCTUnwrap(host.current)
         let reference = try String(contentsOf:project.appendingPathComponent("SDK_REFERENCE.md"),encoding:.utf8)
         XCTAssertTrue(reference.contains("ios.fs.readFile"))
         XCTAssertTrue(FileManager.default.fileExists(atPath:project.appendingPathComponent("types/runtime-sdk.d.ts").path))
@@ -123,8 +126,9 @@ final class RuntimeTests: XCTestCase {
         start().catch(error => render(<Text value={String(error)} />));
         """
         try Data(source.utf8).write(to: project.appendingPathComponent("app/src/main.tsx"), options:.atomic)
-        host.refresh(force:true)
+        await host.open(record)
         try await wait { host.page != nil || host.problem != nil }
+        XCTAssertEqual(Set(host.permissions), ["files.read", "files.write"])
         XCTAssertEqual(host.page?.nodes.first?.text("value"), "创建下次见", host.problem ?? "")
         XCTAssertEqual(try String(contentsOf:project.appendingPathComponent("data/notes/first.txt"), encoding:.utf8),"下次见")
         await host.showLibrary()
@@ -176,8 +180,10 @@ final class RuntimeTests: XCTestCase {
         let window = try await PreviewTestWindow(host)
         defer { window.close() }
         await host.create(name, parent: nil)
-        XCTAssertEqual(host.workspaceTemplate, .tsx)
-        host.refresh(force: true)
+        XCTAssertEqual(host.projectPrompt?.kind, .created)
+        XCTAssertNil(host.current)
+        let created = try XCTUnwrap(host.records.first { $0.name == name })
+        await host.open(created)
         try await wait { host.page != nil || host.problem != nil || host.notice != nil }
         let beforeWarning = try XCTUnwrap(host.page,host.problem ?? host.notice ?? "")
         XCTAssertEqual(beforeWarning.nodes.first?.type,"Form")

@@ -95,7 +95,8 @@ final class SDKSession: ObservableObject {
             trace?.event("sdk.consent.begin",key)
             let answer: Bool
             do {
-                answer = try await ui.confirm(title: "允许「" + record.name + "」" + label + "？", detail: "void 会为这个项目记住你的选择。")
+                answer = try await ui.confirm(title: HostLanguage.format("允许「%@」%@？", record.name, HostLanguage.text(label)),
+                                              detail: HostLanguage.text("void 会为这个项目记住你的选择。"))
                 try Task.checkCancellation()
                 guard valid else { throw CancellationError() }
             } catch {

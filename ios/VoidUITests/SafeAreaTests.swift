@@ -26,8 +26,7 @@ final class SafeAreaTests: XCTestCase {
         try checkLibraryActions(app, darkMode: darkMode)
         guard app.revealRecentProject(row) else { throw NSError(domain: "Missing fixture " + name, code: 1) }
         row.tap()
-        XCTAssertTrue(app.navigationBars[name].exists, app.debugDescription)
-        app.buttons["project.preview"].tap()
+        app.confirmProjectLaunch()
         XCTAssertTrue(app.staticTexts["Sample screen"].waitForExistence(timeout: 100), app.debugDescription)
     }
 

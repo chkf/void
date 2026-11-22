@@ -1,12 +1,12 @@
 # void
 
-void 是一个面向个人的 iPhone 项目宿主。新建项目使用 React / TSX，由 SwiftUI 绘制原生控件。打开「创建项目」，输入名称并选择保存位置，即可进入工作区。你或 Agent 可以在「文件」中的项目目录编辑 `app/src/main.tsx`，回到 void 点「预览项目」即可在手机上运行。[项目管理与使用](docs/RUNTIME.md)
+void 是一个面向个人的 iPhone 项目宿主。新建项目使用 React / TSX，由 SwiftUI 绘制原生控件。打开「创建项目」，输入名称并选择保存位置。创建成功后，点「打开 OpenMinis」继续编辑，或点「完成」回到列表。你或 Agent 可以在「文件」中的项目目录编辑 `app/src/main.tsx`。在「所有项目」中点按项目名称并确认启动，即可在手机上运行。[项目管理与使用](docs/RUNTIME.md)
 
 宿主也能打开已有的 SwiftUI 项目和 HTML 项目。Native SDK 1.1.0 为脚本提供 18 组原生能力，包括文件、SQLite、媒体、系统服务和硬件接口。[SDK 方法与权限](docs/SDK_REFERENCE.md) · [项目格式](docs/PROJECT_FORMAT.md)
 
 ## 开发与构建
 
-开发子应用时，将「项目管理」放进应用自己的设置列表，例如「我的 → 设置」。点按后回到「所有项目」，长按项目可查看版本或重命名。公开 GitHub 仓库可以从主页「从 GitHub 导入」克隆并运行，之后长按项目即可「拉取并运行」。[项目导入与设置接入](docs/RUNTIME.md) · [下载已发布的 IPA 和示例](https://github.com/chkf/void/releases)
+开发子应用时，将「项目管理」放进应用自己的设置列表，例如「我的 → 设置」。长按「所有项目」中的项目可打开详情，查看版本或修改名称。公开 GitHub 仓库可从「创建项目 → 从 GitHub 导入」克隆并运行，之后长按项目即可「拉取并运行」。[项目导入与设置接入](docs/RUNTIME.md) · [下载已发布的 IPA 和示例](https://github.com/chkf/void/releases)
 
 构建 11 为 TSX 项目提供 `@runtime/ui@1.1.0`。开发者可配置原生标签栏、浅色和深色主题、文本、卡片及滚动布局。独立示例包含两页和可开关的第三页，所有输入仅保存在内存。原依赖 `1.0.0` 继续可用。[构建 11 的 IPA 与示例 ZIP](https://github.com/chkf/void/actions/runs/44515969381/artifacts/14527390642) · [原生 UI 接口与版本规则](docs/NATIVE_UI.md) · [签名与安装](docs/BUILD.md) · [验证记录](docs/LIMITATIONS.md)
 

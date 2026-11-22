@@ -56,7 +56,7 @@ struct DirectoryIssue: LocalizedError, CustomNSError {
         case .sourceLimit: message = "本次读取达到预览容量限制，已停止读取"
         }
         let native = underlying.map { " (\($0.domain) \($0.code))" } ?? ""
-        return [item, message + native].filter { !$0.isEmpty }.joined(separator:" · ")
+        return [HostLanguage.text(item), HostLanguage.text(message) + native].filter { !$0.isEmpty }.joined(separator:" · ")
     }
     static func reading(_ error: Error, item: String) -> DirectoryIssue {
         if let issue = error as? DirectoryIssue { return issue }

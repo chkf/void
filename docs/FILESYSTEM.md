@@ -20,7 +20,7 @@
 xcrun simctl spawn booted log show --last 15m --info --predicate 'subsystem == "app.chkf.void" AND category == "directory"'
 ```
 
-按同一请求 ID 查找 `picker.present`、`picker.didPick`、`picker.dismiss`，可依次核对选择器显示、收到选择回调和关闭的时间。随后查看 `grant.begin`、`grant.accessor`、`scan.begin`、`scan.end` 和最终结果。每条记录含耗时，失败时保留系统错误域和代码。选择回调记录数量和目录末级名。[测试脚本的读取示例](../scripts/ios-build.sh)
+按同一请求 ID 查找 `picker.present`、`picker.didPick` 和 `picker.dismiss`。系统可能先关闭选择器，再返回所选目录。宿主收到目录即开始处理，取消选择会记录 `picker.cancel`。授权和读取进度见 `grant.begin`、`grant.accessor`、`scan.begin`、`scan.end` 和最终结果。每条记录含耗时，失败时保留系统错误域和代码。选择回调记录数量和目录末级名。[Apple 文件选择器回调](https://developer.apple.com/documentation/swiftui/view/fileimporter%28ispresented%3Aallowedcontenttypes%3Aallowsmultipleselection%3Aoncompletion%3Aoncancellation%3A%29) · [测试脚本的读取示例](../scripts/ios-build.sh)
 
 每次目录读取操作最多等待 20 秒。「取消」和超时都会调用系统文件协调器的取消方法。已经进入服务商读取的工作可以晚些返回，宿主会丢弃过期结果。[Apple 文件协调取消语义](https://developer.apple.com/documentation/foundation/nsfilecoordinator/cancel())
 

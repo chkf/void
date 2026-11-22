@@ -17,16 +17,19 @@ final class FolderRequestTests: XCTestCase {
 
         let empty = flow.begin(.importFolder,origin:nil)
         flow.didPresent(empty.id); flow.picked(empty.id,[])
-        XCTAssertNil(flow.failureMessage)
         flow.dismissed(empty.id)
         XCTAssertEqual(flow.phase,.failed); XCTAssertTrue(calls.isEmpty)
         XCTAssertEqual(flow.failureMessage, "系统文件选择器未返回唯一目录")
         let selected = flow.begin(.create("新项目"),origin:nil,afterSheet:true)
         flow.sheetClosed(); flow.didPresent(selected.id)
         flow.picked(empty.id,[FolderGrant.documents]); XCTAssertEqual(flow.phase,.presenting)
-        flow.picked(selected.id,[FolderGrant.documents]); flow.picked(selected.id,[])
-        XCTAssertEqual(flow.phase,.selected); XCTAssertTrue(calls.isEmpty)
         flow.dismissed(selected.id); flow.dismissed(selected.id)
+        flow.sheetClosed()
+        XCTAssertFalse(flow.ready)
+        XCTAssertEqual(flow.phase,.presenting)
+        flow.picked(selected.id,[FolderGrant.documents]); flow.picked(selected.id,[])
+        flow.pickerCancelled(selected.id)
+        XCTAssertEqual(flow.phase,.processing)
         for _ in 0..<100 where flow.active { try await Task.sleep(for:.milliseconds(10)) }
         XCTAssertEqual(calls,[selected.id]); XCTAssertEqual(flow.phase,.succeeded)
         let stages = DirectoryJournal.shared.recent().filter{$0.request == selected.id}.map(\.stage)
@@ -42,8 +45,15 @@ final class FolderRequestTests: XCTestCase {
         XCTAssertEqual(flow.phase,.cancelled); XCTAssertEqual(calls,[selected.id])
         let swipe = flow.begin(.importFolder,origin:nil)
         flow.didPresent(swipe.id); flow.dismissed(swipe.id)
+        flow.pickerCancelled(swipe.id); flow.picked(swipe.id,[FolderGrant.documents])
         XCTAssertEqual(flow.phase,.cancelled)
-        XCTAssertEqual(DirectoryJournal.shared.recent().last{$0.request == swipe.id && $0.stage == "picker.dismiss"}?.detail,"未收到选择回调")
+        XCTAssertEqual(calls,[selected.id])
+
+        let failure = flow.begin(.importFolder,origin:nil)
+        flow.dismissed(failure.id)
+        flow.pickerFailed(failure.id, DirectoryIssue(kind: .unreadable, item: "所选目录"))
+        XCTAssertEqual(flow.phase,.failed)
+        XCTAssertNotNil(flow.failureMessage)
     }
 
     @MainActor
@@ -58,7 +68,7 @@ final class FolderRequestTests: XCTestCase {
             return "已登记"
         }
         let r = flow.begin(.importFolder,origin:nil)
-        flow.didPresent(r.id); flow.picked(r.id,[FolderGrant.documents]); flow.dismissed(r.id)
+        flow.didPresent(r.id); flow.picked(r.id,[FolderGrant.documents])
         for _ in 0..<100 where !began { try await Task.sleep(for:.milliseconds(10)) }
         XCTAssertTrue(began)
         flow.changeProject(to:UUID())

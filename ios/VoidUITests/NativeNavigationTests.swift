@@ -71,7 +71,7 @@ final class NativeNavigationTests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "project.row.Void Native UI ", " Profile")).firstMatch
         XCTAssertTrue(app.revealRecentProject(row), app.debugDescription)
         row.tap()
-        app.buttons["project.preview"].tap()
+        app.confirmProjectLaunch()
         XCTAssertTrue(app.staticTexts["训练内容"].waitForExistence(timeout: 100))
         XCTAssertTrue(becomes(app.buttons["scan.cancel"], "exists == false", timeout: 30))
         for title in ["训练", "历史", "进步", "模板", "我的"] { XCTAssertTrue(app.buttons[title].firstMatch.exists) }
@@ -106,9 +106,7 @@ final class NativeNavigationTests: XCTestCase {
             app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "project.row.Void Native UI ")).firstMatch
         XCTAssertTrue(app.revealRecentProject(row), app.debugDescription)
         row.tap()
-        let preview = app.buttons["project.preview"]
-        XCTAssertTrue(preview.waitForExistence(timeout: 15), app.debugDescription)
-        preview.tap()
+        app.confirmProjectLaunch()
 
         // iPadOS exposes a floating tab cell and its nested button with the same title.
         let components = app.buttons["组件"].firstMatch, settings = app.projectSettingsButton, rows = app.buttons["列表"].firstMatch

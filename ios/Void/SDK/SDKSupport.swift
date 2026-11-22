@@ -172,8 +172,8 @@ final class SDKPresenter: NSObject, UIAdaptivePresentationControllerDelegate {
     func confirm(title: String, detail: String) async throws -> Bool {
         let wait = SDKWait<Bool>()
         let alert = UIAlertController(title: title, message: detail, preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "不允许", style: .cancel) { _ in wait.finish(.success(false)) })
-        alert.addAction(UIAlertAction(title: "允许", style: .default) { _ in wait.finish(.success(true)) })
+        alert.addAction(UIAlertAction(title: HostLanguage.text("不允许"), style: .cancel) { _ in wait.finish(.success(false)) })
+        alert.addAction(UIAlertAction(title: HostLanguage.text("允许"), style: .default) { _ in wait.finish(.success(true)) })
         return try await show(alert, until: wait)
     }
     func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {

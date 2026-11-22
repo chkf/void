@@ -6,24 +6,54 @@ struct ProjectInfoView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var record: ProjectRecord?
     @State private var problem: String?
+    @State private var editingName = false
+    @State private var name = ""
+    @State private var saving = false
 
     var body: some View {
         NavigationStack {
             Form {
                 if let record {
-                    LabeledContent("项目名称", value: record.name)
+                    Button {
+                        name = record.name
+                        problem = nil
+                        editingName = true
+                    } label: {
+                        LabeledContent {
+                            HStack {
+                                Text(verbatim: record.name)
+                                Image(systemName: "pencil").accessibilityHidden(true)
+                            }
+                        } label: { Text("项目名称").foregroundStyle(.primary) }
+                    }
+                    .disabled(saving)
+                    .accessibilityLabel(Text("项目名称"))
+                    .accessibilityValue(Text(verbatim: record.name))
+                    .accessibilityIdentifier("project.editName")
                     LabeledContent("版本", value: record.version)
                     if let source = record.github {
                         LabeledContent("GitHub 仓库", value: source.address)
                             .textSelection(.enabled)
                     }
-                } else if let problem {
-                    Text(verbatim: problem)
-                } else { ProgressView("正在读取项目详情") }
+                } else if problem == nil { ProgressView("正在读取项目详情") }
+                if let problem { Text(verbatim: problem).foregroundStyle(.red) }
             }
             .navigationTitle("项目详情")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { Button("完成") { dismiss() } }
+            .toolbar { Button("完成") { dismiss() }.disabled(saving) }
+            .alert("修改项目名称", isPresented: $editingName) {
+                TextField("项目名称", text: $name)
+                Button("保存") {
+                    let newName = name
+                    saving = true
+                    Task {
+                        defer { saving = false }
+                        do { record = try await model.rename(id, to: newName) }
+                        catch { problem = error.localizedDescription }
+                    }
+                }.disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("取消", role: .cancel) {}
+            }
             .task(id: id) {
                 do { record = try await model.details(id) }
                 catch { if !Task.isCancelled { problem = error.localizedDescription } }
@@ -35,26 +65,22 @@ struct ProjectInfoView: View {
 struct GitHubImportView: View {
     let submit: (GitHubRepository) -> Void
     @State private var input = ""
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("https://github.com/owner/repo", text: $input)
-                        .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
-                        .accessibilityIdentifier("github.address")
-                } header: { Text("公开仓库地址") } footer: {
-                    Text("仓库根目录需包含 app/manifest.json 和项目入口文件。")
-                }
-                let repository = try? GitHubRepository(input)
-                Button("克隆并运行") { if let repository { submit(repository) } }
-                    .disabled(repository == nil)
-                    .accessibilityIdentifier("github.clone")
+        Form {
+            Section {
+                TextField("https://github.com/owner/repo", text: $input)
+                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("github.address")
+            } header: { Text("公开仓库地址") } footer: {
+                Text("仓库根目录需包含 app/manifest.json 和项目入口文件。")
             }
-            .navigationTitle("从 GitHub 导入")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } } }
+            let repository = try? GitHubRepository(input)
+            Button("克隆并运行") { if let repository { submit(repository) } }
+                .disabled(repository == nil)
+                .accessibilityIdentifier("github.clone")
         }
+        .navigationTitle("从 GitHub 导入")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

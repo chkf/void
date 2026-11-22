@@ -47,7 +47,9 @@ final class DirectoryTests: XCTestCase {
         try fm.removeItem(at: root.appendingPathComponent("app/src/main.tsx"))
         let host = HostModel(storage: store)
         await host.showLibrary()
-        await host.rename(target.id, to: "  新名称  ")
+        try await host.rename(target.id, to: "  新名称  ")
+        XCTAssertFalse(fm.fileExists(atPath: root.path))
+        root = parent.appendingPathComponent("新名称")
         XCTAssertNil(host.notice)
         XCTAssertNil(host.current)
         XCTAssertNil(host.screen)
@@ -61,6 +63,10 @@ final class DirectoryTests: XCTestCase {
         XCTAssertEqual(saved.declaredID, declared)
         XCTAssertTrue(saved.isListed)
         XCTAssertEqual(catalog.projects.first { $0.id == other.id }?.name, other.name)
+        XCTAssertEqual(try saved.grant.withRoot { $0.lastPathComponent }, "新名称")
+        for invalid in [other.name, "../outside", ".hidden"] {
+            do { try await host.rename(target.id, to: invalid); XCTFail("应保留原目录") } catch {}
+        }
         let (info, _) = try ProjectSourceReader().configuration(root)
         XCTAssertEqual(info.name, saved.name)
 
@@ -73,10 +79,79 @@ final class DirectoryTests: XCTestCase {
         XCTAssertNil(afterDetails.last)
 
         try write(#"{"formatVersion":1,"id":"different-project"}"#, "runtime.json")
-        await host.rename(target.id, to: "错误目标")
-        XCTAssertNotNil(host.notice)
+        do { try await host.rename(target.id, to: "错误目标"); XCTFail("应拒绝不同的项目") }
+        catch { XCTAssertEqual((error as? DirectoryIssue)?.kind, .identity) }
         let (replaced, _) = try ProjectSourceReader().configuration(root)
         XCTAssertEqual(replaced.name, "新名称")
+    }
+
+    func testCreatingAtAFormerPathRegistersThePublishedFolderWithAFreshIdentity() async throws {
+        let library = ProjectLibrary(base: store)
+        try fm.removeItem(at: root.appendingPathComponent("runtime.json"))
+        let found = try await library.discover(parent)
+        let old = try XCTUnwrap(found.first)
+        XCTAssertNil(old.declaredID)
+        let archived = parent.appendingPathComponent("归档")
+        try fm.moveItem(at: root, to: archived)
+
+        let fresh = try await library.create(name: root.lastPathComponent, parent: parent)
+        XCTAssertNotEqual(fresh.id, old.id)
+        XCTAssertNotNil(fresh.declaredID)
+        XCTAssertEqual(fresh.directoryKey, try ProjectLibrary.directoryKey(root))
+        let snapshot = try await library.open(fresh.id, remember: false)
+        XCTAssertEqual(snapshot.info.runtimeID, fresh.declaredID)
+        let rediscovered = try await library.discover(root)
+        XCTAssertEqual(rediscovered.first?.id, fresh.id)
+        let restored = try await library.discover(archived)
+        XCTAssertEqual(restored.first?.id, old.id)
+        do { _ = try await library.create(name: root.lastPathComponent, parent: parent); XCTFail("应保留已有项目") }
+        catch { XCTAssertTrue(error.localizedDescription.contains("同名")) }
+        let catalog = try await library.catalog()
+        XCTAssertNil(catalog.last)
+        XCTAssertEqual(catalog.records.count, 2)
+    }
+
+    func testListRecoversAPreviouslyCreatedFolderWithoutAdoptingThePriorProjectsData() async throws {
+        let name = "Recovered-" + UUID().uuidString
+        let previous = FolderGrant.documents.appendingPathComponent(name)
+        let moved = FolderGrant.documents.appendingPathComponent(name + "-moved")
+        try fm.moveItem(at: root, to: previous)
+        defer { try? fm.removeItem(at: previous); try? fm.removeItem(at: moved) }
+        let library = ProjectLibrary(base: store)
+        let initial = try await library.discover(previous)
+        let old = try XCTUnwrap(initial.first)
+        try fm.moveItem(at: previous, to: moved)
+        let created = try ProjectFiles.create(name, in: FolderGrant.documents)
+        let (info, _) = try ProjectSourceReader().configuration(created)
+        _ = try await library.recognizeLocalProjects()
+        let catalog = try await library.catalog()
+        let recovered = try XCTUnwrap(catalog.projects.first { $0.declaredID == info.runtimeID })
+        XCTAssertNotEqual(recovered.id, old.id)
+        let oldSnapshot = try await library.open(old.id, remember: false)
+        XCTAssertEqual(oldSnapshot.info.declaredID, declared)
+        let newSnapshot = try await library.open(recovered.id, remember: false)
+        XCTAssertEqual(newSnapshot.info.declaredID, info.runtimeID)
+    }
+
+    func testInterruptedRenameCompletesTheManifestAndCatalogAfterRestart() async throws {
+        let library = ProjectLibrary(base: store)
+        let found = try await library.discover(root)
+        var next = try XCTUnwrap(found.first)
+        next.name = "移动完成"
+        next.grant = try next.grant.renamingFolder(to: next.name)
+        var pending = try await library.catalog()
+        pending.pendingRename = next
+        let journal = store.appendingPathComponent("projects.json")
+        try JSONEncoder().encode(pending).write(to: journal, options: .atomic)
+        try fm.moveItem(at: root, to: parent.appendingPathComponent(next.name))
+
+        let restarted = ProjectLibrary(base: store)
+        let recovered = try await restarted.catalog()
+        XCTAssertNil(recovered.pendingRename)
+        XCTAssertEqual(recovered.projects.first?.id, next.id)
+        let opened = try await restarted.open(next.id, remember: false)
+        XCTAssertEqual(opened.info.name, next.name)
+        XCTAssertEqual(opened.info.runtimeID, declared)
     }
 
     func testRealScanAfterAtomicEditorSaveAndDirectoryAliases() async throws {
@@ -152,48 +227,96 @@ final class DirectoryTests: XCTestCase {
     }
 
     @MainActor
-    func testLocalRecognitionWaitsForExplicitPreviewToReadSources() async throws {
+    func testColdLaunchListsFilesProjectsBeforeAnyWatcherOrPreviewReadsSources() async throws {
         let local = FolderGrant.documents.appendingPathComponent("目录-" + UUID().uuidString)
+        let incomplete = FolderGrant.documents.appendingPathComponent("未写完-" + UUID().uuidString)
+        try fm.createDirectory(at: incomplete.appendingPathComponent("app"), withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: incomplete) }
+        try Data("{".utf8).write(to: incomplete.appendingPathComponent("app/manifest.json"))
         try fm.copyItem(at: root, to: local)
         defer { try? fm.removeItem(at: local) }
         let unavailable = local.appendingPathComponent("app/src/暂不可读.ts")
         try fm.createSymbolicLink(at: unavailable, withDestinationURL: local.appendingPathComponent("runtime.json"))
         let library = ProjectLibrary(base:store)
-        let added = try await library.recognizeLocalProjects()
-        XCTAssertTrue(added)
+        let host = HostModel(storage: store, discoversLocalProjects: true)
+        await host.load()
+        let record = try XCTUnwrap(host.records.first { $0.declaredID == declared })
+        XCTAssertFalse(host.records.contains { $0.grant.child == incomplete.lastPathComponent })
+        XCTAssertEqual(try record.grant.withRoot { $0.lastPathComponent }, local.lastPathComponent)
         let catalog = try await library.catalog()
         XCTAssertNil(catalog.last)
-        let record = try XCTUnwrap(catalog.projects.first { $0.declaredID == declared })
+        XCTAssertEqual(catalog.projects.filter { $0.declaredID == declared }.map(\.id), [record.id])
         XCTAssertEqual(record.directoryKey, try ProjectLibrary.directoryKey(local))
-        let host = HostModel(storage:store)
-        await host.load()
-        XCTAssertTrue(host.records.contains { $0.id == record.id })
         XCTAssertNil(host.current)
-        await host.selectProject(record)
-        XCTAssertTrue(host.showingOverview)
+        host.requestLaunch(record)
+        XCTAssertEqual(host.projectPrompt?.kind, .confirmLaunch)
+        XCTAssertEqual(host.projectPrompt?.record.id, record.id)
+        XCTAssertNil(host.current)
         XCTAssertFalse(host.shouldMonitor)
         XCTAssertFalse(host.busy)
         XCTAssertNil(host.compiler)
         XCTAssertNil(host.page)
-        // Even the ordinary foreground watcher cannot start a preview from this screen.
+        // The list watcher and a cancelled confirmation must leave sources untouched.
+        host.projectPrompt = nil
         host.refresh()
         XCTAssertFalse(host.busy)
-        host.refresh(force:true,remember:true)
+        await host.open(record)
         let deadline = ContinuousClock.now + .seconds(25)
         while host.busy && ContinuousClock.now < deadline { try await Task.sleep(for:.milliseconds(50)) }
         XCTAssertTrue(host.problem?.contains("符号链接") == true,host.problem ?? "")
-        XCTAssertTrue(host.showingOverview)
+        XCTAssertNil(host.screen)
         XCTAssertEqual(host.current?.id,record.id)
         XCTAssertTrue(fm.fileExists(atPath:unavailable.path))
         await host.removeFromList(record.id)
         _ = try await library.recognizeLocalProjects()
         let hidden = try await library.catalog()
         XCTAssertFalse(hidden.projects.contains { $0.id == record.id })
-        try fm.removeItem(at: unavailable)
         let restored = try await library.discover(local)
         XCTAssertEqual(restored.map(\.id), [record.id])
     }
 
+    @MainActor
+    func testColdLaunchSeparatesANewProjectFromAHiddenRecordWithTheSameDirectoryKey() async throws {
+        let local = FolderGrant.documents.appendingPathComponent("替换-" + UUID().uuidString)
+        try fm.moveItem(at: root, to: local)
+        defer { try? fm.removeItem(at: local) }
+        let library = ProjectLibrary(base: store)
+        let found = try await library.discover(local)
+        let old = try XCTUnwrap(found.first)
+        try await library.removeFromList(old.id)
+        let newID = UUID().uuidString
+        let config = try JSONSerialization.data(withJSONObject: ["formatVersion": 1, "id": newID])
+        try config.write(to: local.appendingPathComponent("runtime.json"), options: .atomic)
+
+        let host = HostModel(storage: store, discoversLocalProjects: true)
+        await host.load()
+        let current = try XCTUnwrap(host.records.first { $0.declaredID == newID })
+        XCTAssertNotEqual(current.id, old.id)
+        XCTAssertEqual(current.directoryKey, old.directoryKey)
+        let refreshed = try await library.catalog()
+        XCTAssertEqual(refreshed.records.first { $0.id == old.id }?.isListed, false)
+        let changedAgain = try await library.recognizeLocalProjects()
+        XCTAssertFalse(changedAgain)
+    }
+
+    @MainActor
+    func testStartupRestorationLeavesAnOpenFolderPickerActive() async throws {
+        let preference = "void.openProjectListOnLaunch"
+        let previous = UserDefaults.standard.object(forKey: preference)
+        UserDefaults.standard.set(false, forKey: preference)
+        defer { UserDefaults.standard.set(previous, forKey: preference) }
+        let library = ProjectLibrary(base: store)
+        let found = try await library.discover(root)
+        let last = try XCTUnwrap(found.first)
+        _ = try await library.open(last.id, remember: true)
+        let host = HostModel(storage: store, discoversLocalProjects: true)
+        let pick = host.folders.begin(.importFolder, origin: nil)
+        await host.load()
+        XCTAssertNil(host.current)
+        XCTAssertEqual(host.folders.phase, .presenting)
+        XCTAssertTrue(host.folders.ready)
+        host.folders.pickerCancelled(pick.id)
+    }
     @MainActor
     func testVisibleListRecognizesAProjectWhenItsManifestArrives() async throws {
         let first = FolderGrant.documents.appendingPathComponent("已就绪-" + UUID().uuidString)
@@ -393,6 +516,9 @@ final class DirectoryTests: XCTestCase {
         let library = ProjectLibrary(base:store)
         do { _ = try await library.discover(root); XCTFail("应保留登记错误") }
         catch { XCTAssertEqual((error as? DirectoryIssue)?.kind,.invalidJSON) }
+        do { _ = try await library.create(name: "新项目", parent: parent); XCTFail("应报告登记错误") }
+        catch { XCTAssertEqual((error as? DirectoryIssue)?.kind, .invalidJSON) }
+        XCTAssertFalse(fm.fileExists(atPath: parent.appendingPathComponent("新项目").path))
         XCTAssertEqual(try Data(contentsOf:catalogFile),invalid)
     }
 
@@ -470,8 +596,11 @@ final class DirectoryTests: XCTestCase {
                 try await Task.sleep(for:.milliseconds(100))
             }
         }
-        await model.importDirectory(root)
-        try await wait("首次导入") { !model.busy && (model.page != nil || model.problem != nil || model.notice != nil) }
+        let request = model.folders.begin(.importFolder, origin: nil)
+        model.folders.dismissed(request.id)
+        model.folders.picked(request.id, [root])
+        try await wait("首次导入") { !model.busy && (model.page != nil || model.problem != nil || model.folders.failureMessage != nil) }
+        XCTAssertEqual(model.folders.phase, .succeeded, model.folders.message)
         XCTAssertEqual(model.page?.nodes.first?.text("value"),"首次预览",model.problem ?? model.notice ?? "")
         let initial = try XCTUnwrap(model.page)
         try atomicEditorSave("export const title = '再次预览';","app/src/detail.ts")
@@ -498,12 +627,16 @@ final class DirectoryTests: XCTestCase {
         try await wait("修复清单") { !model.busy && model.problem == nil }
         window.close()
         model.page?.stop()
-        let restored = HostModel(storage:store)
+        let newName = "重启前放入-" + UUID().uuidString
+        let newFolder = try ProjectFiles.create(newName, in: FolderGrant.documents)
+        defer { try? fm.removeItem(at: newFolder) }
+        let restored = HostModel(storage: store, discoversLocalProjects: true)
         let nextWindow = try await PreviewTestWindow(restored)
         defer { nextWindow.close() }
         try await wait("冷启动") { !restored.busy && (restored.page != nil || restored.problem != nil) }
         XCTAssertEqual(restored.page?.nodes.first?.text("value"),"再次预览",restored.problem ?? "")
         XCTAssertEqual(restored.current?.id,model.current?.id)
+        XCTAssertTrue(restored.records.contains { $0.name == newName })
         await model.showLibrary(); await restored.showLibrary()
     }
 
@@ -579,10 +712,8 @@ final class DirectoryTests: XCTestCase {
         window.rootViewController = UIHostingController(rootView:HostView(model:host))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previousWindow?.makeKey() }
-        await host.selectProject(original)
-        XCTAssertTrue(host.showingOverview)
         let trace = DirectoryTrace("preview-test")
-        host.refresh(force:true,remember:true,trace:trace)
+        await host.open(original, trace:trace)
         let deadline = ContinuousClock.now + .seconds(110)
         while (host.busy || host.page?.nodes.first?.children.first?.children.first?.text("value") != "原记录已读取") && host.problem == nil && ContinuousClock.now < deadline {
             try await Task.sleep(for:.milliseconds(100))

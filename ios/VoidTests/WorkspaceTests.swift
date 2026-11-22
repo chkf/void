@@ -109,7 +109,7 @@ final class WorkspaceTests: XCTestCase {
         let restored = try await ProjectLibrary(base: registry).catalog()
         XCTAssertEqual(restored.last, a.id)
         let clone = parent.appendingPathComponent("副本")
-        try fm.copyItem(at: parent.appendingPathComponent("原生"), to: clone)
+        try fm.copyItem(at: parent.appendingPathComponent("新名称"), to: clone)
         do { _ = try await library.discover(clone); XCTFail("应拒绝副本的身份冲突") }
         catch { XCTAssertTrue(error.localizedDescription.contains("相同")) }
         let manifest = html.appendingPathComponent("manifest.json")
@@ -179,7 +179,7 @@ final class WorkspaceTests: XCTestCase {
         let b = try await library.create(name: "日程", parent: parent)
         let path = parent.appendingPathComponent("笔记/data/saved.txt")
         try Data("保留".utf8).write(to: path)
-        try await library.selectWorkspace(a.id)
+        _ = try await library.open(a.id, remember: true)
         try await library.removeFromList(a.id)
         let saved = try await ProjectLibrary(base: registry).catalog()
         XCTAssertEqual(saved.projects.map(\.id), [b.id])

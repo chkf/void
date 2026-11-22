@@ -34,7 +34,7 @@ actor PreviewRecovery {
         let request = entries.filter { $0.request == attempt.request }
         if let consent = request.last(where:{ $0.stage == "sdk.consent.begin" || $0.stage == "sdk.consent.end" }),
            consent.stage == "sdk.consent.begin" {
-            return "正在等待项目权限选择（" + consent.detail + "）"
+            return HostLanguage.format("正在等待项目权限选择（%@）", consent.detail)
         }
         guard attempt.stage == .firstFrame else { return attempt.stage.title }
         let start = request.lastIndex { $0.stage == "preview.firstFrame" } ?? request.startIndex
@@ -45,7 +45,7 @@ actor PreviewRecovery {
         if stages.contains("page.sdkReturned") { return "首次原生调用已返回，等待项目提交首屏" }
         if stages.contains("page.sdkConsentPending") { return "正在等待项目首次原生调用的权限选择" }
         if let method = events.last(where:{ $0.stage == "page.sdkMethod" }) {
-            return "正在等待首屏的原生调用 " + method.detail
+            return HostLanguage.format("正在等待首屏的原生调用 %@", method.detail)
         }
         if stages.contains("page.documentLoaded") || stages.contains("page.navigationFinished") { return "网页已载入，等待项目提交首屏" }
         if stages.contains("page.navigationCommitted") || stages.contains("page.load") { return "正在载入项目首屏网页" }
