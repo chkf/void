@@ -68,17 +68,24 @@ PY
 
 # The UI runner can change system appearance or edit the disposable safe-area project.
 with_simulator_actions() (
-  local device="$1" runner="" request="" previous="" container source_error
+  local device="$1" runner="" request="" previous=""
   shift
   local original
   original=$(xcrun simctl ui "$device" appearance)
-  container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
-  source_error="$container/Documents/${TEST_RUNNER_VOID_SAFE_AREA_PROJECT:?}/app/src/void-ui-test-error.ts"
   apply_action() {
     case "$1" in
       dark|light) xcrun simctl ui "$device" appearance "$1" ;;
-      add-source-error) printf '%s\n' 'const sample: number = "invalid";' > "$source_error" ;;
-      clear-source-error) rm -f -- "$source_error" ;;
+      add-source-error|clear-source-error)
+        # XCTest can reinstall the host between seeding the fixture and exercising the UI.
+        local container source_error
+        container=$(xcrun simctl get_app_container "$device" app.chkf.void data) || return 1
+        source_error="$container/Documents/${TEST_RUNNER_VOID_SAFE_AREA_PROJECT:?}/app/src/void-ui-test-error.ts"
+        if [[ "$1" == add-source-error ]]; then
+          printf '%s\n' 'const sample: number = "invalid";' > "$source_error"
+        else
+          rm -f -- "$source_error"
+        fi
+        ;;
     esac
   }
   (
@@ -99,7 +106,7 @@ with_simulator_actions() (
       sleep 0.5
     done
   ) & local watcher=$!
-  trap 'kill "$watcher" 2>/dev/null || true; apply_action clear-source-error; xcrun simctl ui "$device" appearance "${original##* }" || true' EXIT
+  trap 'kill "$watcher" 2>/dev/null || true; apply_action clear-source-error || true; xcrun simctl ui "$device" appearance "${original##* }" || true' EXIT
   "$@"
 )
 
