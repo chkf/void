@@ -99,8 +99,10 @@ final class DirectoryJournal: @unchecked Sendable {
     static let changed = Notification.Name("void.directoryDiagnostics")
     private let lock = NSLock()
     private let key = "void.directoryDiagnostics.v1"
+    private let writer = DispatchQueue(label: "void.directoryDiagnostics.persistence", qos: .utility)
     private let logger = Logger(subsystem:"app.chkf.void",category:"directory")
     private var entries: [DirectoryEvent]
+    private var savePending = false
     init() {
         entries = UserDefaults.standard.data(forKey:key).flatMap { try? JSONDecoder().decode([DirectoryEvent].self,from:$0) } ?? []
     }
@@ -108,10 +110,21 @@ final class DirectoryJournal: @unchecked Sendable {
         lock.lock()
         entries.append(entry)
         entries = Array(entries.suffix(180))
-        if let bytes = try? JSONEncoder().encode(entries) { UserDefaults.standard.set(bytes,forKey:key) }
+        let scheduleSave = !savePending
+        savePending = true
         lock.unlock()
         logger.info("\(entry.line, privacy: .public)")
-        DispatchQueue.main.async { NotificationCenter.default.post(name:Self.changed,object:nil) }
+        if scheduleSave { writer.async { self.saveSnapshot() } }
+        DispatchQueue.main.async { NotificationCenter.default.post(name: Self.changed, object: entry) }
+    }
+    private func saveSnapshot() {
+        lock.lock()
+        let snapshot = entries
+        savePending = false
+        lock.unlock()
+        guard let bytes = try? JSONEncoder().encode(snapshot) else { return }
+        // Defaults can synchronously notify SwiftUI. Publish in queue order, outside the journal lock.
+        DispatchQueue.main.async { UserDefaults.standard.set(bytes, forKey: self.key) }
     }
     func recent() -> [DirectoryEvent] {
         lock.lock(); defer { lock.unlock() }; return entries

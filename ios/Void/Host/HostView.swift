@@ -70,7 +70,9 @@ struct HostView: View {
         .onChange(of: model.current?.id) { previewProblemDismissed = false }
         .onChange(of: model.busy ? nil : model.problem) { previewProblemDismissed = false }
         .background { FolderPickerPresenter(flow: folders) }
-        .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in folders.updateProgress() }
+        .onReceive(NotificationCenter.default.publisher(for: DirectoryJournal.changed)) { notification in
+            if let event = notification.object as? DirectoryEvent { folders.updateProgress(event) }
+        }
         .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)) { _ in model.memoryWarning() }
         .task { await model.load() }
         .task(id: watchesProjectList) {
