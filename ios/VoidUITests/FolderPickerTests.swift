@@ -140,6 +140,11 @@ final class FolderPickerTests: XCTestCase {
         app.coordinate(withNormalizedOffset:CGVector(dx:label.point.x,dy:label.point.y))
     }
 
+    private func pickerCell(named name: String) -> XCUIElement {
+        app.cells.matching(NSPredicate(format: "label ==[c] %@ OR label BEGINSWITH[c] %@ OR identifier ==[c] %@",
+                                       name, name + ",", name)).firstMatch
+    }
+
     // Files treats directoryURL as a hint. Navigate its visible folders and verify
     // the app/ child before opening, even when the provider starts at another level.
     private func pickLocalProjectInFiles() throws {
@@ -147,6 +152,7 @@ final class FolderPickerTests: XCTestCase {
         let end = started.addingTimeInterval(105)
         var lastScreen: [String] = []
         var lastFolder: String?
+        var searched = false
         repeat {
             let labels = try pickerLabels()
             let open = labels.first { ["open","打开"].contains($0.text) && $0.point.x > 0.6 && $0.point.y < 0.3 }
@@ -157,7 +163,7 @@ final class FolderPickerTests: XCTestCase {
                 print("Files simulator screen",screen.prefix(40))
                 lastScreen = screen
             }
-            let atFixture = labels.contains { $0.point.y < searchY && ($0.text.contains("void picker") || $0.text.contains(String(token.prefix(8)).lowercased())) }
+            let atFixture = !searched && labels.contains { $0.point.y < searchY && ($0.text.contains("void picker") || $0.text.contains(String(token.prefix(8)).lowercased())) }
             let hasSourceFolder = entries.contains { $0.text == "app" }
             let hasManifestSibling = entries.contains { ["runtime.json","runtime","assets","modules"].contains($0.text) }
             if let open, hasSourceFolder || (atFixture && hasManifestSibling) {
@@ -174,6 +180,26 @@ final class FolderPickerTests: XCTestCase {
             let location = entries.first { ["on my iphone","我的 iphone","我的iphone"].contains($0.text) }
             let browse = labels.first { ["browse","浏览"].contains($0.text) && ($0.point.x < 0.3 || $0.point.y > 0.9) }
             if let folder = fixtureRow ?? container {
+                // On a fresh simulator the app's container tile can stay on screen after a tap.
+                // Search the current Files location for the exact seeded project in that case.
+                if folder.text == "void", lastFolder == folder.text, !searched {
+                    let field = app.searchFields.firstMatch
+                    if field.exists && field.isHittable {
+                        field.tap()
+                        field.typeText(fixture + "\n")
+                        searched = true
+                        lastFolder = nil
+                        continue
+                    }
+                }
+                let cell = pickerCell(named: fixtureRow == nil ? "void" : fixture)
+                if cell.exists && cell.isHittable {
+                    if fixtureRow != nil && cell.isSelected, let open { coordinate(open).tap(); return }
+                    if lastFolder == folder.text { cell.doubleTap() } else { cell.tap() }
+                    lastFolder = folder.text
+                    RunLoop.current.run(until: Date().addingTimeInterval(1))
+                    continue
+                }
                 // In Files' icon view the caption can receive taps for renaming. The
                 // separate item count below it identifies a tile; open its thumbnail.
                 let caption = entries.first {

@@ -55,6 +55,10 @@ final class PreviewRecoveryTests: XCTestCase {
         XCTAssertNil(host.current)
         XCTAssertEqual(host.records.map(\.id),[original.id])
         XCTAssertTrue(host.recoveryMessage?.contains("正在编译项目") == true)
+        let persisted = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            DirectoryJournal().recent().contains { $0.request == active && $0.stage == "preview.interrupted" }
+        }, object: nil)
+        await fulfillment(of: [persisted], timeout: 10)
         let diagnostic = DirectoryJournal().recent().last { $0.request == active }
         XCTAssertEqual(diagnostic?.stage, "preview.interrupted")
         XCTAssertEqual(diagnostic?.detail, PreviewStage.compile.rawValue)

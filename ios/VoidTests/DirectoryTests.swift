@@ -596,20 +596,25 @@ final class DirectoryTests: XCTestCase {
                 try await Task.sleep(for:.milliseconds(100))
             }
         }
+        let sampleMarker = fm.temporaryDirectory.appendingPathComponent("void-rebuild-test-pid")
+        func sampleIfSlow(_ phase: String) throws {
+            let marker = "\(ProcessInfo.processInfo.processIdentifier) \(phase)\n"
+            try Data(marker.utf8).write(to: sampleMarker, options: .atomic)
+        }
+        try sampleIfSlow("import")
+        defer { try? fm.removeItem(at: sampleMarker) }
         let request = model.folders.begin(.importFolder, origin: nil)
         model.folders.dismissed(request.id)
         model.folders.picked(request.id, [root])
         try await wait("首次导入") { !model.busy && (model.page != nil || model.problem != nil || model.folders.failureMessage != nil) }
+        try? fm.removeItem(at: sampleMarker)
         XCTAssertEqual(model.folders.phase, .succeeded, model.folders.message)
         XCTAssertEqual(model.page?.nodes.first?.text("value"),"首次预览",model.problem ?? model.notice ?? "")
         let initial = try XCTUnwrap(model.page)
         try atomicEditorSave("export const title = '再次预览';","app/src/detail.ts")
         model.refresh()
         let manual = DirectoryTrace("preview-test")
-        // The Mac runner can sample a stalled main thread even when this task cannot resume.
-        let sampleMarker = FileManager.default.temporaryDirectory.appendingPathComponent("void-rebuild-test-pid")
-        try Data(String(ProcessInfo.processInfo.processIdentifier).utf8).write(to:sampleMarker,options:.atomic)
-        defer { try? FileManager.default.removeItem(at:sampleMarker) }
+        try sampleIfSlow("rebuild")
         model.refresh(force:true,trace:manual)
         XCTAssertTrue(model.busy)
         XCTAssertTrue(DirectoryJournal.shared.recent().contains { $0.request == manual.id && $0.stage == "preview.begin" })

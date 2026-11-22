@@ -156,6 +156,25 @@ PY
   xcrun simctl terminate "$device" com.apple.DocumentsApp
 }
 
+verify_external_copy() {
+  local container
+  container=$(xcrun simctl get_app_container "$1" app.chkf.void data)
+  python3 - "$container" "$TEST_RUNNER_VOID_EXTERNAL_PROJECT" <<'PY'
+import json, pathlib, sys
+
+container, name = pathlib.Path(sys.argv[1]), sys.argv[2]
+copy = container / "Documents" / name
+catalog = json.loads((container / "Library/Application Support/void/projects.json").read_bytes())
+record, = [item for item in catalog["records"] if item["name"] == name]
+grant = record["grant"]
+location = container / "Documents" / (grant.get("localFolder") or "") / grant["child"]
+assert not grant.get("bookmark") and location == copy, "外部导入应登记本地副本"
+assert record["declaredID"] == json.loads((copy / "runtime.json").read_bytes())["id"]
+assert (copy / "app/src/main.tsx").read_bytes() == pathlib.Path("ios/TSXProject/app/src/main.tsx").read_bytes()
+print("已核对外部项目在 void 文稿中的副本、项目身份和登记位置。")
+PY
+}
+
 # Prepare an unregistered TSX folder in this simulator's Documents. Consent and
 # SQLite are created by the app itself, through the normal preview and SDK APIs.
 prepare_consent_test() {
@@ -185,24 +204,25 @@ PY
 
 # Capture only call stacks from the hosted simulator test, outside its main thread.
 sample_slow_rebuild() {
-  local device="$1" container marker pid executable report
+  local device="$1" container marker pid phase sampled="" executable report
   local end=$((SECONDS + 1200))
   while (( SECONDS < end )); do
     container=$(xcrun simctl get_app_container "$device" app.chkf.void data 2>/dev/null) || container=""
     marker="$container/tmp/void-rebuild-test-pid"
     if [[ -n "$container" && -f "$marker" ]]; then
-      pid=$(cat "$marker") || return 0
-      [[ "$pid" =~ ^[0-9]+$ ]] || return 0
+      read -r pid phase < "$marker" || continue
+      [[ "$pid" =~ ^[0-9]+$ && "$phase" =~ ^(import|rebuild)$ ]] || return 0
+      if [[ "$sampled" == "$pid $phase" ]]; then sleep 2; continue; fi
       sleep 12
-      [[ -f "$marker" ]] || return 0
-      executable=$(ps -p "$pid" -o comm=) || return 0
+      [[ -f "$marker" && "$(cat "$marker")" == "$pid $phase" ]] || continue
+      executable=$(ps -p "$pid" -o comm=) || continue
       [[ "$executable" == *"/VoidHost.app/VoidHost" ]] || return 0
-      report="$out/simulator-rebuild.sample"
+      report="$out/simulator-$phase.sample"
       if sample "$pid" 3 5 -file "$report" >/dev/null 2>&1; then
-        echo '重建等待期间的模拟器主线程采样'
+        echo "模拟器等待 $phase 期间的主线程采样"
         awk '/Call graph:/{p=1; next} /Binary Images:/{exit} p && /Thread_/ && seen++ {exit} p && n++ < 160 {print}' "$report"
       fi
-      return 0
+      sampled="$pid $phase"
     fi
     sleep 2
   done
@@ -256,12 +276,14 @@ case "${1:-device}" in
     xcrun simctl bootstatus "$device" -b
     preview_args=("${args[@]}" -configuration Release ENABLE_TESTABILITY=YES -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO)
     xcodebuild "${preview_args[@]}" build-for-testing
+    install_picker_fixture "$device"
     prepare_consent_test "$device" Release
     prepare_native_ui_test "$device" Release
     sample_slow_rebuild "$device" & sample_pid=$!
     trap 'kill "$sample_pid" 2>/dev/null || true' EXIT
     with_simulator_actions "$device" xcodebuild "${preview_args[@]}" \
       -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidTests/NativeScrollViewportTests -only-testing:VoidUITests/SafeAreaTests \
+      -only-testing:VoidUITests/FolderPickerTests/testSystemOpenImportsExternalCopyAndReopensIt \
       -only-testing:VoidUITests/HostTests/testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch \
       -only-testing:VoidTests/NativeSDKTests/testClosingFirstConsentCancelsWithoutSavingADecision \
       -only-testing:VoidTests/DirectoryTests/testColdLaunchListsFilesProjectsBeforeAnyWatcherOrPreviewReadsSources \
@@ -276,6 +298,7 @@ case "${1:-device}" in
       -only-testing:VoidTests/PreviewRecoveryTests/testRecoveryUsesTheInterruptedRequestEvenAfterNewerFolderScan \
       -only-testing:VoidTests/PreviewRecoveryTests/testCreatingAProjectKeepsAnEarlierInterruptionUntilLaunchIsConfirmed \
       -resultBundlePath "$out/release-preview.xcresult" test-without-building
+    verify_external_copy "$device"
     ;;
   test)
     bash scripts/ios-build.sh build-tests
@@ -313,14 +336,14 @@ PY
       -only-testing:VoidUITests/FolderPickerTests/testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory \
       -resultBundlePath "$out/local-picker.xcresult" test-without-building || local_test_status=$?
     container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
-    python3 - "$container/Library/Preferences/app.chkf.void.plist" "$local_test_status" "$existing_project" <<'PY'
-import json, plistlib, sys, time
+    python3 - "$container/Library/Application Support/void/directory-diagnostics.json" "$local_test_status" "$existing_project" <<'PY'
+import json, sys, time
 
 events = []
 for _ in range(30):
     try:
         with open(sys.argv[1], "rb") as stream:
-            events = json.loads(plistlib.load(stream).get("void.directoryDiagnostics.v1", b"[]"))
+            events = json.load(stream)
     except (OSError, ValueError):
         pass
     if any(e["stage"] == "page.firstFrame" for e in events):
@@ -381,13 +404,13 @@ PY
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
       -resultBundlePath "$result" test-without-building || test_status=$?
     if [[ "${CI:-}" == true ]] && container=$(xcrun simctl get_app_container "$device" app.chkf.void data); then
-      python3 - "$container/Library/Preferences/app.chkf.void.plist" <<'PY'
-import json, plistlib, sys
+      python3 - "$container/Library/Application Support/void/directory-diagnostics.json" <<'PY'
+import json, sys
 
 try:
-    with open(sys.argv[1], "rb") as preferences:
-        events = json.loads(plistlib.load(preferences).get("void.directoryDiagnostics.v1", b"[]"))
-except (OSError, ValueError, plistlib.InvalidFileException):
+    with open(sys.argv[1], "rb") as stream:
+        events = json.load(stream)
+except (OSError, ValueError):
     events = []
 actual = {e["request"] for e in events if e["stage"] in ("picker.present", "picker.didPick")}
 for e in events:
@@ -397,20 +420,7 @@ for e in events:
 PY
     fi
     if ((test_status != 0)); then exit "$test_status"; fi
-    container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
-    python3 - "$container" "$TEST_RUNNER_VOID_EXTERNAL_PROJECT" <<'PY'
-import json, pathlib, sys
-
-container, name = pathlib.Path(sys.argv[1]), sys.argv[2]
-copy = container / "Documents" / name
-catalog = json.loads((container / "Library/Application Support/void/projects.json").read_bytes())
-record, = [item for item in catalog["records"] if item["name"] == name]
-grant = record["grant"]
-location = container / "Documents" / (grant.get("localFolder") or "") / grant["child"]
-assert not grant.get("bookmark") and location == copy, "外部导入应登记本地副本"
-assert record["declaredID"] == json.loads((copy / "runtime.json").read_bytes())["id"]
-assert (copy / "app/src/main.tsx").read_bytes() == pathlib.Path("ios/TSXProject/app/src/main.tsx").read_bytes()
-PY
+    verify_external_copy "$device"
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
   *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests|release-preview|local-picker|native-layout" >&2; exit 2 ;;

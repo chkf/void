@@ -114,14 +114,7 @@ final class FolderRequests: ObservableObject {
         r.trace.event(r.purpose.name + ".result",state == .succeeded ? "OK" : (state == .cancelled ? "取消" : "失败"),error:error)
     }
     func updateProgress(_ event: DirectoryEvent) {
-        guard phase == .processing, request?.id == event.request else { return }
-        let status: String
-        switch event.stage {
-        case "import.copy": status = "正在将项目复制到 void 文稿"
-        case "grant.begin","grant.resolve": status = "正在等待目录授权或文件协调"
-        case "grant.accessor","scan.begin": status = "正在读取项目清单和源码"
-        default: return
-        }
+        guard phase == .processing, request?.id == event.request, let status = event.folderProgressMessage else { return }
         if message != status { message = status }
     }
     func clearResult() { if !active { phase = .idle; message = ""; request = nil } }

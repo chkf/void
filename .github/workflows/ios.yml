@@ -43,7 +43,7 @@ jobs:
           if-no-files-found: error
 
   preview-release:
-    name: Release 原目录、权限弹窗与 SQLite 首屏
+    name: Release 文件夹导入、权限弹窗与 SQLite 首屏
     runs-on: xcode-27
     timeout-minutes: 35
     env:
@@ -221,7 +221,7 @@ jobs:
 
           每次启动 void 都会识别「我的 iPhone → void → 项目名」中的项目清单。在「所有项目」点项目名即可确认启动。长按打开详情，点项目名可同步修改列表名称和「文件」中的文件夹名。
 
-          修复了在文件选择器中点「打开」后可能卡住的问题。外部项目会复制到 void 文稿，已有的本地项目就地打开。
+          修复了在系统「文件」点「打开」后可能一直转圈的问题。外部项目会复制到 void 文稿，重启后可继续使用这份副本。已有的本地项目就地打开。
 
           「创建项目」中可以新建 React 项目，或从公开 GitHub 仓库导入。普通创建完成后可直接打开 OpenMinis 编辑。修复了原目录已有旧登记时可能创建失败的问题。
 

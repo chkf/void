@@ -92,19 +92,31 @@ struct DirectoryEvent: Codable, Identifiable {
         let error = domain.map { " \($0) \(code ?? 0)" } ?? ""
         return "\(request.uuidString) \(purpose) \(stage) +\(milliseconds)ms \(detail)" + error
     }
+    var folderProgressMessage: String? {
+        guard purpose == "import" || purpose == "create" else { return nil }
+        switch stage {
+        case "import.copy": return "正在将项目复制到 void 文稿"
+        case "grant.begin", "grant.resolve": return "正在等待目录授权或文件协调"
+        case "grant.accessor", "scan.begin": return "正在读取项目清单和源码"
+        default: return nil
+        }
+    }
 }
 
 final class DirectoryJournal: @unchecked Sendable {
     static let shared = DirectoryJournal()
     static let changed = Notification.Name("void.directoryDiagnostics")
     private let lock = NSLock()
-    private let key = "void.directoryDiagnostics.v1"
+    private let file: URL
     private let writer = DispatchQueue(label: "void.directoryDiagnostics.persistence", qos: .utility)
     private let logger = Logger(subsystem:"app.chkf.void",category:"directory")
     private var entries: [DirectoryEvent]
     private var savePending = false
     init() {
-        entries = UserDefaults.standard.data(forKey:key).flatMap { try? JSONDecoder().decode([DirectoryEvent].self,from:$0) } ?? []
+        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        file = support.appendingPathComponent("void/directory-diagnostics.json")
+        let data = (try? Data(contentsOf: file)) ?? UserDefaults.standard.data(forKey: "void.directoryDiagnostics.v1")
+        entries = data.flatMap { try? JSONDecoder().decode([DirectoryEvent].self, from: $0) } ?? []
     }
     func append(_ entry: DirectoryEvent) {
         lock.lock()
@@ -115,16 +127,23 @@ final class DirectoryJournal: @unchecked Sendable {
         lock.unlock()
         logger.info("\(entry.line, privacy: .public)")
         if scheduleSave { writer.async { self.saveSnapshot() } }
-        DispatchQueue.main.async { NotificationCenter.default.post(name: Self.changed, object: entry) }
+        if entry.folderProgressMessage != nil {
+            DispatchQueue.main.async { NotificationCenter.default.post(name: Self.changed, object: entry) }
+        }
     }
     private func saveSnapshot() {
         lock.lock()
         let snapshot = entries
         savePending = false
         lock.unlock()
-        guard let bytes = try? JSONEncoder().encode(snapshot) else { return }
-        // Defaults can synchronously notify SwiftUI. Publish in queue order, outside the journal lock.
-        DispatchQueue.main.async { UserDefaults.standard.set(bytes, forKey: self.key) }
+        // Diagnostics must not trigger synchronous preferences callbacks during a Files operation.
+        do {
+            try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try JSONEncoder().encode(snapshot).write(to: file, options: .atomic)
+        } catch {
+            let failure = error as NSError
+            logger.error("Directory diagnostics write failed: \(failure.domain, privacy: .public) \(failure.code)")
+        }
     }
     func recent() -> [DirectoryEvent] {
         lock.lock(); defer { lock.unlock() }; return entries
