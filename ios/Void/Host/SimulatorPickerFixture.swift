@@ -1,8 +1,7 @@
 #if DEBUG && targetEnvironment(simulator)
 import Foundation
 
-// Arrange a new, unregistered directory inside the running test app's actual data container.
-// UI tests still navigate Apple's Files browser and use its real Open and cancel actions.
+// Create a project in the simulator's Files container before the project list appears.
 enum SimulatorPickerFixture {
     static var directory: URL? {
         guard let token = ProcessInfo.processInfo.environment["VOID_PICKER_TEST_PROJECT"],
@@ -17,7 +16,7 @@ enum SimulatorPickerFixture {
             // the Files picker opens. ProjectFiles publishes it with an atomic rename.
             try io.check()
             if !FileManager.default.fileExists(atPath:target.path) {
-                _ = try ProjectFiles.create(name,in:target.deletingLastPathComponent(),template:.tsx,io:io)
+                _ = try ProjectFiles.create(name,in:target.deletingLastPathComponent(),io:io)
                 if ProcessInfo.processInfo.environment["VOID_TEST_SLOW_FIRST_FRAME"] == "1" {
                     let source = """
                     import {render, Text} from "@runtime/ui";

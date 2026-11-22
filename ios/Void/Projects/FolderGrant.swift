@@ -101,7 +101,8 @@ struct FolderGrant: Codable, Equatable {
         return try Self.scoped(parent) { try descend(parent,child.isEmpty ? [] : [child]) }
     }
 
-    func coordinated<T>(write: Bool = false, io: DirectoryIO? = nil, trace: DirectoryTrace? = nil, _ body: (URL) throws -> T) throws -> T {
+    func coordinated<T>(write: Bool = false, writingOptions: NSFileCoordinator.WritingOptions = .forMerging,
+                        io: DirectoryIO? = nil, trace: DirectoryTrace? = nil, _ body: (URL) throws -> T) throws -> T {
         trace?.event("grant.begin",bookmark == nil ? "Documents" : "bookmark")
         do {
             let value = try withRoot { root in
@@ -118,7 +119,7 @@ struct FolderGrant: Codable, Equatable {
                             return try body(url)
                         }
                     }
-                    if write { coordinator.coordinate(writingItemAt:root,options:.forMerging,error:&error,byAccessor:accessor) }
+                    if write { coordinator.coordinate(writingItemAt:root,options:writingOptions,error:&error,byAccessor:accessor) }
                     else { coordinator.coordinate(readingItemAt:root,options:[],error:&error,byAccessor:accessor) }
                     try io?.check()
                     if let error { throw DirectoryIssue.reading(error,item:"目录协调") }

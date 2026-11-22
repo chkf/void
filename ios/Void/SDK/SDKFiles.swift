@@ -68,7 +68,7 @@ final class SDKFiles: @unchecked Sendable {
         }
         if parts.contains(where: { $0[0] == "data" || $0[0] == "project" }) {
             return try record.grant.coordinated(write: !writing.isEmpty,io:io) { root in
-                guard try ProjectLibrary.directoryKey(root) == record.directoryKey else { throw SDKFailure.denied("项目文件夹已变更，请重新授权") }
+                guard try ProjectLibrary.directoryKey(root) == record.directoryKey else { throw SDKFailure.denied("项目文件夹已变更，请从项目列表导入原文件夹") }
                 return try use(root)
             }
         }

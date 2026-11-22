@@ -2,18 +2,22 @@
 
 ## Purpose
 
-默认项目使用 SwiftUI 源码、系统控件和 Swift 状态绑定。可选的 React/TSX 项目能组合宿主提供的原生控件并在手机上更新。
+所有新建项目都使用 React/TSX 编写页面，组合宿主提供的原生控件并在手机上更新。
 
 ## ADDED Requirements
 
-### Requirement: 用 SwiftUI 编写默认项目
+### Requirement: 创建 React/TSX 原生项目
 
-宿主 SHALL 默认创建包含 Swift 源码的 SwiftUI 项目，通过 Xcode 将项目视图编译进 IPA，打开匹配的项目时直接运行该视图。项目源文件有改动时，宿主须指出如何取得匹配的构建。
+宿主 SHALL 在用户输入名称并选定保存位置后直接创建 React/TSX 项目。创建页仅收集项目名称和保存位置。
 
 #### Scenario: 创建项目并操作原生表单
 
-- **WHEN** 用户按默认选项创建项目、输入名字并切换开关
-- **THEN** SwiftUI 表单通过 Swift 状态绑定更新问候，冷启动后可以回到同一个项目。
+- **WHEN** 用户创建项目并打开预览，在表单中输入名字并切换开关
+- **THEN** React 状态随输入改变，SwiftUI 控件显示或隐藏相应的问候。冷启动后可以回到同一个项目。
+
+### Requirement: 打开已有 SwiftUI 项目
+
+宿主 SHALL 能重开已登记的 SwiftUI 工作区，并在预览时运行 IPA 中匹配的已编译视图。项目源文件有改动时，宿主须指出如何取得匹配的构建。
 
 #### Scenario: 在文件夹中编辑 Swift 源码
 
@@ -22,7 +26,7 @@
 
 ### Requirement: 用 TSX 组成真实的 SwiftUI 页面
 
-选择 React/TSX 的项目 SHALL 使用 `@runtime/ui` 的类型化组件，由宿主实例化 SwiftUI 文本、图片、按钮、堆叠布局、列表、分组表单、文本输入、开关、选择器、日期选择器、导航栈、工具栏和 sheet。此类项目可在同一个 IPA 中新增页面、调整结构、传递数据和响应事件。
+React/TSX 原生项目 SHALL 使用 `@runtime/ui` 的类型化组件，由宿主实例化 SwiftUI 文本、图片、按钮、堆叠布局、列表、分组表单、文本输入、开关、选择器、日期选择器、导航栈、工具栏和 sheet。此类项目可在同一个 IPA 中新增页面、调整结构、传递数据和响应事件。
 
 #### Scenario: 仅修改源码增加原生设置页
 

@@ -9,9 +9,8 @@ protocol SDKModule: AnyObject {
 extension SDKModule { func close() {} }
 
 @MainActor
-final class SDKConsent: ObservableObject {
+final class SDKConsent {
     static let shared = SDKConsent()
-    @Published private(set) var revision = 0
     private let defaults = UserDefaults.standard
     private func key(_ id: UUID) -> String { "void.permissions." + id.uuidString }
 
@@ -22,7 +21,6 @@ final class SDKConsent: ObservableObject {
         var saved = defaults.dictionary(forKey: key(project)) ?? [:]
         saved[name] = value
         defaults.set(saved, forKey: key(project))
-        revision += 1
     }
     func history(_ id: UUID) -> [[String:String]] {
         defaults.array(forKey:key(id) + ".activity") as? [[String:String]] ?? []
@@ -33,7 +31,6 @@ final class SDKConsent: ObservableObject {
            let date = latest["time"].flatMap({ try? Date.ISO8601FormatStyle().parse($0) }), Date().timeIntervalSince(date) < 60 { return }
         rows.append(["time":Date().ISO8601Format(),"method":method,"result":result])
         defaults.set(Array(rows.suffix(50)), forKey:key(project) + ".activity")
-        revision += 1
     }
     static let labels = [
         "files.read":"读取项目文件", "files.write":"更改项目文件", "files.pick":"通过文件选择器导入文件", "files.share":"导出或分享项目文件",
@@ -88,7 +85,7 @@ final class SDKSession: ObservableObject {
         guard !key.isEmpty else { return }
         guard declared.contains(key) else { throw SDKFailure("NOT_DECLARED", "请在 app/manifest.json 的 permissions 中添加 " + key) }
         if let allowed = access.decision(key, project: record.id) {
-            guard allowed else { throw SDKFailure.denied("请在项目管理的权限页面更改 " + key) }
+            guard allowed else { throw SDKFailure.denied("已拒绝" + (SDKConsent.labels[key] ?? key)) }
             return
         }
         if let asking { _ = try? await asking.value; try Task.checkCancellation(); return try await require(key) }
@@ -98,7 +95,7 @@ final class SDKSession: ObservableObject {
             trace?.event("sdk.consent.begin",key)
             let answer: Bool
             do {
-                answer = try await ui.confirm(title: "允许「" + record.name + "」" + label + "？", detail: "此选择仅用于当前项目，可在项目管理中修改。")
+                answer = try await ui.confirm(title: "允许「" + record.name + "」" + label + "？", detail: "void 会为这个项目记住你的选择。")
                 try Task.checkCancellation()
                 guard valid else { throw CancellationError() }
             } catch {

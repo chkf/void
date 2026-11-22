@@ -33,7 +33,7 @@ final class RuntimeTests: XCTestCase {
         }
     }
 
-    func testSwiftUIProjectOpensDirectlyAndDetectsEditsThatNeedANewBuild() async throws {
+    func testExistingSwiftUIWorkspaceReopensAndDetectsEditsThatNeedANewBuild() async throws {
         let name = "SwiftUI-" + UUID().uuidString
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         let project = FolderGrant.documents.appendingPathComponent(name)
@@ -41,8 +41,16 @@ final class RuntimeTests: XCTestCase {
             try? FileManager.default.removeItem(at: storage)
             try? FileManager.default.removeItem(at: project)
         }
+        let sourceFolder = try XCTUnwrap(Bundle.main.url(forResource: "StarterProject", withExtension: nil))
+        try FileManager.default.copyItem(at: sourceFolder, to: project)
+        let library = ProjectLibrary(base: storage)
+        let discovered = try await library.discover(project)
+        var record = try XCTUnwrap(discovered.first)
+        record.pendingTemplate = .swiftUI
+        let catalog = Catalog(records: [record], last: record.id)
+        try JSONEncoder().encode(catalog).write(to: storage.appendingPathComponent("projects.json"), options: .atomic)
         let host = HostModel(storage: storage)
-        await host.create(name, parent: nil)
+        await host.load()
         XCTAssertEqual(host.workspaceTemplate, .swiftUI)
         XCTAssertNil(host.problem)
         host.refresh(force: true)
@@ -71,15 +79,25 @@ final class RuntimeTests: XCTestCase {
         await host.showLibrary()
     }
 
-    func testTSXCanWriteAndReadItsFileAfterReopening() async throws {
+    func testReactProjectCreatedInSelectedFolderCanReadItsDataAfterReopening() async throws {
         let name = "TSXFiles-" + UUID().uuidString
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        let project = FolderGrant.documents.appendingPathComponent(name)
+        let parent = FolderGrant.documents.appendingPathComponent(name)
+        let project = parent.appendingPathComponent("笔记")
+        try FileManager.default.createDirectory(at: parent, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: storage); try? FileManager.default.removeItem(at: parent) }
         let host = HostModel(storage: storage)
-        defer { try? FileManager.default.removeItem(at: storage); try? FileManager.default.removeItem(at: project) }
+        await host.load()
+        let request = host.folders.begin(.create("笔记"), origin: nil, afterSheet: true)
+        host.folders.sheetClosed()
+        host.folders.didPresent(request.id)
+        host.folders.picked(request.id, [parent])
+        host.folders.dismissed(request.id)
+        try await wait { !host.folders.active }
+        XCTAssertEqual(host.folders.phase, .succeeded, host.folders.message)
+        XCTAssertEqual(host.workspaceTemplate, .tsx)
         let window = try await PreviewTestWindow(host)
         defer { window.close() }
-        await host.create(name, parent: nil, template: .tsx)
         XCTAssertEqual(Set(host.permissions), ["files.read", "files.write"])
         let record = try XCTUnwrap(host.current)
         let reference = try String(contentsOf:project.appendingPathComponent("SDK_REFERENCE.md"),encoding:.utf8)
@@ -139,12 +157,11 @@ final class RuntimeTests: XCTestCase {
         XCTAssertNil(host.waitingEntry)
         XCTAssertNil(host.problem)
         let page = try XCTUnwrap(host.page)
-        let originalURL = page.view.url
-        _ = try await page.view.evaluateJavaScript("document.querySelector('a').click(); true")
-        try await wait { window.window.rootViewController?.presentedViewController != nil }
-        XCTAssertTrue(host.page === page)
-        XCTAssertEqual(page.view.url, originalURL)
-        await host.showLibrary()
+        _ = try await page.view.evaluateJavaScript("setTimeout(() => document.querySelector('a').click(), 0); true")
+        try await wait { host.current == nil }
+        XCTAssertNil(host.page)
+        XCTAssertNil(window.window.rootViewController?.presentedViewController)
+        XCTAssertTrue(host.records.contains { $0.name == "空白项目" })
     }
 
     func testBrokenEditKeepsNativePageAndProjectCanBeReopened() async throws {
@@ -158,7 +175,7 @@ final class RuntimeTests: XCTestCase {
         let host = HostModel(storage: storage)
         let window = try await PreviewTestWindow(host)
         defer { window.close() }
-        await host.create(name, parent: nil, template: .tsx)
+        await host.create(name, parent: nil)
         XCTAssertEqual(host.workspaceTemplate, .tsx)
         host.refresh(force: true)
         try await wait { host.page != nil || host.problem != nil || host.notice != nil }

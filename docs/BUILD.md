@@ -10,9 +10,9 @@ GitHub Actions 在 `xcode-27` 运行器上选择正式版 Xcode 27.2 和 iOS 27.
 | void-native-ui-compact、void-native-ui-ipad | 独立模拟器的原生导航测试报告与导出的截图附件，含深浅色、横屏和辅助功能字号。 |
 | void-release-preview-screenshots | Release 配置的模拟器预览截图，含安全区首帧与完整显示器截图。 |
 
-构建 17 的设备包覆盖 iPhone 与 iPad。安装同一标签的 `void-unsigned.ipa` 后，打开「项目管理 → 宿主信息」可核对宿主版本 0.1.0、构建号 17。在深色和浅色下分别点首页操作，核对文字颜色。连续扫描两次，观察已有项目行的位置，再从「最近项目」点开一项，核对转场中的导航标题。[宿主操作说明](RUNTIME.md)
+安装设备包后，可在项目列表右上角的「设置」核对 void 的应用版本。在深色和浅色下分别点首页的创建与导入，核对文字颜色。将项目放入 void 文稿，回到列表后点开自动出现的项目，核对转场中的导航标题。[宿主操作说明](RUNTIME.md)
 
-真机待验。将同一发布中的 `safe-area-sample.zip` 解压并导入 `safe-area` 文件夹。把系统外观设为深色，打开 Sample，比较时间两侧空白和页面背景（`#204858`）。切到系统浅色应同步变为 `#C8E8E0`。在 Settings 中点 Light、Dark 或 Change palette，切回 Sample 检查滚动位置和 Draft 中已输入的文字。展开、收起键盘，横竖屏各转一次，再返回前台。在**这个独立样例**的「项目管理 → 恢复」中首次点「恢复上一可运行版本」，检查错误提示出现时从状态栏到标题的背景。用「重新构建并打开」恢复预览。留存完整屏幕截图，并记录设备型号、系统版本和宿主构建号。[最小项目](../tests/fixtures/safe-area)
+真机待验。将同一发布中的 `safe-area-sample.zip` 解压并导入 `safe-area` 文件夹。把系统外观设为深色，打开 Sample，比较时间两侧空白和页面背景（`#204858`）。切到系统浅色应同步变为 `#C8E8E0`。在 Settings 中点 Light、Dark 或 Change palette，切回 Sample 检查滚动位置和 Draft 中已输入的文字。展开、收起键盘，横竖屏各转一次，再返回前台。在样例本地副本的 `app/src/` 添加一个含类型错误的测试文件，回到预览检查错误提示出现时从状态栏到标题的背景，再移除该测试文件。留存完整屏幕截图，并记录设备型号、系统版本和宿主构建号。[最小项目](../tests/fixtures/safe-area)
 
 模拟器可用 `VOID_LAYOUT_PROFILE=compact bash scripts/ios-build.sh native-layout` 或 `VOID_LAYOUT_PROFILE=ipad bash scripts/ios-build.sh native-layout`。首帧探针在显示刷新时采样宿主窗口，并记录标签容器、选中页面和 WebKit 在窗口中的实际位置。界面测试使用完整显示器截图，采样时转换到 sRGB，每通道容差为 8。
 
@@ -24,9 +24,11 @@ VoiceOver 手势与实际朗读在签名设备上验收。在系统「设置 →
 
 向仓库推送 `v` 开头的版本标签会触发发布。发布任务核对 arm64 安装包和 GitHub 附件的 SHA-256。稳定版还需通过模拟器测试。`-dev.` 开发包在发布页注明同一提交的模拟器结果，便于原位验证真机问题。[版本下载](https://github.com/chkf/void/releases)
 
-原位更新请沿用旧版的签名团队、实际 Bundle ID 和已有应用标识配置，覆盖安装以保留原有数据容器。安装后点最近项目中的原记录，再点「预览项目」。若先使用「扫描本机项目」，扫描完成后从列表选原记录即可。
+原位更新请沿用旧版的签名团队、实际 Bundle ID 和已有应用标识配置，覆盖安装以保留原有数据容器。安装后在「所有项目」点原记录，再点「预览项目」。
 
-在装有对应 Xcode 的 Mac 上，为测试准备一个独立的 iPhone 模拟器。本机扫描测试在 Void 文稿中准备随机命名的未登记 TSX 项目。系统选择器测试在这个模拟器的「我的 iPhone」中准备 Void Files QA 文件夹，里面是仓库已有的 TSX 模板。通过 Files 选择该外部目录并按 Open，测试检查返回的项目名、TSX 首屏和更新原授权的结果。可从仓库根目录执行以下命令复现工作流。
+Xcode 首次构建时通过 Swift Package Manager 获取工程中固定提交的 libgit2 1.9.2。Git 克隆与拉取使用该库提供的 HTTPS 传输。[依赖源码](https://github.com/ibrahimcetin/libgit2/tree/52287b0914f300f916b58fec80e13d8dd8f6824f)
+
+在装有对应 Xcode 的 Mac 上，为测试准备一个独立的 iPhone 模拟器。项目列表测试在 void 文稿中准备随机命名的 TSX 项目，检查它能自动出现并打开预览。系统选择器测试在模拟器的「我的 iPhone」中准备另一个 TSX 项目。通过 Files 选择外部目录并按 Open，测试检查本地副本、TSX 首屏和重开结果。可从仓库根目录执行以下命令复现工作流。
 
 ```sh
 export DEVELOPER_DIR=/Applications/Xcode_27.2.app/Contents/Developer
@@ -39,7 +41,7 @@ bash scripts/ios-build.sh release-preview
 VOID_SIMULATOR_FIXTURES=1 bash scripts/ios-build.sh test
 ```
 
-Xcode 将 `ios/StarterProject/app/SwiftUI/` 下的 Swift 文件直接编译进 VoidHost，并将同一份模板源码复制进安装包，供创建和核对项目。可在该目录添加其他 Swift 文件。保留入口 `ProjectContentView(projectName:)` 即可。开发时运行 `npm run prepare:ios` 生成工具链，在 Xcode 中打开 `ios/Void.xcodeproj` 并选择 **Void**。构建脚本将产物写入 `.build/ios`。
+Xcode 将 `ios/TSXProject/` 作为资源打入 IPA，供宿主创建 React / TSX 项目。为了运行已有的 SwiftUI 项目，Xcode 也将 `ios/StarterProject/app/SwiftUI/` 下的 Swift 文件编译进 VoidHost，并随包附上同一份源码供核对。这些项目使用入口 `ProjectContentView(projectName:)`。开发时运行 `npm run prepare:ios` 生成工具链，在 Xcode 中打开 `ios/Void.xcodeproj` 并选择 **Void**。构建脚本将产物写入 `.build/ios`。
 
 要安装到自己的 iPhone，在 Xcode 的 VoidHost target → Signing & Capabilities 中选择有权限的 Team 和可用的 Bundle Identifier，然后选择已配对的设备运行。CI 的默认构建无需 Apple 签名凭据。[Apple 设备运行说明](https://developer.apple.com/documentation/xcode/running-your-app-on-simulated-or-physical-devices)
 

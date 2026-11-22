@@ -2,7 +2,7 @@
 
 ## Context
 
-void 从空目录建立。原始计划以 React 页面和 WKWebView 为主要界面。宿主和默认项目现在直接用 Swift 编写 SwiftUI 页面。React/TSX 项目继续使用原生控件渲染器，HTML 项目继续使用 WebKit。原始范围及十八组 SDK 能力见 [项目计划](../../../docs/PROJECT_PLAN.md)。
+void 从空目录建立。原始计划以 React 页面和 WKWebView 为主要界面。宿主使用 SwiftUI，新项目使用 React/TSX 编写页面，由 SwiftUI 渲染原生控件。HTML 项目使用 WebKit。原始范围及十八组 SDK 能力见 [项目计划](../../../docs/PROJECT_PLAN.md)。
 
 ## Goals / Non-Goals
 
@@ -15,17 +15,17 @@ IPA 包含编译好的 SwiftUI 项目视图、可供脚本组合的原生控件�
 | 入口 | 呈现与操作 |
 | --- | --- |
 | 首次打开 | SwiftUI「项目」列表，提供创建、导入及系统文件夹选择器。再次打开直接回到上次可用项目。 |
-| 日常运行 | 项目拥有页面与标签栏，背景延伸到状态栏，内容遵循安全区。开发者将宿主提供的「项目管理」行放入子应用自己的设置页，Web 页面用设置列表链接打开同一面板。 |
-| 管理 | 原生 sheet 中显示当前项目、项目切换、权限、日志、恢复与重启。低频的通用设置、SDK 版本与可用能力放在设置页。 |
+| 日常运行 | 项目拥有页面与标签栏，背景延伸到状态栏，内容遵循安全区。子应用设置中的「项目管理」行和 Web 设置中的管理链接都直接返回宿主项目列表。 |
+| 管理 | 「所有项目」按名称排列，长按可查看版本、重命名或拉取 GitHub 更新，左滑可从列表移除。列表右上角的设置显示 void 的应用版本。SDK 接口参考与类型定义随 TSX 模板提供给 Agent。 |
 | 项目内部 | 默认用原生列表进入详情，表单使用系统输入、选择器和开关。Canvas/WebGL、HTML 和已有网页应用使用有明确入口的 Web 页面。 |
 
 列表与表单采用系统字型、语义色和标准间距。侧滑返回、取消手势、键盘、动态字体及 VoiceOver 纳入验收。系统导航栈可向业务层同步最终路径。[Apple 导航模型](https://developer.apple.com/documentation/swiftui/understanding-the-navigation-stack) · [SwiftUI 辅助功能](https://developer.apple.com/documentation/swiftui/view-accessibility)
 
-### 默认项目如何运行 SwiftUI
+### 已有 SwiftUI 项目如何运行
 
-清单的 `uiMode` 为 `swiftui`，入口为 `SwiftUI/ProjectContentView.swift`。Xcode 将模板目录中的 Swift 文件编译进应用，GitHub Actions 将未签名的 arm64 IPA 发布到 Releases。宿主创建项目时复制同一套源码，打开时核对文件名和内容并显示 `ProjectContentView(projectName:)`。直接使用 SwiftUI 的状态绑定和系统导航，无需启动脚本会话。外部编辑的 Swift 源文件需要同步回仓库、重新构建并签名安装；源码与已安装版本不匹配时，宿主显示对应说明。
+这类项目的清单声明 `uiMode` 为 `swiftui`，入口为 `SwiftUI/ProjectContentView.swift`。Xcode 将对应的 Swift 文件编译进应用。宿主打开项目时核对文件名和内容，匹配后显示 `ProjectContentView(projectName:)`。修改这些 Swift 文件后，需要将源码同步回仓库，重新构建并签名安装。若源码与已安装版本不匹配，宿主会显示对应说明。
 
-### 可选的 TypeScript 项目如何驱动 SwiftUI
+### React/TSX 项目如何驱动 SwiftUI
 
 `@runtime/ui` 提供类型化 React 组件。TSX 模板及旧项目在清单中声明 `uiMode: "native"` 和 TSX 入口。显式 `web` 模式或缺少此字段且有有效 HTML 入口的项目使用 WebKit。原生页面可把某条路由交给 Web Runtime。Web 页面进入和退出原生导航时使用同一项目权限。
 
@@ -37,7 +37,7 @@ IPA 包含编译好的 SwiftUI 项目视图、可供脚本组合的原生控件�
 
 | 模块 | 职责 |
 | --- | --- |
-| Runtime Core、Project Manager | 管理项目生命周期、最近项目、目录授权和来源修订号。一次项目会话持有一组可释放的资源。 |
+| Runtime Core、Project Manager | 管理项目生命周期、项目列表、目录授权和来源修订号。一次项目会话持有一组可释放的资源。 |
 | Web Runtime、原生 UI 渲染器 | 分别负责页面资源与项目 JS 会话、原生控件树。宿主管理窗口独立持有，项目异常后仍可操作。 |
 | Bridge、Native SDK、Permission Manager | 同一个 Dispatcher 接收已绑定会话的请求，校验参数与授权后派发到预编译的 Swift 模块，包括原生 UI 提交。 |
 | Module Manager、Build Engine | 解析并校验锁定的依赖，在设备上生成完整的不可变构建，保存依赖图和 Source Map。 |
@@ -46,7 +46,7 @@ IPA 包含编译好的 SwiftUI 项目视图、可供脚本组合的原生控件�
 
 ### 工作目录、构建和发布
 
-目录选择器返回的书签存入宿主私有空间。每次协调读取时配对取得及释放访问权，通过文件变化通知、版本扫描和前台轮询兼容本地与 File Provider。目录登记使用宿主管理的项目身份。重复导入其他目录中复制的同一份清单须识别身份冲突，不能取得原项目的私有数据或权限。[Apple 目录访问](https://developer.apple.com/documentation/uikit/providing-access-to-directories)
+项目列表从 void 文稿的直接子目录识别项目。导入外部文件夹时，在系统授权期间复制到本地，校验后登记副本。外部位置创建的项目和旧版外部登记继续按原书签读取。每次协调读取时配对取得及释放访问权，通过文件变化通知、版本扫描和前台轮询发现工作目录的变化。目录登记使用宿主管理的项目身份。重复导入其他目录中复制的同一份清单须识别身份冲突，不能取得原项目的私有数据或权限。[Apple 目录访问](https://developer.apple.com/documentation/uikit/providing-access-to-directories)
 
 预置浏览器版 `esbuild-wasm` 和 TypeScript 编译器，在独立构建会话中处理受协调的输入快照。前者负责 TSX、CSS、资源、模块图和 Source Map，后者负责类型诊断。模块解析器只暴露当前快照及校验后的锁定模块。工具链及预置依赖的精确版本与摘要随宿主发布。构建工具和项目代码的执行上下文分开。[esbuild 浏览器 API](https://esbuild.github.io/api/#browser)
 
@@ -77,4 +77,4 @@ Files 中的 `data/` 可保存用户选择共享的项目数据。项目私有 S
 
 ## Migration Plan
 
-新建项目默认选择 SwiftUI。已有原生 TSX 项目保留 `native` 模式、目录和身份，HTML 项目继续从旧清单的入口打开。升级时分别检查项目格式、控件协议、原生 SDK 与数据模式版本，兼容性错误在激活前报告。
+在本机或所选文件夹新建项目均使用 React/TSX。已有项目按原清单及登记记录打开，包括尚未首次预览的 SwiftUI 工作区。升级时分别检查项目格式、控件协议、原生 SDK 与数据模式版本，兼容性错误在激活前报告。

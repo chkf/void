@@ -7,7 +7,7 @@ void 让用户安装一次原生宿主，就能让 Agent 在 iPhone 的 Files �
 ## What Changes
 
 - 建立 SwiftUI 宿主，支持创建、授权、恢复和切换项目。外部编辑器独立获得同一目录的访问权后即可参与开发。
-- 新项目默认用 Swift 编写 SwiftUI 页面，由 GitHub Actions 的 Xcode 编译成 IPA 并随 Release 分发。可选的 React/TSX 模板在设备上更新，继续使用系统控件。WKWebView 支持独立 Web 页面、Canvas、WebGL、Wasm 和已有 HTML 项目。
+- 所有新建项目使用 React/TSX 编写页面，在设备上编译并通过 SwiftUI 渲染系统控件。已有 SwiftUI 项目运行随 IPA 编译的视图。WKWebView 支持独立 Web 页面、Canvas、WebGL、Wasm 和已有 HTML 项目。
 - 随宿主交付离线工具链，通过热更新、诊断和回滚完成从编辑到修复的循环。
 - 通过统一、可取消且带版本的 Typed RPC 暴露预编译的原生能力。项目身份、用户同意、系统权限、设备和签名共同决定调用结果。
 - 为每个项目提供独立的数据、备份和系统调度的后台工作。交付物包括完整工程、SDK、Agent 指南、构建与签名说明及分环境验证记录。
@@ -17,7 +17,7 @@ void 让用户安装一次原生宿主，就能让 Agent 在 iPhone 的 Files �
 ### New Capabilities
 
 - `project-workspaces`：SwiftUI 宿主管理界面、Files 目录授权、项目格式、外部编辑与版本识别。
-- `native-project-ui`：默认以 Swift 源码编写 SwiftUI 导航、表单和状态，兼容以 TSX 组合 SwiftUI 控件的项目。
+- `native-project-ui` 支持用 React/TSX 编写原生导航、表单和交互，兼容已有 SwiftUI 项目。
 - `web-runtime`：Web 项目的页面生命周期、本地资源和内容隔离。
 - `project-builds`：设备上的 TSX、CSS、资源编译与打包，锁定依赖、校验完整性及复用缓存。
 - `live-updates`：四种更新方式、完整版本发布、状态保留和失败回退。

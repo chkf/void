@@ -3,31 +3,19 @@ import XCTest
 
 @MainActor
 final class PreviewRecoveryTests: XCTestCase {
-    func testInterruptedLocalDiscoveryDoesNotOverrideANewerAction() {
-        let local = DirectoryTrace("local"), preview = DirectoryTrace("preview")
-        func events() -> [DirectoryEvent] { DirectoryJournal.shared.recent().filter { $0.request == local.id || $0.request == preview.id } }
-        local.event("local.request")
-        local.event("grant.accessor")
-        XCTAssertEqual(PreviewRecovery.interruptedLocalScan(events())?.0,local.id)
-        XCTAssertEqual(PreviewRecovery.interruptedLocalScan(events())?.1,"grant.accessor")
-        preview.event("preview.begin")
-        XCTAssertNil(PreviewRecovery.interruptedLocalScan(events()))
-        local.event("local.request"); local.event("local.result","OK")
-        XCTAssertNil(PreviewRecovery.interruptedLocalScan(events()))
-    }
     func testRecoveryUsesTheInterruptedRequestEvenAfterNewerFolderScan() {
-        let preview = DirectoryTrace("preview"), local = DirectoryTrace("local")
+        let preview = DirectoryTrace("preview"), folder = DirectoryTrace("import")
         let attempt = PreviewAttempt(request:preview.id,project:UUID(),stage:.firstFrame)
         preview.event("preview.firstFrame")
         preview.event("page.navigationFinished")
-        local.event("page.contentReady")
-        local.event("local.result","OK")
+        folder.event("page.contentReady")
+        folder.event("import.result","OK")
         XCTAssertEqual(PreviewRecovery.interruptionTitle(attempt,entries:DirectoryJournal.shared.recent()),"网页已载入，等待项目提交首屏")
         preview.event("page.nativeCommitReceived")
         XCTAssertEqual(PreviewRecovery.interruptionTitle(attempt,entries:DirectoryJournal.shared.recent()),"正在处理项目提交的原生控件")
         let verifying = PreviewAttempt(request:preview.id,project:attempt.project,stage:.verifyPage)
         preview.event("sdk.consent.begin","database")
-        local.event("sdk.consent.end","database 允许")
+        folder.event("sdk.consent.end","database 允许")
         XCTAssertEqual(PreviewRecovery.interruptionTitle(verifying,entries:DirectoryJournal.shared.recent()),"正在等待项目权限选择（database）")
         preview.event("sdk.consent.end","database 允许")
         XCTAssertEqual(PreviewRecovery.interruptionTitle(verifying,entries:DirectoryJournal.shared.recent()),verifying.stage.title)
@@ -50,7 +38,7 @@ final class PreviewRecoveryTests: XCTestCase {
         let storage = FileManager.default.temporaryDirectory.appendingPathComponent(name)
         defer { try? FileManager.default.removeItem(at:storage); try? FileManager.default.removeItem(at:root) }
         let library = ProjectLibrary(base:storage)
-        _ = try ProjectFiles.create(name,in:FolderGrant.documents,template:.tsx)
+        _ = try ProjectFiles.create(name,in:FolderGrant.documents)
         let found = try await library.discover(root)
         let original = try XCTUnwrap(found.first)
         // An interruption can occur on the very first scan, before the last-opened
@@ -93,7 +81,7 @@ final class PreviewRecoveryTests: XCTestCase {
             try? FileManager.default.removeItem(at:storage)
         }
         let library = ProjectLibrary(base:storage)
-        let first = try await library.create(name:firstName,parent:nil,template:.tsx)
+        let first = try await library.create(name:firstName,parent:nil)
         let recovery = PreviewRecovery(storage:storage)
         try await recovery.mark(PreviewAttempt(request:UUID(),project:first.id,stage:.firstFrame),starting:true)
         let host = HostModel(storage:storage)
@@ -110,7 +98,7 @@ final class PreviewRecoveryTests: XCTestCase {
         let relaunched = HostModel(storage:storage)
         await relaunched.load()
         XCTAssertEqual(relaunched.current?.id,next.id)
-        XCTAssertEqual(relaunched.workspaceTemplate,.swiftUI)
+        XCTAssertEqual(relaunched.workspaceTemplate,.tsx)
         XCTAssertNil(relaunched.recoveryMessage)
     }
 

@@ -29,7 +29,7 @@ struct ProjectSettingsButton: View {
 }
 
 struct ProjectManagementLabel: View {
-    var body: some View { Label("项目管理", systemImage: "slider.horizontal.3") }
+    var body: some View { Label("项目管理", systemImage: "list.bullet").accessibilityHint("返回项目列表") }
 }
 
 struct ProjectManagementButton: View {

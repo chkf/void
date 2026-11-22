@@ -37,6 +37,48 @@ final class DirectoryTests: XCTestCase {
         XCTAssertEqual(chflags(temp.path,UInt32(UF_HIDDEN)),0)
         XCTAssertEqual(Darwin.rename(temp.path,target.path),0)
     }
+
+    @MainActor
+    func testRenameInProjectListOnlyNeedsTheManifestAndKeepsProjectIdentity() async throws {
+        let library = ProjectLibrary(base: store)
+        let imported = try await library.discover(root)
+        let target = try XCTUnwrap(imported.first)
+        let other = try await library.create(name: "另一个项目", parent: parent)
+        try fm.removeItem(at: root.appendingPathComponent("app/src/main.tsx"))
+        let host = HostModel(storage: store)
+        await host.showLibrary()
+        await host.rename(target.id, to: "  新名称  ")
+        XCTAssertNil(host.notice)
+        XCTAssertNil(host.current)
+        XCTAssertNil(host.screen)
+        XCTAssertFalse(host.busy)
+        XCTAssertEqual(host.records.first { $0.id == target.id }?.name, "新名称")
+        let catalog = try await ProjectLibrary(base: store).catalog()
+        XCTAssertNil(catalog.last)
+        let saved = try XCTUnwrap(catalog.projects.first { $0.id == target.id })
+        XCTAssertEqual(saved.name, "新名称")
+        XCTAssertEqual(saved.directoryKey, target.directoryKey)
+        XCTAssertEqual(saved.declaredID, declared)
+        XCTAssertTrue(saved.isListed)
+        XCTAssertEqual(catalog.projects.first { $0.id == other.id }?.name, other.name)
+        let (info, _) = try ProjectSourceReader().configuration(root)
+        XCTAssertEqual(info.name, saved.name)
+
+        let renamed = try String(contentsOf: root.appendingPathComponent("app/manifest.json"), encoding: .utf8)
+        try write(renamed.replacingOccurrences(of: "1.1.0", with: "2.4.0"), "app/manifest.json")
+        let details = try await host.details(target.id)
+        XCTAssertEqual(details.version, "2.4.0")
+        XCTAssertNil(host.current)
+        let afterDetails = try await library.catalog()
+        XCTAssertNil(afterDetails.last)
+
+        try write(#"{"formatVersion":1,"id":"different-project"}"#, "runtime.json")
+        await host.rename(target.id, to: "错误目标")
+        XCTAssertNotNil(host.notice)
+        let (replaced, _) = try ProjectSourceReader().configuration(root)
+        XCTAssertEqual(replaced.name, "新名称")
+    }
+
     func testRealScanAfterAtomicEditorSaveAndDirectoryAliases() async throws {
         let library = ProjectLibrary(base:store)
         let initial = try await library.discover(root)
@@ -110,32 +152,24 @@ final class DirectoryTests: XCTestCase {
     }
 
     @MainActor
-    func testLocalScanAndRecentSelectionDoNotReadOrStartAProject() async throws {
-        let name = "目录-" + UUID().uuidString
-        let local = FolderGrant.documents.appendingPathComponent(name)
-        try fm.copyItem(at:root,to:local)
-        defer { try? fm.removeItem(at:local) }
-        let library = ProjectLibrary(base:store)
-        let original = try await library.discover(local)
-        let record = try XCTUnwrap(original.first)
+    func testLocalRecognitionWaitsForExplicitPreviewToReadSources() async throws {
+        let local = FolderGrant.documents.appendingPathComponent("目录-" + UUID().uuidString)
+        try fm.copyItem(at: root, to: local)
+        defer { try? fm.removeItem(at: local) }
         let unavailable = local.appendingPathComponent("app/src/暂不可读.ts")
-        try fm.createSymbolicLink(at:unavailable,withDestinationURL:local.appendingPathComponent("runtime.json"))
-        let trace = DirectoryTrace("local-test")
-        let found = try await library.discover(FolderGrant.documents,localRoot:true,trace:trace)
-        XCTAssertTrue(found.contains { $0.id == record.id })
-        let events = DirectoryJournal.shared.recent().filter { $0.request == trace.id }.map(\.stage)
-        XCTAssertTrue(events.contains("scan.configuration"))
-        XCTAssertFalse(events.contains("scan.sources"))
+        try fm.createSymbolicLink(at: unavailable, withDestinationURL: local.appendingPathComponent("runtime.json"))
+        let library = ProjectLibrary(base:store)
+        let added = try await library.recognizeLocalProjects()
+        XCTAssertTrue(added)
+        let catalog = try await library.catalog()
+        XCTAssertNil(catalog.last)
+        let record = try XCTUnwrap(catalog.projects.first { $0.declaredID == declared })
+        XCTAssertEqual(record.directoryKey, try ProjectLibrary.directoryKey(local))
         let host = HostModel(storage:store)
-        let scan = host.folders.begin(.local,origin:nil)
-        let scanLimit = ContinuousClock.now + .seconds(25)
-        while host.folders.active && ContinuousClock.now < scanLimit { try await Task.sleep(for:.milliseconds(50)) }
-        XCTAssertEqual(host.folders.phase,.succeeded,host.folders.message)
+        await host.load()
         XCTAssertTrue(host.records.contains { $0.id == record.id })
         XCTAssertNil(host.current)
-        XCTAssertFalse(host.busy)
-        XCTAssertFalse(DirectoryJournal.shared.recent().contains { $0.request == scan.id && $0.stage == "preview.begin" })
-        await host.selectRecent(record)
+        await host.selectProject(record)
         XCTAssertTrue(host.showingOverview)
         XCTAssertFalse(host.shouldMonitor)
         XCTAssertFalse(host.busy)
@@ -151,6 +185,95 @@ final class DirectoryTests: XCTestCase {
         XCTAssertTrue(host.showingOverview)
         XCTAssertEqual(host.current?.id,record.id)
         XCTAssertTrue(fm.fileExists(atPath:unavailable.path))
+        await host.removeFromList(record.id)
+        _ = try await library.recognizeLocalProjects()
+        let hidden = try await library.catalog()
+        XCTAssertFalse(hidden.projects.contains { $0.id == record.id })
+        try fm.removeItem(at: unavailable)
+        let restored = try await library.discover(local)
+        XCTAssertEqual(restored.map(\.id), [record.id])
+    }
+
+    @MainActor
+    func testVisibleListRecognizesAProjectWhenItsManifestArrives() async throws {
+        let first = FolderGrant.documents.appendingPathComponent("已就绪-" + UUID().uuidString)
+        let later = FolderGrant.documents.appendingPathComponent("稍后就绪-" + UUID().uuidString)
+        try fm.copyItem(at: root, to: first)
+        defer { try? fm.removeItem(at: first); try? fm.removeItem(at: later) }
+        try fm.createDirectory(at: later.appendingPathComponent("app"), withIntermediateDirectories: true)
+        let host = HostModel(storage: store)
+        let watcher = Task { await host.observeLocalProjects() }
+        defer { watcher.cancel() }
+        func waitForProject(_ id: String) async throws -> Bool {
+            let deadline = ContinuousClock.now + .seconds(15)
+            while !host.records.contains(where: { $0.declaredID == id }) {
+                guard ContinuousClock.now < deadline else { return false }
+                try await Task.sleep(for: .milliseconds(50))
+            }
+            return true
+        }
+        let initial = try await waitForProject(declared)
+        XCTAssertTrue(initial)
+        let laterID = UUID().uuidString
+        let grant = try FolderGrant.selected(later)
+        try await DirectoryIO.run { io in
+            try grant.coordinated(write: true, io: io) { directory in
+                let manifest = try JSONSerialization.data(withJSONObject: ["id": laterID, "name": "稍后就绪"])
+                try manifest.write(to: directory.appendingPathComponent("app/manifest.json"), options: .atomic)
+            }
+        }
+        let appeared = try await waitForProject(laterID)
+        XCTAssertTrue(appeared)
+        XCTAssertNil(host.current)
+    }
+
+    func testCopiedProjectUsesItsOwnDirectoryAndPreservesExistingRegistration() async throws {
+        let name = "副本-" + UUID().uuidString
+        let source = parent.appendingPathComponent(name), destination = FolderGrant.documents.appendingPathComponent(name)
+        try fm.moveItem(at: root, to: source)
+        root = source
+        defer { try? fm.removeItem(at: destination) }
+        try fm.createDirectory(at: source.appendingPathComponent("data"), withIntermediateDirectories: true)
+        try write("原始数据", "data/saved.txt")
+        try write("离线说明", "SDK_REFERENCE.md")
+        let library = ProjectLibrary(base: store)
+        let prior = try await library.discover(source)
+        let copies = try await library.copyIntoDocuments([try FolderGrant.selected(source)])
+        let copied = try XCTUnwrap(copies.first)
+        XCTAssertEqual(copied.id, prior.first?.id)
+        XCTAssertEqual(copied.declaredID, declared)
+        XCTAssertNil(copied.grant.bookmark)
+        XCTAssertEqual(try copied.grant.withRoot { ProjectSourceReader.canonical($0) }, ProjectSourceReader.canonical(destination))
+        XCTAssertEqual(copied.directoryKey, try ProjectLibrary.directoryKey(destination))
+        XCTAssertEqual(try Data(contentsOf: destination.appendingPathComponent("SDK_REFERENCE.md")), Data("离线说明".utf8))
+        try Data("副本数据".utf8).write(to: destination.appendingPathComponent("data/saved.txt"))
+        XCTAssertEqual(try Data(contentsOf: source.appendingPathComponent("data/saved.txt")), Data("原始数据".utf8))
+        try fm.removeItem(at: source)
+        let reopened = try await ProjectLibrary(base: store).open(copied.id, remember: true)
+        XCTAssertEqual(reopened.files["app/src/main.tsx"], Data(main.utf8))
+    }
+
+    func testMultiProjectCopyLeavesNoPartialImportOnNameConflictOrCancellation() async throws {
+        let firstName = "导入-A-" + UUID().uuidString, secondName = "导入-B-" + UUID().uuidString
+        let sources = try [firstName, secondName].map { try ProjectFiles.create($0, in: parent) }
+        let choices = try sources.map { try FolderGrant.selected($0) }
+        let first = FolderGrant.documents.appendingPathComponent(firstName)
+        let second = FolderGrant.documents.appendingPathComponent(secondName)
+        try Data("已有文件".utf8).write(to: second)
+        defer { try? fm.removeItem(at: first); try? fm.removeItem(at: second) }
+        let library = ProjectLibrary(base: store)
+        do { _ = try await library.copyIntoDocuments(choices); XCTFail("应报告同名位置") }
+        catch { XCTAssertTrue(error.localizedDescription.contains(secondName)) }
+        XCTAssertEqual(try Data(contentsOf: second), Data("已有文件".utf8))
+        XCTAssertFalse(fm.fileExists(atPath: first.path))
+        let cancelled = DirectoryCommit()
+        XCTAssertTrue(cancelled.cancel())
+        do { _ = try await library.copyIntoDocuments([choices[0]], commit: cancelled); XCTFail("已取消的副本不能发布") }
+        catch is CancellationError {}
+        let catalog = try await library.catalog()
+        XCTAssertTrue(catalog.records.isEmpty)
+        XCTAssertFalse(fm.fileExists(atPath: first.path))
+        XCTAssertTrue(sources.allSatisfy { fm.fileExists(atPath: $0.appendingPathComponent("runtime.json").path) })
     }
 
     func testFirstEmptyProviderListingRetriesOnceAndKeepsRelativeImports() throws {
@@ -257,7 +380,7 @@ final class DirectoryTests: XCTestCase {
 
         let cancelled = DirectoryCommit()
         XCTAssertTrue(cancelled.cancel())
-        do { _ = try await cold.create(name:"取消创建",parent:parent,template:.tsx,commit:cancelled); XCTFail("不应创建") }
+        do { _ = try await cold.create(name:"取消创建",parent:parent,commit:cancelled); XCTFail("不应创建") }
         catch { XCTAssertTrue(error is CancellationError) }
         XCTAssertFalse(fm.fileExists(atPath:parent.appendingPathComponent("取消创建").path))
     }
@@ -273,7 +396,7 @@ final class DirectoryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf:catalogFile),invalid)
     }
 
-    func testLocalRescanRestoresMovedOriginalWithoutOpeningASameNameReplacement() async throws {
+    func testOpeningMovedLocalProjectFindsTheOriginalDirectory() async throws {
         let library = ProjectLibrary(base:store)
         let originalRecords = try await library.discover(root)
         let record = try XCTUnwrap(originalRecords.first)
@@ -456,7 +579,7 @@ final class DirectoryTests: XCTestCase {
         window.rootViewController = UIHostingController(rootView:HostView(model:host))
         window.makeKeyAndVisible()
         defer { window.isHidden = true; previousWindow?.makeKey() }
-        await host.selectRecent(original)
+        await host.selectProject(original)
         XCTAssertTrue(host.showingOverview)
         let trace = DirectoryTrace("preview-test")
         host.refresh(force:true,remember:true,trace:trace)

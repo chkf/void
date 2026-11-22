@@ -1,7 +1,9 @@
 import SwiftUI
 
 private enum Panel: Hashable, Identifiable {
-    case create, manage
+    case create
+    case github
+    case details(UUID)
     case settings(UUID?)
     var id: Self { self }
 }
@@ -27,9 +29,8 @@ struct HostView: View {
     @Environment(\.scenePhase) private var phase
     @State private var panel: Panel?
     @State private var projectName = ""
-    @State private var template = ProjectTemplate.swiftUI
+    @State private var renameTarget: ProjectRecord?
     @State private var projectPath: [ProjectDestination] = []
-    @State private var visibleLocalScan: UUID?
     @State private var previewProblemDismissed = false
 
     var body: some View {
@@ -68,7 +69,10 @@ struct HostView: View {
         .background { nativeProjectBackground }
         .environment(\.openProjectSettings, { [id = model.current?.id] destination in
             guard panel == nil, let id, model.current?.id == id else { return }
-            panel = destination == .management ? .manage : .settings(id)
+            switch destination {
+            case .management: returnToLibrary()
+            case .settings: panel = .settings(id)
+            }
         })
         .onChange(of: model.current?.id, initial: true) { _, id in
             if projectPath.last?.record.id != id {
@@ -81,6 +85,9 @@ struct HostView: View {
         .onReceive(NotificationCenter.default.publisher(for:DirectoryJournal.changed)) { _ in folders.updateProgress() }
         .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)) { _ in model.memoryWarning() }
         .task { await model.load() }
+        .task(id: phase == .active && model.observesProjectList) {
+            if phase == .active && model.observesProjectList { await model.observeLocalProjects() }
+        }
         .task(id:ObservedFolder(project:model.current?.id,grant:model.current?.grant,
                                 active:phase == .active,monitor:model.shouldMonitor)) {
             if phase == .active && model.shouldMonitor { await model.monitor() }
@@ -91,16 +98,15 @@ struct HostView: View {
                 NavigationStack {
                     Form {
                         TextField("项目名称", text: $projectName).accessibilityIdentifier("project.name")
-                        Picker("界面", selection: $template) {
-                            Text("SwiftUI").tag(ProjectTemplate.swiftUI)
-                            Text("React / TSX").tag(ProjectTemplate.tsx)
-                        }
                         Section {
                             Button("在此 iPhone 创建") {
+                                let name = cleanName
                                 panel = nil
-                                Task { await model.create(cleanName, parent: nil, template: template) }
+                                Task { await model.create(name, parent: nil) }
                             }.accessibilityIdentifier("project.createLocal")
-                            Button("选择其他文件夹…") { begin(.create(cleanName,template),afterSheet:true) }
+                            Button("选择其他文件夹…") {
+                                begin(.create(cleanName), afterSheet: true)
+                            }
                         }.disabled(cleanName.isEmpty)
                     }
                     .navigationTitle("创建项目")
@@ -112,15 +118,20 @@ struct HostView: View {
                         if let record = model.current, record.id == projectID {
                             Form {
                                 Section(record.name) {
-                                    NavigationLink { management } label: { ProjectManagementLabel() }
+                                    Button(action: returnToLibrary) { ProjectManagementLabel() }
                                         .accessibilityIdentifier("host.manage")
-                                    LabeledContent("项目版本", value: record.version)
                                 }
                             }.navigationTitle("设置")
                         } else { SettingsView().navigationTitle("设置") }
                     }.toolbar { Button("完成") { panel = nil } }
                 }
-            case .manage: NavigationStack { management }
+            case .github:
+                GitHubImportView { source in
+                    panel = nil
+                    Task { await model.cloneAndRun(source) }
+                }
+            case .details(let id):
+                ProjectInfoView(id: id, model: model)
             }
         }
         .alert(model.notice == nil ? "目录操作失败" : "项目操作失败", isPresented: Binding(
@@ -131,10 +142,14 @@ struct HostView: View {
         } message: { Text(verbatim: $0) }
     }
 
-    private var management: some View {
-        ManagementView(model: model, folders: folders, close: { panel = nil }, reconnect: {
-            if let id = model.current?.id { begin(.reconnect(id), afterSheet: true) }
-        })
+    private func returnToLibrary() {
+        guard let id = model.current?.id else { return }
+        panel = nil
+        Task {
+            guard model.current?.id == id else { return }
+            projectPath.removeAll()
+            await model.showLibrary()
+        }
     }
 
     private var library: some View {
@@ -146,7 +161,10 @@ struct HostView: View {
             }
             Section {
                 Group {
-                    Button { projectName = ""; template = .swiftUI; panel = .create } label: {
+                    Button {
+                        projectName = ""
+                        panel = .create
+                    } label: {
                         Label("创建项目", systemImage: "plus")
                     }.accessibilityIdentifier("host.create")
                     Button { begin(.importFolder) } label: { Label("导入文件夹", systemImage: "folder") }
@@ -154,72 +172,73 @@ struct HostView: View {
                         #if DEBUG && targetEnvironment(simulator)
                         .accessibilityValue(model.simulatorFixtureReady ? "fixture-ready" : "")
                         #endif
-                    localScanButton
+                    Button { panel = .github } label: { Label("从 GitHub 导入", systemImage: "arrow.down.circle") }
+                        .accessibilityIdentifier("host.github")
                 }
                 .foregroundStyle(.primary)
                 .tint(.primary)
-                .disabled(folders.active && folders.request?.purpose != .local)
-                if let request = processingFolder, request.purpose != .local { folderProgress(request) }
+                .disabled(folders.active || model.gitActivity != nil)
+                if let request = processingFolder { folderProgress(request) }
+                if let activity = model.gitActivity { ProgressView(activity) }
             } footer: {
                 if folders.phase == .succeeded, let request = folders.request,
-                   request.purpose != .local, request.origin == nil, model.current == nil {
+                   request.origin == nil, model.current == nil {
                     Text(verbatim: folders.message).accessibilityIdentifier("folder.status")
+                } else {
+                    Text("void 文稿中的项目会自动出现在这里。导入外部文件夹时，会将项目复制到 void 文稿。")
                 }
             }
             if !model.records.isEmpty {
-                Section("最近项目") {
+                Section {
                     ForEach(model.records) { record in
                         NavigationLink(value: ProjectDestination(record: record)) {
                             VStack(alignment: .leading) {
                                 Text(verbatim: record.name)
                                 if let template = record.pendingTemplate {
                                     Text(template.title + " · 待预览").font(.caption).foregroundStyle(.secondary)
-                                } else if let date = record.opened {
-                                    Text(date, style: .relative).font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                         }
-                        .accessibilityIdentifier("recent." + record.name)
+                        .accessibilityIdentifier("project.row." + record.name)
+                        .contextMenu {
+                            Button { panel = .details(record.id) } label: { Label("详情", systemImage: "info.circle") }
+                            Button {
+                                projectName = record.name
+                                renameTarget = record
+                            } label: { Label("重命名", systemImage: "pencil") }
+                            if record.github != nil {
+                                Button { Task { await model.pullAndRun(record.id) } } label: {
+                                    Label("拉取并运行", systemImage: "arrow.down.circle")
+                                }
+                            }
+                        }
                         .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { Task { await model.removeRecent(record.id) } } label: {
-                                Label("移除记录", systemImage: "trash")
-                            }.accessibilityIdentifier("recent.remove")
+                            Button(role: .destructive) { Task { await model.removeFromList(record.id) } } label: {
+                                Label("从列表移除", systemImage: "minus.circle")
+                            }.accessibilityIdentifier("project.row.remove")
                         }
                     }
-                }
+                }.disabled(model.gitActivity != nil || folders.active)
             }
         }
-        .navigationTitle("项目")
+        .navigationTitle("所有项目")
+        .alert("重命名项目", isPresented: Binding(
+            get: { renameTarget != nil },
+            set: { if !$0 { renameTarget = nil } }
+        ), presenting: renameTarget) { record in
+            TextField("项目名称", text: $projectName)
+            Button("保存") {
+                let name = cleanName
+                Task { await model.rename(record.id, to: name) }
+            }.disabled(cleanName.isEmpty)
+            Button("取消", role: .cancel) {}
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { panel = .settings(nil) } label: { Label("设置", systemImage: "gearshape") }
+                    .disabled(model.gitActivity != nil)
                     .accessibilityIdentifier("host.settings")
             }
-        }
-    }
-
-    private var localScanButton: some View {
-        let request = folders.request
-        let isLocal = request?.purpose == .local
-        let scanID = isLocal && folders.phase == .processing ? request?.id : nil
-        let showsProgress = scanID != nil && scanID == visibleLocalScan
-        return Button {
-            if showsProgress, let scanID { folders.cancel(scanID) }
-            else { begin(.local) }
-        } label: {
-            HStack {
-                Label(showsProgress ? "取消扫描" : "扫描本机项目", systemImage: "iphone")
-                Spacer()
-                if showsProgress { ProgressView().controlSize(.small).accessibilityHidden(true) }
-            }
-        }
-        .accessibilityIdentifier("host.local")
-        .accessibilityValue(isLocal && (folders.phase == .succeeded || showsProgress) ? folders.message : "")
-        .task(id: scanID) {
-            guard let scanID else { return }
-            do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
-            guard folders.request?.id == scanID, folders.phase == .processing else { return }
-            visibleLocalScan = scanID
         }
     }
 
@@ -229,7 +248,7 @@ struct HostView: View {
         Task {
             guard projectPath == path, path.last?.record.id != model.current?.id else { return }
             if let destination = path.last {
-                await model.selectRecent(destination.record)
+                await model.selectProject(destination.record)
             } else {
                 await model.showLibrary()
             }
@@ -251,7 +270,6 @@ struct HostView: View {
                 }
             } else {
                 Section {
-                    LabeledContent("版本", value: record.version)
                     previewAction(remember: true)
                 }
             }
@@ -329,7 +347,7 @@ struct HostView: View {
                     Text(verbatim: problem).font(.subheadline).lineLimit(2).accessibilityIdentifier("preview.error")
                     Spacer(minLength: 4)
                     Menu {
-                        Button { panel = .manage } label: { ProjectManagementLabel() }
+                        Button("返回项目列表", action: returnToLibrary)
                         Button("收起提示") { previewProblemDismissed = true }
                     } label: {
                         Label("预览选项", systemImage: "ellipsis.circle").labelStyle(.iconOnly)
@@ -374,14 +392,8 @@ struct HostView: View {
     }
 
     private func begin(_ purpose: FolderPurpose, afterSheet: Bool = false) {
-        let origin = model.current?.id
-        let source = panel
-        Task {
-            if purpose != .local { await folders.finishLocalScan() }
-            guard model.current?.id == origin, panel == source else { return }
-            let request = folders.begin(purpose, origin: origin, afterSheet: afterSheet)
-            if afterSheet && request.purpose == purpose { panel = nil }
-        }
+        let request = folders.begin(purpose, origin: model.current?.id, afterSheet: afterSheet)
+        if afterSheet && request.purpose == purpose { panel = nil }
     }
     private var cleanName: String { projectName.trimmingCharacters(in: .whitespacesAndNewlines) }
 }
@@ -428,95 +440,10 @@ struct RunningPage: View {
     }
 }
 
-private struct ManagementView: View {
-    @ObservedObject var model: HostModel
-    @ObservedObject var folders: FolderRequests
-    var close: () -> Void
-    var reconnect: () -> Void
-    @State private var rename = false
-    @State private var name = ""
-
-    var body: some View {
-        List {
-            Section(model.current?.name ?? "项目") {
-                Button("切换项目") { close(); Task { await model.showLibrary() } }.accessibilityIdentifier("host.switch")
-                Button("重命名") { name = model.current?.name ?? ""; rename = true }
-                NavigationLink("权限声明") {
-                    ProjectPermissionView(model: model)
-                }
-                NavigationLink("运行日志") {
-                    List(Array(model.log.enumerated()), id: \.offset) { Text(verbatim: $0.element) }.navigationTitle("运行日志")
-                }
-            }
-            if model.page?.hasTabNavigation != true {
-                Section("恢复") {
-                    if let message = model.problem { Text(verbatim: message).textSelection(.enabled) }
-                    recoveryControls
-                }
-            }
-            NavigationLink("宿主信息") { SettingsView().navigationTitle("宿主信息") }
-        }
-        .navigationTitle("项目管理")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            if model.page?.hasTabNavigation == true {
-                ToolbarItem(placement: .topBarLeading) {
-                    NavigationLink("恢复") {
-                        List {
-                            recoveryControls
-                            if let message = model.problem { Section("错误详情") { Text(verbatim: message).textSelection(.enabled) } }
-                        }
-                        .navigationTitle("预览与恢复")
-                        .navigationBarTitleDisplayMode(.inline)
-                        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成", action: close).accessibilityIdentifier("host.recoveryDone") } }
-                    }.accessibilityIdentifier("host.recovery")
-                }
-            }
-            ToolbarItem(placement: .topBarTrailing) { Button("完成", action: close) }
-        }
-        .alert("重命名项目", isPresented: $rename) {
-            TextField("名称", text: $name)
-            Button("保存") { Task { await model.rename(name) } }
-            Button("取消", role: .cancel) {}
-        }
-    }
-
-    @ViewBuilder private var recoveryControls: some View {
-        if model.busy {
-            Button("取消当前构建") { model.cancelScan() }.accessibilityIdentifier("host.cancelBuild")
-        }
-        Button(model.mode == .swiftui ? "重新打开 SwiftUI 页面" : "重新构建并打开") {
-            close(); model.refresh(force: true)
-        }.disabled(model.busy)
-        if model.mode != .swiftui && model.workspaceTemplate == nil {
-            Button("恢复上一可运行版本") { close(); model.refresh(force: true, previous: true) }
-                .disabled(model.busy).accessibilityIdentifier("host.restore")
-        }
-        Button("重新扫描并预览") { close(); model.refresh(force: true, remember: true) }
-            .accessibilityIdentifier("host.rescan")
-        Button("重新授权文件夹", action: reconnect)
-            .disabled(folders.active).accessibilityIdentifier("host.reconnect")
-        if let id = model.current?.id, folders.request?.purpose == .reconnect(id), folders.phase == .succeeded {
-            Text(verbatim: folders.message).font(.footnote).foregroundStyle(.secondary)
-                .accessibilityIdentifier("folder.reconnectResult")
-        }
-    }
-}
-
 private struct SettingsView: View {
     var body: some View {
         Form {
-            LabeledContent("宿主版本", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—")
-            LabeledContent("构建号", value: Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "—")
-            LabeledContent("原生控件协议", value: "1 / 2（UI 1.1.0）")
-            LabeledContent("SDK 版本", value: "1.1.0")
-            Section("SDK 能力") {
-                ForEach(SDKSession.methods.keys.sorted(), id: \.self) { group in
-                    NavigationLink(group) {
-                        List((SDKSession.methods[group] ?? [:]).keys.sorted(), id: \.self) { Text(verbatim: $0) }.navigationTitle(group)
-                    }
-                }
-            }
+            LabeledContent("版本", value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—")
         }
     }
 }

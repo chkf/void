@@ -5,8 +5,8 @@ context: |
   All artifacts must be written in Simplified Chinese.
   Keep OpenSpec structural headings and SHALL/MUST keywords in English.
   void 是面向个人的 iOS 本地应用运行时。原始计划中暂称 OpenRuntime。Agent 在 Files 中编辑获准访问的项目。
-  宿主和默认项目页面直接使用 SwiftUI，Swift 源码由 GitHub Actions 的 Xcode 编译进 IPA。
-  React/TypeScript 作为可选项目格式可在设备上更新页面并渲染 SwiftUI 控件。
+  宿主使用 SwiftUI，所有新建子项目使用 React/TSX，在设备上编译并渲染 SwiftUI 控件。
+  已有 SwiftUI 子项目使用 Xcode 编译进 IPA 的视图。
   WKWebView 支持 HTML 应用、Canvas、WebGL 和 WebAssembly。IPA 预编译原生能力，
   通过统一的 Typed RPC 和项目级权限提供服务。每个项目独立管理数据、构建和恢复。
   docs/PROJECT_PLAN.md 保存原始计划。设计中的平台约束或与计划的差异需要给出依据。

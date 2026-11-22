@@ -1,6 +1,8 @@
 import Foundation
 
 final class SourceWatcher: NSObject, NSFilePresenter {
+    enum Scope { case sources, projectList }
+    private let scope: Scope
     let presentedItemURL: URL?
     let presentedItemOperationQueue = OperationQueue()
     let changed: () -> Void
@@ -15,7 +17,8 @@ final class SourceWatcher: NSObject, NSFilePresenter {
         return watcher
     }
 
-    init(root: URL, changed: @escaping () -> Void) {
+    init(root: URL, scope: Scope = .sources, changed: @escaping () -> Void) {
+        self.scope = scope
         presentedItemURL = root
         self.changed = changed
         presentedItemOperationQueue.maxConcurrentOperationCount = 1
@@ -36,7 +39,16 @@ final class SourceWatcher: NSObject, NSFilePresenter {
     private func notify(_ url: URL) {
         guard let root = presentedItemURL else { return }
         let base = ProjectSourceReader.canonical(root), path = ProjectSourceReader.canonical(url)
-        guard path.starts(with:base), let first = path.dropFirst(base.count).first else { return }
-        if first == "runtime.json" || ProjectFiles.sourceDirectories.contains(first) { changed() }
+        guard path.starts(with:base) else { return }
+        let relative = path.dropFirst(base.count)
+        guard let first = relative.first, !first.hasPrefix(".") else { return }
+        switch scope {
+        case .sources:
+            if first == "runtime.json" || ProjectFiles.sourceDirectories.contains(first) { changed() }
+        case .projectList:
+            let withinProject = relative.dropFirst()
+            if withinProject.isEmpty || withinProject.elementsEqual(["runtime.json"]) ||
+                withinProject.elementsEqual(["app"]) || withinProject.elementsEqual(["app", "manifest.json"]) { changed() }
+        }
     }
 }

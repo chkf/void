@@ -66,11 +66,10 @@ final class NativeNavigationTests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments = ["-void.openProjectListOnLaunch", "YES"]
         app.launch()
-        app.buttons["host.local"].tap()
         let expected = ProcessInfo.processInfo.environment["VOID_NATIVE_UI_PROJECT"]
-        let row = expected.map { app.buttons["recent." + $0 + " Profile"] } ??
-            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "recent.Void Native UI ", " Profile")).firstMatch
-        XCTAssertTrue(app.revealScannedProject(row), app.debugDescription)
+        let row = expected.map { app.buttons["project.row." + $0 + " Profile"] } ??
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@ AND identifier ENDSWITH %@", "project.row.Void Native UI ", " Profile")).firstMatch
+        XCTAssertTrue(app.revealRecentProject(row), app.debugDescription)
         row.tap()
         app.buttons["project.preview"].tap()
         XCTAssertTrue(app.staticTexts["训练内容"].waitForExistence(timeout: 100))
@@ -87,11 +86,8 @@ final class NativeNavigationTests: XCTestCase {
         XCTAssertTrue(manage.waitForExistence(timeout: 8))
         attach("Five-Tabs-Own-Settings")
         manage.tap()
-        XCTAssertTrue(app.buttons["host.switch"].waitForExistence(timeout: 8))
-        app.buttons["完成"].firstMatch.tap()
-        XCTAssertTrue(app.buttons["返回我的"].waitForExistence(timeout: 8))
-        manage.tap()
-        app.buttons["host.switch"].tap()
+        XCTAssertTrue(app.navigationBars["所有项目"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.revealRecentProject(row))
     }
 
     @MainActor func testNativeTabsPreserveDraftScrollThemeAndHostAccess() throws {
@@ -102,15 +98,13 @@ final class NativeNavigationTests: XCTestCase {
         device.orientation = .portrait
         defer { device.orientation = .portrait }
         app.launch()
-        if !app.buttons["host.local"].waitForExistence(timeout: 4) {
-            app.openProjectManagement()
-            app.buttons["host.switch"].tap()
+        if !app.buttons["host.import"].waitForExistence(timeout: 4) {
+            app.returnToProjectList()
         }
-        app.buttons["host.local"].tap()
         let expected = ProcessInfo.processInfo.environment["VOID_NATIVE_UI_PROJECT"]
-        let row = expected.map { app.buttons["recent." + $0] } ??
-            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recent.Void Native UI ")).firstMatch
-        XCTAssertTrue(app.revealScannedProject(row), app.debugDescription)
+        let row = expected.map { app.buttons["project.row." + $0] } ??
+            app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "project.row.Void Native UI ")).firstMatch
+        XCTAssertTrue(app.revealRecentProject(row), app.debugDescription)
         row.tap()
         let preview = app.buttons["project.preview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 15), app.debugDescription)
@@ -199,22 +193,16 @@ final class NativeNavigationTests: XCTestCase {
         XCTAssertTrue(settings.waitForExistence(timeout: 8))
         XCTAssertGreaterThan(app.frame.width, app.frame.height)
         attach("Dark-Landscape")
-        app.openProjectManagement()
-        XCTAssertTrue(app.buttons["host.switch"].isHittable)
-        let recovery = app.buttons["host.recovery"]
-        XCTAssertTrue(recovery.isHittable)
-        recovery.tap()
-        let restore = app.buttons["host.restore"]
-        XCTAssertTrue(restore.waitForExistence(timeout: 8))
-        XCTAssertTrue(restore.isHittable)
-        attach("Host-Recovery-Landscape")
-        app.buttons["host.recoveryDone"].tap()
-        XCTAssertTrue(manage.waitForExistence(timeout: 8))
+        app.returnToProjectList()
+        attach("Project-List-Landscape")
 
         device.orientation = .portrait
         app.terminate()
         app.launchArguments += ["-UIPreferredContentSizeCategoryName", "UICTContentSizeCategoryAccessibilityXXXL"]
         app.launch()
+        XCTAssertTrue(app.revealRecentProject(row))
+        row.tap()
+        preview.tap()
         XCTAssertTrue(components.waitForExistence(timeout: 90), app.debugDescription)
         XCTAssertFalse(manage.exists)
         XCTAssertTrue(heading.waitForExistence(timeout: 12))

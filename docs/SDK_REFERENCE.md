@@ -4,7 +4,7 @@
 
 ## 调用与权限
 
-调用返回 Promise。`success: true` 时读取 `data`，失败时读取 `error.code` 和 `error.message`。项目将所需权限写入 `app/manifest.json` 的 `permissions` 数组，宿主会在首次使用时询问，系统按需另行授权。用户可在「设置 → 项目管理 → 权限声明」中更改选择。需要网络的项目另填 `networkHosts`，使用精确域名。
+调用返回 Promise。`success: true` 时读取 `data`，失败时读取 `error.code` 和 `error.message`。项目将所需权限写入 `app/manifest.json` 的 `permissions` 数组。宿主会在首次使用时询问，并按项目记住用户的选择，系统按需另行授权。需要网络的项目另填 `networkHosts`，使用精确域名。
 
 ```tsx
 import { ios } from "@runtime/sdk";

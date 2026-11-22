@@ -7,7 +7,7 @@ final class FolderRequestTests: XCTestCase {
         let flow = FolderRequests(), project = UUID()
         var calls: [UUID] = []
         flow.process = { request,_ in calls.append(request.id); return "已打开" }
-        let create = flow.begin(.create("文件夹",.tsx),origin:nil,afterSheet:true)
+        let create = flow.begin(.create("文件夹"),origin:nil,afterSheet:true)
         XCTAssertFalse(flow.ready)
         flow.sheetClosed(); XCTAssertTrue(flow.ready)
         flow.didPresent(create.id); flow.cancel(create.id); flow.dismissed(create.id)
@@ -21,7 +21,7 @@ final class FolderRequestTests: XCTestCase {
         flow.dismissed(empty.id)
         XCTAssertEqual(flow.phase,.failed); XCTAssertTrue(calls.isEmpty)
         XCTAssertEqual(flow.failureMessage, "系统文件选择器未返回唯一目录")
-        let selected = flow.begin(.reconnect(project),origin:project,afterSheet:true)
+        let selected = flow.begin(.create("新项目"),origin:nil,afterSheet:true)
         flow.sheetClosed(); flow.didPresent(selected.id)
         flow.picked(empty.id,[FolderGrant.documents]); XCTAssertEqual(flow.phase,.presenting)
         flow.picked(selected.id,[FolderGrant.documents]); flow.picked(selected.id,[])
@@ -32,11 +32,11 @@ final class FolderRequestTests: XCTestCase {
         let stages = DirectoryJournal.shared.recent().filter{$0.request == selected.id}.map(\.stage)
         XCTAssertEqual(stages.filter{$0=="picker.didPick"}.count,1)
         XCTAssertEqual(stages.filter{$0=="picker.dismiss"}.count,1)
-        XCTAssertEqual(stages.filter{$0=="reconnect.result"}.count,1)
+        XCTAssertEqual(stages.filter{$0=="create.result"}.count,1)
         flow.changeProject(to:project)
         XCTAssertEqual(flow.phase,.idle)
 
-        let stale = flow.begin(.reconnect(project),origin:project)
+        let stale = flow.begin(.importFolder,origin:nil)
         flow.didPresent(stale.id); flow.picked(stale.id,[FolderGrant.documents])
         flow.changeProject(to:UUID()); flow.dismissed(stale.id)
         XCTAssertEqual(flow.phase,.cancelled); XCTAssertEqual(calls,[selected.id])
@@ -48,7 +48,7 @@ final class FolderRequestTests: XCTestCase {
 
     @MainActor
     func testCancelProcessingAndSwitchDoesNotChangeGrant() async throws {
-        let flow = FolderRequests(), origin = UUID()
+        let flow = FolderRequests()
         var completions = 0, began = false
         flow.process = { r,_ in
             began = true
@@ -57,7 +57,7 @@ final class FolderRequestTests: XCTestCase {
             completions += 1
             return "已登记"
         }
-        let r = flow.begin(.reconnect(origin),origin:origin)
+        let r = flow.begin(.importFolder,origin:nil)
         flow.didPresent(r.id); flow.picked(r.id,[FolderGrant.documents]); flow.dismissed(r.id)
         for _ in 0..<100 where !began { try await Task.sleep(for:.milliseconds(10)) }
         XCTAssertTrue(began)
@@ -68,44 +68,15 @@ final class FolderRequestTests: XCTestCase {
     }
 
     @MainActor
-    func testImportCanFollowALocalScanThatHasStartedSaving() async throws {
-        let flow = FolderRequests()
-        let saving = expectation(description: "本机扫描开始保存")
-        var finishWrite: CheckedContinuation<Void, Never>?
-        flow.process = { request, _ in
-            try request.commit.begin()
-            await withCheckedContinuation { finishWrite = $0; saving.fulfill() }
-            return "已登记"
-        }
-        let scan = flow.begin(.local, origin: nil)
-        await fulfillment(of: [saving], timeout: 3)
-        let finish = try XCTUnwrap(finishWrite)
-        let picker = Task {
-            await flow.finishLocalScan()
-            return flow.begin(.importFolder, origin: nil)
-        }
-        await Task.yield()
-        XCTAssertEqual(flow.request?.id, scan.id)
-        finish.resume()
-        let next = await picker.value
-        XCTAssertNotEqual(next.id, scan.id)
-        XCTAssertEqual(next.purpose, .importFolder)
-        XCTAssertEqual(flow.phase, .presenting)
-        let result = DirectoryJournal.shared.recent().last { $0.request == scan.id }
-        XCTAssertEqual(result?.stage, "local.result")
-        XCTAssertEqual(result?.detail, "OK")
-    }
-
-    @MainActor
     func testProjectSwitchAfterCommitWaitsForActualSaveResult() async throws {
-        let flow = FolderRequests(), project = UUID()
+        let flow = FolderRequests()
         var finishWrite: CheckedContinuation<Void,Never>?
         flow.process = { request,_ in
             try request.commit.begin()
             await withCheckedContinuation { finishWrite = $0 }
             throw DirectoryIssue(kind:.unreadable,item:"登记目录")
         }
-        let request = flow.begin(.reconnect(project),origin:project)
+        let request = flow.begin(.importFolder,origin:nil)
         flow.picked(request.id,[FolderGrant.documents]); flow.dismissed(request.id)
         for _ in 0..<100 where finishWrite == nil { try await Task.sleep(for:.milliseconds(10)) }
         let finish = try XCTUnwrap(finishWrite)
@@ -114,7 +85,7 @@ final class FolderRequestTests: XCTestCase {
         finish.resume()
         for _ in 0..<100 where flow.active { try await Task.sleep(for:.milliseconds(10)) }
         XCTAssertEqual(flow.phase,.failed)
-        let results = DirectoryJournal.shared.recent().filter { $0.request == request.id && $0.stage == "reconnect.result" }
+        let results = DirectoryJournal.shared.recent().filter { $0.request == request.id && $0.stage == "import.result" }
         XCTAssertEqual(results.count,1)
         XCTAssertEqual(results.first?.code,DirectoryIssue.Kind.unreadable.rawValue)
     }

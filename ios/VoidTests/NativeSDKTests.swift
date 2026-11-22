@@ -15,7 +15,7 @@ final class NativeSDKTests: XCTestCase {
         parent = FolderGrant.documents.appendingPathComponent(UUID().uuidString)
         storage = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at:parent,withIntermediateDirectories:true)
-        record = try await ProjectLibrary(base:storage).create(name:"SDK",parent:parent,template:.tsx)
+        record = try await ProjectLibrary(base:storage).create(name:"SDK",parent:parent)
         sdk = SDKSession(record:record,storage:storage,permissions:permissions,networkHosts:["127.0.0.1"])
         for permission in permissions { SDKConsent.shared.set(true,for:permission,project:record.id) }
     }

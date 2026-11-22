@@ -13,7 +13,7 @@ final class HostModel: ObservableObject {
     @Published var records: [ProjectRecord] = []
     @Published private(set) var current: ProjectRecord?
     @Published private(set) var screen: HostPage?
-    @Published private(set) var mode: UIMode?
+    private var mode: UIMode?
     var workspaceTemplate: ProjectTemplate? {
         if case let .workspace(template) = screen { return template }
         return nil
@@ -34,12 +34,12 @@ final class HostModel: ObservableObject {
     @Published private(set) var presentingPage: ProjectPage?
     @Published private(set) var compiler: CompilerPage?
     @Published private(set) var busy = false
+    @Published private(set) var gitActivity: String?
     @Published var notice: String?
     @Published private(set) var recoveryMessage: String?
     @Published private(set) var problem: String?
     @Published private(set) var waitingEntry: String?
-    @Published private(set) var permissions: [String] = []
-    @Published private(set) var log: [String] = []
+    private(set) var permissions: [String] = []
     let folders = FolderRequests()
     @Published private(set) var scanStatus: String?
     private var userStoppedScanning = false
@@ -51,7 +51,9 @@ final class HostModel: ObservableObject {
     private let usesAppCatalog: Bool
     private let storage: URL
     private var networkHosts: [String] = []
-    private var loaded = false
+    private enum Startup { case idle, loading, ready }
+    @Published private var startup = Startup.idle
+    var observesProjectList: Bool { usesAppCatalog && startup == .ready && current == nil }
     #if DEBUG && targetEnvironment(simulator)
     @Published private(set) var simulatorFixtureReady = false
     #endif
@@ -75,8 +77,9 @@ final class HostModel: ObservableObject {
     }
 
     func load() async {
-        guard !loaded else { return }
-        loaded = true
+        guard startup == .idle else { return }
+        startup = .loading
+        defer { startup = .ready }
         do {
             #if DEBUG && targetEnvironment(simulator)
             try await SimulatorPickerFixture.prepareIfRequested()
@@ -95,9 +98,6 @@ final class HostModel: ObservableObject {
                 let stage = PreviewRecovery.interruptionTitle(interrupted,entries:DirectoryJournal.shared.recent())
                 recoveryMessage = "「" + original.name + "」上次在「" + stage + "」时中断。"
                 DirectoryTrace("recovery",id:interrupted.request).event("preview.interrupted",interrupted.stage.rawValue)
-            } else if usesAppCatalog, let (id,stage) = PreviewRecovery.interruptedLocalScan(DirectoryJournal.shared.recent()) {
-                recoveryMessage = "上次扫描本机项目时中断，可以重新扫描。"
-                DirectoryTrace("local",id:id).event("local.interrupted",stage)
             } else if !UserDefaults.standard.bool(forKey: "void.openProjectListOnLaunch"),
                       let id = catalog.last, let record = records.first(where:{ $0.id == id }) {
                 await open(record)
@@ -108,13 +108,29 @@ final class HostModel: ObservableObject {
     @discardableResult
     private func list() async throws -> Catalog {
         let value = try await library.catalog()
-        records = value.recent
+        records = value.projects
         return value
     }
 
-    func create(_ name: String, parent: URL?, template: ProjectTemplate = .swiftUI) async {
-        do { let record = try await library.create(name: name, parent: parent, template: template); try await list(); await open(record) }
-        catch { notice = error.localizedDescription }
+    func observeLocalProjects() async {
+        let (changes, continuation) = AsyncStream<Void>.makeStream(bufferingPolicy: .bufferingNewest(1))
+        let watcher = SourceWatcher(root: FolderGrant.documents, scope: .projectList) { continuation.yield(()) }
+        defer { watcher.stop(); continuation.finish() }
+        continuation.yield(())
+        for await _ in changes {
+            do {
+                if try await library.recognizeLocalProjects() { try await list() }
+            } catch is CancellationError { return }
+            catch { DirectoryTrace("library").event("library.discoveryFailed", error: error) }
+        }
+    }
+
+    func create(_ name: String, parent: URL?) async {
+        do {
+            let record = try await library.create(name: name, parent: parent)
+            try await list()
+            await open(record)
+        } catch { notice = error.localizedDescription }
     }
 
     private func processDirectory(_ r: FolderRequest, _ url: URL) async throws -> String {
@@ -127,22 +143,17 @@ final class HostModel: ObservableObject {
         let found: [ProjectRecord]
         let message: String
         switch r.purpose {
-        case .create(let name,let template):
-            found = [try await library.create(name:name,parent:url,template:template,trace:r.trace,commit:r.commit)]
+        case .create(let name):
+            found = [try await library.create(name: name, parent: url, trace: r.trace, commit: r.commit)]
             message = "已创建「" + name + "」"
-        case .importFolder,.local:
-            found = try await library.discover(url,localRoot:r.purpose == .local,trace:r.trace,commit:r.commit)
-            message = found.count == 1 ? "已找到「" + found[0].name + "」" : "已找到 \(found.count) 个项目"
-        case .reconnect(let id):
-            guard id == r.origin else { throw CancellationError() }
-            try await library.reconnect(id,url:url,trace:r.trace,commit:r.commit)
-            found = try await library.catalog().recent.filter { $0.id == id }
-            message = "已核验原项目目录"
+        case .importFolder:
+            found = try await library.discover(url,trace:r.trace,commit:r.commit)
+            message = found.count == 1 ? "已导入「" + found[0].name + "」" : "已导入 \(found.count) 个项目"
         }
         try Task.checkCancellation()
         try await list()
         guard folders.request?.id == r.id, current?.id == r.origin else { return message }
-        if r.purpose != .local, found.count == 1 {
+        if found.count == 1 {
             if current?.id == found[0].id {
                 current = found[0]
                 refresh(force:true,remember:true,trace:r.trace)
@@ -161,13 +172,36 @@ final class HostModel: ObservableObject {
         } catch { trace.event("import.result","失败",error:error); notice = DirectoryIssue.safeMessage(error) }
     }
 
-    func rename(_ name: String) async {
-        guard let current else { return }
+    func rename(_ id: UUID, to name: String) async {
         do {
-            try await library.rename(current, name: name)
+            try await library.rename(id, name: name)
             try await list()
-            self.current = records.first { $0.id == current.id }
-            refresh()
+            if current?.id == id { current = records.first { $0.id == id } }
+        } catch { notice = error.localizedDescription }
+    }
+
+    func details(_ id: UUID) async throws -> ProjectRecord {
+        let record = try await library.details(id)
+        try await list()
+        return record
+    }
+
+    func cloneAndRun(_ source: GitHubRepository) async {
+        await runGit("正在从 GitHub 克隆项目") { try await self.library.clone(source) }
+    }
+
+    func pullAndRun(_ id: UUID) async {
+        await runGit("正在从 GitHub 拉取更新") { try await self.library.pull(id) }
+    }
+
+    private func runGit(_ activity: String, operation: () async throws -> ProjectRecord) async {
+        guard current == nil, gitActivity == nil, !folders.active else { return }
+        gitActivity = activity
+        defer { gitActivity = nil }
+        do {
+            let record = try await operation()
+            try await list()
+            if current == nil { await open(record) }
         } catch { notice = error.localizedDescription }
     }
 
@@ -196,11 +230,13 @@ final class HostModel: ObservableObject {
         networkHosts = []
         problem = nil
         waitingEntry = nil
-        log = []
     }
 
-    func selectRecent(_ record: ProjectRecord) async {
-        if record.pendingTemplate != nil { await open(record); return }
+    func selectProject(_ record: ProjectRecord) async {
+        if record.pendingTemplate != nil || (record.github != nil && recoveredAttempt?.project != record.id) {
+            await open(record)
+            return
+        }
         folders.changeProject(to:record.id)
         clear()
         current = record
@@ -244,10 +280,10 @@ final class HostModel: ObservableObject {
         }
     }
 
-    func removeRecent(_ id: UUID) async {
+    func removeFromList(_ id: UUID) async {
         if current?.id == id { folders.changeProject(to:nil) }
         do {
-            try await library.removeRecent(id)
+            try await library.removeFromList(id)
             if current?.id == id { clear(); current = nil }
             try await list()
         } catch { notice = error.localizedDescription }
@@ -381,7 +417,6 @@ final class HostModel: ObservableObject {
                             screen = .swiftUI(UUID())
                         }
                         trace?.event("preview.result","OK")
-                        log.append("已打开 SwiftUI 页面 " + snapshot.revision.prefix(12))
                         return
                     }
                     let product: Product
@@ -418,7 +453,6 @@ final class HostModel: ObservableObject {
                     if trace != nil || problem != detail {
                         let failureTrace = trace ?? DirectoryTrace("preview")
                         failureTrace.event(scanError ? "scan.result" : "preview.result","失败",error:error)
-                        log.append(detail)
                     }
                     problem = detail
                     if scanError { inspected = nil }
@@ -513,9 +547,8 @@ final class HostModel: ObservableObject {
         page?.stop()
         next.onReady = nil
         next.onFailure = { [weak self, weak next] message in
-            if let self, let next, self.page === next { self.problem = message; self.log.append(message) }
+            if let self, let next, self.page === next { self.problem = message }
         }
         screen = .script(next)
-        log.append("已打开 " + product.revision.prefix(12))
     }
 }

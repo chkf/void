@@ -142,36 +142,37 @@ enum ProjectFiles {
         return hash.finalize().map { String(format: "%02x", $0) }.joined()
     }
 
-    static func rename(_ name: String, at root: URL) throws {
+    @discardableResult
+    static func rename(_ name: String, at root: URL, manifestData: Data? = nil) throws -> Data {
         let manifest = root.appendingPathComponent("app/manifest.json")
         try checkLink(root.appendingPathComponent("app"))
         try checkLink(manifest)
-        var value = try dictionary(Data(contentsOf: manifest), file: "app/manifest.json")
+        var value = try dictionary(manifestData ?? Data(contentsOf: manifest), file: "app/manifest.json")
         value["name"] = name
-        try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys]).write(to: manifest, options: .atomic)
+        let data = try JSONSerialization.data(withJSONObject: value, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: manifest, options: .atomic)
+        return data
     }
 
-    static func create(_ name: String, in parent: URL, template: ProjectTemplate = .swiftUI, io: DirectoryIO? = nil,
+    static func create(_ name: String, in parent: URL, io: DirectoryIO? = nil,
                        beforePublish: (URL) throws -> Void = { _ in }) throws -> URL {
         guard component(name), !name.hasPrefix(".") else { throw RuntimeIssue("请输入有效的项目文件夹名称") }
         let target = parent.appendingPathComponent(name, isDirectory: true)
         guard !manager.fileExists(atPath: target.path) else { throw RuntimeIssue("此位置已有同名文件或目录") }
-        guard let source = Bundle.main.url(forResource: template.rawValue, withExtension: nil) else {
+        guard let source = Bundle.main.url(forResource: ProjectTemplate.tsx.rawValue, withExtension: nil) else {
             throw RuntimeIssue("宿主缺少项目模板")
         }
         let staging = parent.appendingPathComponent(".void-new-" + UUID().uuidString)
-        try manager.copyItem(at: source, to: staging)
         defer { if manager.fileExists(atPath: staging.path) { try? manager.removeItem(at: staging) } }
+        try manager.copyItem(at: source, to: staging)
         let config: [String: Any] = ["formatVersion": 1, "id": UUID().uuidString]
         try JSONSerialization.data(withJSONObject: config, options: [.prettyPrinted, .sortedKeys])
             .write(to: staging.appendingPathComponent("runtime.json"), options: .atomic)
         try rename(name, at: staging)
-        if template == .tsx {
-            let types = staging.appendingPathComponent("types", isDirectory: true)
-            try manager.createDirectory(at: types, withIntermediateDirectories: true)
-            try Toolchain.read("sdk.d.ts").write(to: types.appendingPathComponent("runtime-sdk.d.ts"), options: .atomic)
-            try Toolchain.read("sdk-reference.md").write(to: staging.appendingPathComponent("SDK_REFERENCE.md"), options: .atomic)
-        }
+        let types = staging.appendingPathComponent("types", isDirectory: true)
+        try manager.createDirectory(at: types, withIntermediateDirectories: true)
+        try Toolchain.read("sdk.d.ts").write(to: types.appendingPathComponent("runtime-sdk.d.ts"), options: .atomic)
+        try Toolchain.read("sdk-reference.md").write(to: staging.appendingPathComponent("SDK_REFERENCE.md"), options: .atomic)
         for path in ["assets", "modules", "data", "logs"] {
             try manager.createDirectory(at: staging.appendingPathComponent(path), withIntermediateDirectories: true)
         }

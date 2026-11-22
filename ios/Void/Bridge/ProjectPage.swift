@@ -12,7 +12,6 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     var revision: Int { tree?.revision ?? 0 }
     var acknowledged: Int { tree?.eventSequence ?? 0 }
     var uiVersion: Int { tree?.uiVersion ?? 1 }
-    var hasTabNavigation: Bool { tree?.hasTabs == true }
     var legacyManagementContainerID: String? { tree?.legacyManagementContainerID }
     private var priorActions = [String: NativeAction]()
     private var priorRevision = 0
@@ -135,7 +134,7 @@ final class ProjectPage: NSObject, ObservableObject, Identifiable, WKNavigationD
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         guard valid else { return }
         trace?.event("page.processTerminated")
-        reportFailure("项目的 WebKit 进程已终止，可在「设置」的「项目管理」中重新预览")
+        reportFailure("项目页面已停止运行，请返回项目列表并重新预览。")
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { navigationFailed(error) }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { navigationFailed(error) }

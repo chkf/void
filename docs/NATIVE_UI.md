@@ -41,7 +41,7 @@ render(<App />);
 | Theme | — | `mode` 为 system（默认）、light、dark。`light`、`dark` 各为一层语义色表，缺项回落到对应模式的默认值。Theme 只可作为唯一根节点。 |
 | TabView | `selection: string`、`onChange(id)` | 作为唯一根节点，或 Theme 的唯一直接子节点。只接受 2～5 个直接 Tab，可用数组、Fragment 和条件组合。 |
 | Tab | `id`、`title`、`systemName` 均为字符串，至少一个内容节点 | id 唯一，selection 必须存在。id 和图标名最多 128 个 UTF-8 字节，标题最多 256 个，均须非空且无控制字符。 |
-| ProjectManagementButton | — | 项目设置中的「项目管理」行，点按后打开宿主面板。支持 UI 1.0.0 和 1.1.0。 |
+| ProjectManagementButton | — | 项目设置中的「项目管理」行，点按后直接回到宿主项目列表。支持 UI 1.0.0 和 1.1.0。 |
 | Screen | — | 页面根 Screen 的唯一直接子节点为 ScrollView、List 或 Form 时，iPhone 竖屏在顶端展示系统大标题，上滑时收为居中的小标题。省略 `title` 可由滚动内容自行排版标题。iPad 标签页保留页面内标题和系统标签栏。其他布局的标题随动态字号排在内容上方。 |
 | ScrollView | — | 原生纵向滚动，可交互式收起键盘。协议 2 拒绝 ScrollView、Form 和 List 互相嵌套或嵌入自身。 |
 | Card | — | `background` 默认 surface。`border` 默认无边框，指定颜色后 `borderWidth` 默认 1（0～8）。`cornerRadius`、`padding` 均默认 12（0～64）。 |

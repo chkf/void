@@ -6,40 +6,34 @@ extension XCUIApplication {
                                      "project.settings", "设置", "host.settings")).firstMatch
     }
 
-    func openProjectManagement(file: StaticString = #filePath, line: UInt = #line) {
+    func returnToProjectList(file: StaticString = #filePath, line: UInt = #line) {
         let manage = buttons["host.manage"].firstMatch
-        if manage.exists && manage.isHittable { manage.tap(); return }
-        let settings = projectSettingsButton
-        guard settings.waitForExistence(timeout: 12) else {
-            return XCTFail("找不到项目设置\n" + debugDescription, file: file, line: line)
-        }
-        settings.tap()
-        for _ in 0..<6 {
-            if manage.exists && manage.isHittable {
-                manage.tap()
-                return
+        if !manage.exists || !manage.isHittable {
+            let settings = projectSettingsButton
+            guard settings.waitForExistence(timeout: 12) else {
+                return XCTFail("找不到项目设置\n" + debugDescription, file: file, line: line)
             }
-            // In landscape a swipe starting at the screen edge lands on the native tab bar.
-            let start = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
-            let end = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22))
-            start.press(forDuration: 0.05, thenDragTo: end)
+            settings.tap()
+            for _ in 0..<6 {
+                if manage.exists && manage.isHittable { break }
+                // In landscape a swipe starting at the screen edge lands on the native tab bar.
+                let start = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.62))
+                let end = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            }
         }
-        XCTFail("设置中找不到项目管理\n" + debugDescription, file: file, line: line)
-    }
-
-    func waitForLocalScan() -> Bool {
-        let found = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value BEGINSWITH %@", "已找到"),
-                                              object: buttons["host.local"])
-        return XCTWaiter.wait(for: [found], timeout: 45) == .completed
-    }
-
-    @MainActor func revealScannedProject(_ row: XCUIElement) -> Bool {
-        waitForLocalScan() && revealRecentProject(row)
+        guard manage.exists && manage.isHittable else {
+            return XCTFail("设置中找不到项目管理\n" + debugDescription, file: file, line: line)
+        }
+        manage.tap()
+        XCTAssertTrue(navigationBars["所有项目"].waitForExistence(timeout: 12), debugDescription, file: file, line: line)
     }
 
     func revealRecentProject(_ row: XCUIElement) -> Bool {
         // A SwiftUI List can expose an offscreen row before a tap can reach it.
-        // Scan results share this list with the other simulator fixtures.
+        let recent = buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "project.row.")).firstMatch
+        guard recent.waitForExistence(timeout: 45) else { return false }
+        _ = row.waitForExistence(timeout: 5)
         for _ in 0..<8 {
             if row.exists {
                 let bounds = row.frame
@@ -57,16 +51,14 @@ final class HostTests: XCTestCase {
         let expected = ProcessInfo.processInfo.environment["VOID_CONSENT_PROJECT"]
         let app = XCUIApplication()
         app.launch()
-        if !app.buttons["host.local"].waitForExistence(timeout:4) {
-            app.openProjectManagement()
-            app.buttons["host.switch"].tap()
+        if !app.buttons["host.import"].waitForExistence(timeout:4) {
+            app.returnToProjectList()
         }
-        app.buttons["host.local"].tap()
-        let candidates = app.buttons.matching(NSPredicate(format:"identifier BEGINSWITH %@","recent.Void Consent "))
-        let row = expected.map { app.buttons["recent." + $0] } ?? candidates.firstMatch
-        XCTAssertTrue(app.revealScannedProject(row),app.debugDescription)
+        let candidates = app.buttons.matching(NSPredicate(format:"identifier BEGINSWITH %@","project.row.Void Consent "))
+        let row = expected.map { app.buttons["project.row." + $0] } ?? candidates.firstMatch
+        XCTAssertTrue(app.revealRecentProject(row),app.debugDescription)
         if expected == nil { XCTAssertEqual(candidates.count,1,"需要测试脚本准备的独立项目目录") }
-        let fixture = String(row.identifier.dropFirst("recent.".count))
+        let fixture = String(row.identifier.dropFirst("project.row.".count))
         row.tap()
         let preview = app.buttons["project.preview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 15), app.debugDescription)
@@ -98,21 +90,34 @@ final class HostTests: XCTestCase {
         app.launch()
         let create = app.buttons["host.create"]
         if !create.waitForExistence(timeout: 4) {
-            app.openProjectManagement()
-            app.buttons["host.switch"].tap()
+            app.returnToProjectList()
         }
+        XCTAssertFalse(app.buttons["扫描本机项目"].exists)
+        XCTAssertTrue(app.navigationBars["所有项目"].exists)
+        app.buttons["host.github"].tap()
+        XCTAssertTrue(app.textFields["github.address"].waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons["github.clone"].isEnabled)
+        app.buttons["取消"].tap()
         app.buttons["host.settings"].tap()
         XCTAssertTrue(app.navigationBars["设置"].waitForExistence(timeout: 8))
+        let settingsElements = app.descendants(matching: .any)
+        XCTAssertTrue(settingsElements.matching(NSPredicate(format: "label BEGINSWITH %@", "版本")).firstMatch.exists)
+        for title in ["构建号", "原生控件协议", "SDK 版本", "SDK 能力"] {
+            XCTAssertFalse(settingsElements.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch.exists)
+        }
         XCTAssertFalse(app.buttons["host.manage"].exists)
         app.buttons["完成"].tap()
         create.tap()
         let field = app.textFields["project.name"]
+        XCTAssertTrue(field.waitForExistence(timeout: 8))
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "界面")).firstMatch.exists)
         field.tap()
         let name = "Test-" + String(UUID().uuidString.prefix(8))
         field.typeText(name)
         app.buttons["project.createLocal"].tap()
         let preview = app.buttons["project.preview"]
         XCTAssertTrue(preview.waitForExistence(timeout: 20), app.debugDescription)
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "app/src/main.tsx")).firstMatch.exists)
         XCTAssertFalse(app.staticTexts["项目未能打开"].exists)
         let bar = app.navigationBars[name]
         XCTAssertTrue(bar.buttons["project.settings"].isHittable)
@@ -123,15 +128,14 @@ final class HostTests: XCTestCase {
         let back = bar.buttons.matching(NSPredicate(format: "identifier != %@", "project.settings")).firstMatch
         XCTAssertTrue(back.isHittable)
         back.tap()
-        let recent = app.buttons["recent." + name]
+        let recent = app.buttons["project.row." + name]
         XCTAssertTrue(recent.waitForExistence(timeout: 10))
         recent.tap()
         XCTAssertTrue(preview.waitForExistence(timeout: 10))
         preview.tap()
         let toggle = app.switches["显示问候"].firstMatch
         XCTAssertTrue(toggle.waitForExistence(timeout: 90), app.debugDescription)
-        XCTAssertTrue(app.navigationBars[name].waitForExistence(timeout: 10))
-        XCTAssertFalse(app.webViews.firstMatch.exists)
+        XCTAssertTrue(app.projectSettingsButton.exists)
         let input = app.textFields["你的名字"]
         XCTAssertTrue(input.exists)
         XCTAssertTrue(app.staticTexts["你好"].exists)
@@ -145,19 +149,46 @@ final class HostTests: XCTestCase {
         input.tap()
         input.typeText("Lin")
         XCTAssertTrue(app.staticTexts["你好，Lin"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.buttons["scan.cancel"].waitForNonExistence(timeout: 25))
         app.terminate()
         app.launch()
         XCTAssertTrue(toggle.waitForExistence(timeout: 90), app.debugDescription)
-        XCTAssertTrue(app.navigationBars[name].exists)
+        XCTAssertTrue(app.projectSettingsButton.exists)
         XCTAssertFalse(app.buttons["host.manage"].exists)
-        app.openProjectManagement()
-        XCTAssertTrue(app.buttons["host.switch"].exists)
-        XCTAssertTrue(app.buttons["host.reconnect"].exists)
-        app.buttons["host.switch"].tap()
-        let row = app.buttons["recent." + name]
+        app.returnToProjectList()
+        XCTAssertTrue(app.revealRecentProject(recent))
+        recent.press(forDuration: 1)
+        app.buttons["详情"].tap()
+        XCTAssertTrue(app.navigationBars["项目详情"].waitForExistence(timeout: 8))
+        XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format:
+            "label CONTAINS %@ OR value == %@", "1.0.0", "1.0.0")).firstMatch.waitForExistence(timeout: 10))
+        app.buttons["完成"].tap()
+        recent.press(forDuration: 1)
+        app.buttons["重命名"].tap()
+        let alert = app.alerts["重命名项目"]
+        XCTAssertEqual(alert.textFields.firstMatch.value as? String, name)
+        alert.buttons["取消"].tap()
+        XCTAssertTrue(recent.exists)
+        recent.press(forDuration: 1)
+        app.buttons["重命名"].tap()
+        let edit = alert.textFields.firstMatch
+        edit.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        edit.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: name.count))
+        XCTAssertFalse(alert.buttons["保存"].isEnabled)
+        let renamed = "Notes-" + String(UUID().uuidString.prefix(8))
+        edit.typeText(renamed)
+        alert.buttons["保存"].tap()
+        let row = app.buttons["project.row." + renamed]
         XCTAssertTrue(row.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertFalse(recent.exists)
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(app.revealRecentProject(row))
+        row.tap()
+        XCTAssertTrue(app.navigationBars[renamed].waitForExistence(timeout: 10))
+        app.returnToProjectList()
         row.swipeLeft()
-        let remove = app.buttons["recent.remove"]
+        let remove = app.buttons["project.row.remove"]
         if remove.exists { remove.tap() }
         expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: row)
         waitForExpectations(timeout: 8)

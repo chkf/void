@@ -2,9 +2,12 @@ import Combine
 import Foundation
 
 enum FolderPurpose: Equatable {
-    case create(String,ProjectTemplate), importFolder, reconnect(UUID), local
+    case create(String), importFolder
     var name: String {
-        switch self { case .create:return "create"; case .importFolder:return "import"; case .reconnect:return "reconnect"; case .local:return "local" }
+        switch self {
+        case .create: return "create"
+        case .importFolder: return "import"
+        }
     }
 }
 
@@ -37,11 +40,7 @@ final class FolderRequests: ObservableObject {
         let r = FolderRequest(trace:DirectoryTrace(purpose.name),purpose:purpose,origin:origin)
         request = r; selection = nil; pickerClosed = false; presented = false; ready = !afterSheet
         phase = .presenting; message = "正在打开文件选择器"
-        r.trace.event(purpose == .local ? "local.request" : "picker.request")
-        if purpose == .local {
-            ready = false; pickerClosed = true
-            start(r,url:FolderGrant.documents)
-        }
+        r.trace.event("picker.request")
         return r
     }
     func sheetClosed() { if phase == .presenting { ready = true } }
@@ -83,13 +82,6 @@ final class FolderRequests: ObservableObject {
         if !active { clearResult() }
         else if request.origin != id { cancel(request.id) }
     }
-    func finishLocalScan() async {
-        guard active, let request, request.purpose == .local else { return }
-        let scan = task
-        cancel(request.id)
-        // Registration may already be committing. Let it finish before starting a picker.
-        if active { await scan?.value }
-    }
     private func start(_ r: FolderRequest, url: URL) {
         phase = .processing; message = "正在检查目录授权和项目文件"
         let lease = selection
@@ -117,6 +109,7 @@ final class FolderRequests: ObservableObject {
               let stage = DirectoryJournal.shared.recent().last(where:{ $0.request == request.id })?.stage else { return }
         let status: String
         switch stage {
+        case "import.copy": status = "正在将项目复制到 void 文稿"
         case "grant.begin","grant.resolve": status = "正在等待目录授权或文件协调"
         case "grant.accessor","scan.begin": status = "正在读取项目清单和源码"
         default: return

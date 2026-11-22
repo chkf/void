@@ -2,6 +2,43 @@ import XCTest
 @testable import VoidHost
 
 final class WorkspaceTests: XCTestCase {
+    func testAllProjectsMigratesOldVisibilityAndDiscardsOpenTimes() async throws {
+        let manager = FileManager.default
+        let directory = manager.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? manager.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("projects.json")
+        let selected = UUID()
+        func old(_ name: String, _ date: Int?, id: UUID = UUID()) -> [String: Any] {
+            var fields: [String: Any] = ["id": id.uuidString, "name": name, "grant": ["child": name],
+                                          "directoryKey": name, "version": "1"]
+            if let date { fields["opened"] = date }
+            return fields
+        }
+        let records = [old("Z", 900, id: selected), old("A", 1), old("Hidden", nil)]
+        let data = try JSONSerialization.data(withJSONObject: ["records": records, "last": selected.uuidString])
+        try data.write(to: url)
+        let catalog = try await ProjectLibrary(base: directory).catalog()
+        XCTAssertEqual(catalog.projects.map(\.name), ["A", "Z"])
+        XCTAssertEqual(catalog.last, selected)
+        XCTAssertEqual(catalog.records.count, 3)
+        let saved = try JSONDecoder().decode(Catalog.self, from: Data(contentsOf: url))
+        XCTAssertEqual(saved.projects.map(\.id), catalog.projects.map(\.id))
+        XCTAssertFalse(try String(contentsOf: url, encoding: .utf8).contains("\"opened\""))
+    }
+
+    func testGitHubImportAcceptsPublicRepositoryAddresses() throws {
+        let repo = try GitHubRepository(" https://GitHub.com/owner/My-Project.git/ ")
+        XCTAssertEqual(repo.address, "https://github.com/owner/My-Project.git")
+        XCTAssertEqual(repo.name, "My-Project")
+        XCTAssertEqual(repo, try GitHubRepository("https://github.com/owner/My-Project"))
+        for invalid in ["https://example.com/o/r", "http://github.com/o/r", "https://token@github.com/o/r",
+                        "https://github.com/o/r/tree/main", "https://github.com/O/%2F", "https://github.com/o/..",
+                        "https://github.com:123/o/r", "https://github.com/o/r?k=v"] {
+            XCTAssertThrowsError(try GitHubRepository(invalid), invalid)
+        }
+    }
+
     func testTemplateAndSharedDataBoundary() throws {
         let fm = FileManager.default
         let parent = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -9,8 +46,10 @@ final class WorkspaceTests: XCTestCase {
         defer { try? fm.removeItem(at: parent) }
         let url = try ProjectFiles.create("测试", in: parent)
         let first = try ProjectFiles.snapshot(at: url)
-        XCTAssertEqual(first.info.mode, .swiftui)
-        XCTAssertNoThrow(try CompiledProject.validate(first))
+        XCTAssertEqual(first.info.mode, .native)
+        XCTAssertEqual(first.info.entry, "src/main.tsx")
+        XCTAssertNotNil(first.files["app/src/main.tsx"])
+        XCTAssertNotNil(first.files["app/package.json"])
         XCTAssertEqual(first.info.name, "测试")
         XCTAssertNotNil(first.info.declaredID)
         for folder in ["app", "assets", "modules", "logs", "data"] {
@@ -64,7 +103,7 @@ final class WorkspaceTests: XCTestCase {
         let b = try XCTUnwrap(discovered.first { $0.id != a.id })
         let old = try await library.open(b.id, remember: true)
         XCTAssertEqual(old.info.mode, .web)
-        try await library.rename(a, name: "新名称")
+        try await library.rename(a.id, name: "新名称")
         let reopened = try await library.open(a.id, remember: true)
         XCTAssertEqual(reopened.info.name, "新名称")
         let restored = try await ProjectLibrary(base: registry).catalog()
@@ -141,15 +180,15 @@ final class WorkspaceTests: XCTestCase {
         let path = parent.appendingPathComponent("笔记/data/saved.txt")
         try Data("保留".utf8).write(to: path)
         try await library.selectWorkspace(a.id)
-        try await library.removeRecent(a.id)
+        try await library.removeFromList(a.id)
         let saved = try await ProjectLibrary(base: registry).catalog()
-        XCTAssertEqual(saved.recent.map(\.id), [b.id])
+        XCTAssertEqual(saved.projects.map(\.id), [b.id])
         XCTAssertNil(saved.last)
         XCTAssertEqual(try Data(contentsOf: path), Data("保留".utf8))
         let restored = try await library.discover(parent.appendingPathComponent("笔记"))
         XCTAssertEqual(restored.first?.id, a.id)
-        XCTAssertEqual(restored.first?.pendingTemplate, .swiftUI)
+        XCTAssertEqual(restored.first?.pendingTemplate, .tsx)
         let reopened = try await library.catalog()
-        XCTAssertEqual(reopened.recent.count, 2)
+        XCTAssertEqual(reopened.projects.count, 2)
     }
 }

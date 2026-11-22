@@ -5,6 +5,7 @@ final class FolderPickerTests: XCTestCase {
     private let app = XCUIApplication()
     private var token = UUID().uuidString
     private var fixture: String { "Void Picker " + String(token.prefix(8)) }
+    private var externalFixture: String { ProcessInfo.processInfo.environment["VOID_EXTERNAL_PROJECT"] ?? "Void Files QA" }
 
     private func named(_ labels: [String], in elements: XCUIElementQuery) -> XCUIElement {
         elements.matching(NSPredicate(format:"label IN %@ OR identifier IN %@",labels,labels)).firstMatch
@@ -13,10 +14,11 @@ final class FolderPickerTests: XCTestCase {
     private var openButton: XCUIElement { app.buttons["DOCPicker.actionButton"].firstMatch }
     private func selectExternalDirectory() {
         XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
-        let title = "Void Files QA"
+        let title = externalFixture
         let container = app.cells.matching(NSPredicate(format:"label BEGINSWITH[c] %@ OR identifier BEGINSWITH[c] %@",title,title)).firstMatch
         let manifestFolder = app.cells.matching(NSPredicate(format:"label BEGINSWITH[c] %@", "app,")).firstMatch
-        if !manifestFolder.exists {
+        let currentFolder = navigation.descendants(matching: .any).matching(NSPredicate(format: "label == %@", title)).firstMatch
+        if !currentFolder.exists || !manifestFolder.exists {
             if !container.exists {
                 let browse = named(["Browse","浏览"],in:app.tabBars.buttons)
                 let local = app.cells["DOC.sidebar.item.On My iPhone"].firstMatch
@@ -81,36 +83,24 @@ final class FolderPickerTests: XCTestCase {
         continueAfterFailure = false
         executionTimeAllowance = 360
         if localFixture { app.launchEnvironment["VOID_PICKER_TEST_PROJECT"] = token }
+        let arguments = app.launchArguments
+        app.launchArguments += ["-void.openProjectListOnLaunch", "YES"]
         app.launch()
-        if localFixture {
-            let loaded = app.buttons.matching(NSPredicate(
-                format: "(identifier == %@ AND value == %@) OR identifier IN %@ OR (label == %@ AND identifier != %@)",
-                "host.import", "fixture-ready", ["project.settings", "host.manage"], "设置", "host.settings")).firstMatch
-            XCTAssertTrue(loaded.waitForExistence(timeout:40),app.debugDescription)
-        }
-        if !app.buttons["host.import"].waitForExistence(timeout:3) {
-            app.openProjectManagement()
-            app.buttons["host.switch"].tap()
-        }
+        app.launchArguments = arguments
+        XCTAssertTrue(app.buttons["host.import"].waitForExistence(timeout: 12), app.debugDescription)
         if localFixture {
             let ready = app.buttons.matching(NSPredicate(format:"identifier == %@ AND value == %@",
                                                           "host.import","fixture-ready")).firstMatch
             XCTAssertTrue(ready.waitForExistence(timeout:40),app.debugDescription)
         }
-        XCTAssertFalse(app.buttons["recent." + (localFixture ? fixture : "我的项目")].exists)
     }
     private func importAndPreview() {
         app.buttons["host.import"].tap(); selectExternalDirectory()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:95),app.debugDescription)
         XCTAssertFalse(app.staticTexts["folder.status"].exists)
     }
-    private func reconnect() {
-        app.openProjectManagement()
-        app.buttons["host.reconnect"].tap()
-    }
-
     private func openFixtureOverview() {
-        let row = app.buttons["recent." + fixture]
+        let row = app.buttons["project.row." + fixture]
         XCTAssertTrue(app.revealRecentProject(row), app.debugDescription)
         row.tap()
         XCTAssertTrue(app.navigationBars[fixture].exists, app.debugDescription)
@@ -123,30 +113,11 @@ final class FolderPickerTests: XCTestCase {
         preview.tap()
     }
 
-    private func scanDocumentsAndPreview() {
-        let scan = app.buttons["host.local"]
-        let scanFrame = scan.frame
-        XCTAssertFalse(app.buttons["目录诊断"].exists)
-        scan.tap()
-        XCTAssertTrue(app.waitForLocalScan(), app.debugDescription)
-        let firstProject = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "recent.")).firstMatch
-        XCTAssertTrue(firstProject.exists)
-        let firstFrame = firstProject.frame
-        scan.tap()
-        XCTAssertTrue(app.waitForLocalScan(), app.debugDescription)
-        XCTAssertEqual(scan.frame, scanFrame)
-        XCTAssertEqual(firstProject.frame, firstFrame)
-        XCTAssertFalse(app.staticTexts["folder.status"].exists)
+    func testDocumentsProjectAppearsAutomaticallyAndWaitsForPreview() {
+        openLibrary()
         openFixtureOverview()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
-    }
-
-    func testDocumentsScanImportsAndPreviewsUnregisteredTSX() {
-        openLibrary()
-        scanDocumentsAndPreview()
-        app.openProjectManagement()
-        app.buttons["host.rescan"].tap()
-        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:30),app.debugDescription)
+        app.returnToProjectList()
     }
 
     private struct VisiblePickerLabel {
@@ -245,27 +216,24 @@ final class FolderPickerTests: XCTestCase {
         } while Date() < end
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:120),app.debugDescription)
         XCTAssertFalse(app.staticTexts["folder.status"].exists)
-        app.openProjectManagement()
-        app.buttons["host.switch"].tap()
-        XCTAssertTrue(app.buttons["recent." + fixture].waitForExistence(timeout:12),app.debugDescription)
+        app.returnToProjectList()
+        XCTAssertTrue(app.buttons["project.row." + fixture].waitForExistence(timeout:12),app.debugDescription)
     }
 
-    func testSystemOpenImportsPreviewsAndReconnectsOriginal() {
+    func testSystemOpenImportsExternalCopyAndReopensIt() {
         openLibrary(localFixture:false)
         importAndPreview()
-        reconnect(); selectExternalDirectory()
+        XCTAssertTrue(app.buttons["scan.cancel"].waitForNonExistence(timeout: 25), app.debugDescription)
+        app.terminate()
+        app.launch()
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:55),app.debugDescription)
-        app.openProjectManagement()
-        let result = app.staticTexts["folder.reconnectResult"]
-        XCTAssertTrue(result.waitForExistence(timeout:12),app.debugDescription)
-        XCTAssertEqual(result.label, "已核验原项目目录")
+        app.returnToProjectList()
+        XCTAssertTrue(app.revealRecentProject(app.buttons["project.row." + externalFixture]), app.debugDescription)
     }
 
     func testInterruptedFirstFrameReturnsToOriginalProjectList() {
         app.launchEnvironment["VOID_TEST_SLOW_FIRST_FRAME"] = "1"
         openLibrary()
-        app.buttons["host.local"].tap()
-        XCTAssertTrue(app.waitForLocalScan(), app.debugDescription)
         openFixtureOverview()
         let stage = app.staticTexts["preview.stage"]
         let frame = XCTNSPredicateExpectation(predicate:NSPredicate(format:"label == %@", "正在等待项目首屏"),object:stage)
@@ -276,25 +244,30 @@ final class FolderPickerTests: XCTestCase {
         XCTAssertTrue(interruption.waitForExistence(timeout:30),app.debugDescription)
         XCTAssertTrue(interruption.label.contains(fixture))
         XCTAssertFalse(app.buttons["上次预览诊断"].exists)
-        let record = app.buttons["recent." + fixture]
+        let record = app.buttons["project.row." + fixture]
         XCTAssertTrue(record.exists)
         openFixtureOverview()
         XCTAssertTrue(app.staticTexts["预览已恢复"].waitForExistence(timeout:120),app.debugDescription)
     }
 
-    func testSystemDismissalAndInterruptionKeepPreviousProject() {
+    func testCancelledAndInterruptedFolderSelectionReturnsToProjectList() {
         openLibrary()
+        let create = app.buttons["host.create"]
+        create.tap()
+        let field = app.textFields["project.name"]
+        field.tap()
+        field.typeText("Folder-" + String(token.prefix(8)))
+        app.buttons["选择其他文件夹…"].tap()
+        cancelPicker(returningTo: create)
         app.buttons["host.import"].tap()
-        cancelPicker(returningTo: app.buttons["host.local"])
-        scanDocumentsAndPreview()
-        reconnect()
-        let returnFromSettings = app.buttons["返回"]
-        cancelPicker(returningTo: returnFromSettings)
-        returnFromSettings.tap()
-        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:8),app.debugDescription)
-        reconnect()
+        cancelPicker(returningTo: app.buttons["host.import"])
+        openFixtureOverview()
+        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:70),app.debugDescription)
+        app.returnToProjectList()
+        app.buttons["host.import"].tap()
         XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
         app.terminate(); app.launch()
-        XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:60),app.debugDescription)
+        XCTAssertTrue(app.buttons["host.import"].waitForExistence(timeout:12),app.debugDescription)
+        XCTAssertTrue(app.revealRecentProject(app.buttons["project.row." + fixture]))
     }
 }

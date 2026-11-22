@@ -66,26 +66,32 @@ PY
   export TEST_RUNNER_VOID_SAFE_AREA_PROJECT="Void Safe Area ${TEST_RUNNER_VOID_NATIVE_UI_PROJECT##* }"
 }
 
-# The UI runner requests a real Simulator appearance change while the same app is visible.
-with_simulator_appearance() (
-  local device="$1" runner="" request="" previous="" requested_mode
+# The UI runner can change system appearance or edit the disposable safe-area project.
+with_simulator_actions() (
+  local device="$1" runner="" request="" previous="" container source_error
   shift
   local original
   original=$(xcrun simctl ui "$device" appearance)
+  container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
+  source_error="$container/Documents/${TEST_RUNNER_VOID_SAFE_AREA_PROJECT:?}/app/src/void-ui-test-error.ts"
+  apply_action() {
+    case "$1" in
+      dark|light) xcrun simctl ui "$device" appearance "$1" ;;
+      add-source-error) printf '%s\n' 'const sample: number = "invalid";' > "$source_error" ;;
+      clear-source-error) rm -f -- "$source_error" ;;
+    esac
+  }
   (
     while true; do
       if [[ -z "$runner" || ! -d "$runner" ]]; then
         runner=$(xcrun simctl get_app_container "$device" app.chkf.void.uitests.xctrunner data 2>/dev/null) || runner=""
       fi
-      if [[ -n "$runner" && -s "$runner/tmp/void-test-appearance" ]]; then
-        request=$(cat "$runner/tmp/void-test-appearance")
-        if [[ "$request" != "$previous" && "$request" =~ ^[A-Fa-f0-9-]+\ (dark|light)$ ]]; then
-          requested_mode=${BASH_REMATCH[1]}
-          echo "Applying Simulator appearance $requested_mode"
-          if xcrun simctl ui "$device" appearance "$requested_mode"; then
-            printf '%s' "$request" > "$runner/tmp/void-test-appearance-applied.tmp"
-            mv "$runner/tmp/void-test-appearance-applied.tmp" "$runner/tmp/void-test-appearance-applied"
-            echo "Applied Simulator appearance $requested_mode"
+      if [[ -n "$runner" && -s "$runner/tmp/void-test-action" ]]; then
+        request=$(cat "$runner/tmp/void-test-action")
+        if [[ "$request" != "$previous" && "$request" =~ ^[A-Fa-f0-9-]+\ (dark|light|add-source-error|clear-source-error)$ ]]; then
+          if apply_action "${BASH_REMATCH[1]}"; then
+            printf '%s' "$request" > "$runner/tmp/void-test-action-applied.tmp"
+            mv "$runner/tmp/void-test-action-applied.tmp" "$runner/tmp/void-test-action-applied"
             previous="$request"
           fi
         fi
@@ -93,7 +99,7 @@ with_simulator_appearance() (
       sleep 0.5
     done
   ) & local watcher=$!
-  trap 'kill "$watcher" 2>/dev/null || true; xcrun simctl ui "$device" appearance "${original##* }" || true' EXIT
+  trap 'kill "$watcher" 2>/dev/null || true; apply_action clear-source-error; xcrun simctl ui "$device" appearance "${original##* }" || true' EXIT
   "$@"
 )
 
@@ -101,10 +107,12 @@ with_simulator_appearance() (
 # app still needs a real pick and security scope to read any of these files.
 install_picker_fixture() {
   local device="$1" files_data
+  TEST_RUNNER_VOID_EXTERNAL_PROJECT="Void Files QA $(uuidgen | cut -c1-8)"
+  export TEST_RUNNER_VOID_EXTERNAL_PROJECT
   xcrun simctl launch "$device" com.apple.DocumentsApp
   files_data=$(xcrun simctl get_app_container "$device" com.apple.DocumentsApp data)
-  python3 - "$files_data" "$device" <<'PY'
-import pathlib, plistlib, shutil, sys, time, uuid
+  python3 - "$files_data" "$device" "$TEST_RUNNER_VOID_EXTERNAL_PROJECT" <<'PY'
+import json, pathlib, plistlib, shutil, sys, time, uuid
 
 app_data = pathlib.Path(sys.argv[1]).resolve()
 device_id = uuid.UUID(sys.argv[2])
@@ -130,12 +138,12 @@ for attempt in range(30):
     time.sleep(1)
 if not root:
     raise SystemExit("独立测试模拟器未提供本地 Files 文稿位置")
-target = root / "Void Files QA"
+target = root / sys.argv[3]
 template = pathlib.Path("ios/TSXProject")
-if not target.exists():
-    shutil.copytree(template, target)
-if target.is_symlink() or (target / "runtime.json").read_bytes() != (template / "runtime.json").read_bytes():
-    raise SystemExit("独立 Files 测试目录的身份不符")
+shutil.copytree(template, target)
+(target / "runtime.json").write_text(json.dumps({"formatVersion": 1, "id": str(uuid.uuid4())}))
+manifest = target / "app/manifest.json"
+manifest.write_text(json.dumps({**json.loads(manifest.read_bytes()), "name": target.name}))
 print("已在模拟器本地 File Provider 准备外部 TSX 测试目录")
 PY
   xcrun simctl terminate "$device" com.apple.DocumentsApp
@@ -245,11 +253,11 @@ case "${1:-device}" in
     prepare_native_ui_test "$device" Release
     sample_slow_rebuild "$device" & sample_pid=$!
     trap 'kill "$sample_pid" 2>/dev/null || true' EXIT
-    with_simulator_appearance "$device" xcodebuild "${preview_args[@]}" \
+    with_simulator_actions "$device" xcodebuild "${preview_args[@]}" \
       -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidTests/NativeScrollViewportTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/HostTests/testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch \
       -only-testing:VoidTests/NativeSDKTests/testClosingFirstConsentCancelsWithoutSavingADecision \
-      -only-testing:VoidTests/DirectoryTests/testLocalScanAndRecentSelectionDoNotReadOrStartAProject \
+      -only-testing:VoidTests/DirectoryTests/testLocalRecognitionWaitsForExplicitPreviewToReadSources \
       -only-testing:VoidTests/DirectoryTests/testFingerprintMatchesFullContentsWithoutRetainingAssetsAndBoundsGrowingSources \
       -only-testing:VoidTests/DirectoryTests/testRecentTSXPreviewsExistingSQLiteThroughNativeFirstFrame \
       -only-testing:VoidTests/DirectoryTests/testRealImportPreviewRebuildFailureRecoveryAndColdReopen \
@@ -333,7 +341,7 @@ PY
     xcrun simctl bootstatus "$device" -b
     bash scripts/ios-build.sh build-tests
     prepare_native_ui_test "$device"
-    with_simulator_appearance "$device" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+    with_simulator_actions "$device" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -only-testing:VoidTests/NativeContractTests -only-testing:VoidTests/NativeTabEventTests \
       -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidTests/NativeScrollViewportTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/NativeNavigationTests \
@@ -345,8 +353,10 @@ PY
     install_picker_fixture "$device"
     prepare_consent_test "$device" Debug
     prepare_native_ui_test "$device"
+    container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
+    TEST_RUNNER_VOID_GIT_FIXTURE=$(python3 tests/git_checkout.py --simulator-fixture "$container/tmp")
+    export TEST_RUNNER_VOID_GIT_FIXTURE
     if [[ "${VOID_SIMULATOR_FIXTURES:-}" == 1 ]]; then
-      container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
       for service in contacts calendar reminders photos photos-add location; do
         xcrun simctl privacy "$device" grant "$service" app.chkf.void
       done
@@ -360,7 +370,7 @@ PY
     if [[ "${VOID_SEPARATE_LOCAL_PICKER:-}" == 1 ]]; then
       args+=(-skip-testing:VoidUITests/FolderPickerTests/testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory)
     fi
-    with_simulator_appearance "$device" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
+    with_simulator_actions "$device" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
       -resultBundlePath "$result" test-without-building || test_status=$?
     if [[ "${CI:-}" == true ]] && container=$(xcrun simctl get_app_container "$device" app.chkf.void data); then
@@ -372,7 +382,7 @@ try:
         events = json.loads(plistlib.load(preferences).get("void.directoryDiagnostics.v1", b"[]"))
 except (OSError, ValueError, plistlib.InvalidFileException):
     events = []
-actual = {e["request"] for e in events if e["stage"] in ("picker.willPresent", "picker.didPick", "local.request")}
+actual = {e["request"] for e in events if e["stage"] in ("picker.willPresent", "picker.didPick")}
 for e in events:
     if e["request"] in actual or e["stage"] == "fixture.ready":
         print(e["request"], e["purpose"], e["stage"], f'+{e["milliseconds"]}ms',
@@ -380,6 +390,20 @@ for e in events:
 PY
     fi
     if ((test_status != 0)); then exit "$test_status"; fi
+    container=$(xcrun simctl get_app_container "$device" app.chkf.void data)
+    python3 - "$container" "$TEST_RUNNER_VOID_EXTERNAL_PROJECT" <<'PY'
+import json, pathlib, sys
+
+container, name = pathlib.Path(sys.argv[1]), sys.argv[2]
+copy = container / "Documents" / name
+catalog = json.loads((container / "Library/Application Support/void/projects.json").read_bytes())
+record, = [item for item in catalog["records"] if item["name"] == name]
+grant = record["grant"]
+location = container / "Documents" / (grant.get("localFolder") or "") / grant["child"]
+assert not grant.get("bookmark") and location == copy, "外部导入应登记本地副本"
+assert record["declaredID"] == json.loads((copy / "runtime.json").read_bytes())["id"]
+assert (copy / "app/src/main.tsx").read_bytes() == pathlib.Path("ios/TSXProject/app/src/main.tsx").read_bytes()
+PY
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
   *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests|release-preview|local-picker|native-layout" >&2; exit 2 ;;
