@@ -57,11 +57,19 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run prepare:ios
-      - run: bash scripts/ios-build.sh release-preview
+      - run: bash scripts/ios-build.sh build-release-tests
+        id: build_release_tests
+      - name: 从系统文件夹导入、重启并核对本地副本
+        run: bash scripts/ios-build.sh external-import
+      - run: bash scripts/ios-build.sh run-release-previews
+        if: ${{ !cancelled() && steps.build_release_tests.outcome == 'success' }}
       - if: ${{ !cancelled() }}
         run: |
           if [[ -d .build/ios/release-preview.xcresult ]]; then
             xcrun xcresulttool export attachments --path .build/ios/release-preview.xcresult --output-path .build/ios/release-screenshots
+          fi
+          if [[ -d .build/ios/external-import.xcresult ]]; then
+            xcrun xcresulttool export attachments --path .build/ios/external-import.xcresult --output-path .build/ios/release-screenshots/external-import
           fi
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() }}

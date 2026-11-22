@@ -1,4 +1,3 @@
-import Vision
 import XCTest
 
 final class FolderPickerTests: XCTestCase {
@@ -12,30 +11,59 @@ final class FolderPickerTests: XCTestCase {
     }
     private var navigation: XCUIElement { app.navigationBars["FullDocumentManagerViewControllerNavigationBar"].firstMatch }
     private var openButton: XCUIElement { app.buttons["DOCPicker.actionButton"].firstMatch }
-    private func selectExternalDirectory() {
-        XCTAssertTrue(navigation.waitForExistence(timeout:60),app.debugDescription)
-        let title = externalFixture
-        let container = app.cells.matching(NSPredicate(format:"label BEGINSWITH[c] %@ OR identifier BEGINSWITH[c] %@",title,title)).firstMatch
-        let manifestFolder = app.cells.matching(NSPredicate(format:"label BEGINSWITH[c] %@", "app,")).firstMatch
-        let currentFolder = navigation.descendants(matching: .any).matching(NSPredicate(format: "label == %@", title)).firstMatch
-        if !currentFolder.exists || !manifestFolder.exists {
-            if !container.exists {
-                let browse = named(["Browse","浏览"],in:app.tabBars.buttons)
-                let local = app.cells["DOC.sidebar.item.On My iPhone"].firstMatch
-                if !local.exists && browse.exists { browse.tap() }
-                if !local.exists && !container.exists {
-                    let back = app.buttons["DOC.navBarButton.backInHistory"].firstMatch
-                    if browse.exists && browse.isSelected { browse.tap() }
-                    else if back.exists && back.isEnabled { back.tap() }
+    private func folderCell(_ name: String) -> XCUIElement {
+        app.cells.matching(NSPredicate(format: "label ==[c] %@ OR label BEGINSWITH[c] %@ OR identifier ==[c] %@",
+                                       name, name + ",", name)).firstMatch
+    }
+
+    private func browseOnMyIPhone() {
+        let local = app.cells["DOC.sidebar.item.On My iPhone"].firstMatch
+        let browse = named(["Browse", "浏览"], in: app.tabBars.buttons)
+        if !local.exists && browse.exists { browse.tap() }
+        if !local.waitForExistence(timeout: 3) {
+            if browse.exists && browse.isSelected { browse.tap() }
+            else {
+                let back = app.buttons["DOC.navBarButton.backInHistory"].firstMatch
+                if back.exists && back.isEnabled { back.tap() }
+            }
+        }
+        if local.waitForExistence(timeout: 5) && local.isHittable { local.tap() }
+    }
+
+    private func listViewInFiles() {
+        let more = navigation.buttons.matching(NSPredicate(format: "identifier CONTAINS[c] %@ OR label IN %@",
+                                                           "more", ["More", "View Options", "更多", "显示选项"])).firstMatch
+        guard more.exists && more.isHittable else { return }
+        more.tap()
+        let list = named(["List", "列表"], in: app.buttons)
+        if list.waitForExistence(timeout: 3) { list.tap() }
+        else { navigation.coordinate(withNormalizedOffset: CGVector(dx: 0.45, dy: 0.5)).tap() }
+    }
+
+    private func openProjectDirectory(_ title: String, inAppDocuments: Bool = false) {
+        XCTAssertTrue(navigation.waitForExistence(timeout: 60), app.debugDescription)
+        let project = folderCell(title)
+        let source = folderCell("app")
+        let current = navigation.descendants(matching: .any).matching(NSPredicate(format: "label == %@", title)).firstMatch
+        if !(current.exists && source.exists) {
+            let documents = folderCell("void")
+            if !project.exists && !(inAppDocuments && documents.exists) { browseOnMyIPhone() }
+            if inAppDocuments && !project.exists {
+                listViewInFiles()
+                XCTAssertTrue(documents.waitForExistence(timeout: 30), app.debugDescription)
+                documents.tap()
+                if !project.waitForExistence(timeout: 20), documents.exists && documents.isHittable {
+                    documents.doubleTap()
                 }
-                if local.waitForExistence(timeout:5) && local.isHittable { local.tap() }
             }
-            XCTAssertTrue(container.waitForExistence(timeout:45),app.debugDescription)
-            container.tap()
-            if !manifestFolder.waitForExistence(timeout:8), container.exists && container.isHittable {
-                container.doubleTap()
+            XCTAssertTrue(project.waitForExistence(timeout: 35), app.debugDescription)
+            project.tap()
+            if !source.waitForExistence(timeout: 12), project.exists && project.isHittable && !project.isSelected {
+                project.doubleTap()
             }
-            XCTAssertTrue(manifestFolder.waitForExistence(timeout:30),app.debugDescription)
+            // Some Files views select the row, others show the project's contents.
+            // The imported identity and the actual on-disk folder are checked after Open.
+            XCTAssertTrue((project.exists && project.isSelected) || source.waitForExistence(timeout: 25), app.debugDescription)
         }
         pressSystemOpen()
     }
@@ -95,7 +123,8 @@ final class FolderPickerTests: XCTestCase {
         }
     }
     private func importAndPreview() {
-        app.buttons["host.import"].tap(); selectExternalDirectory()
+        app.buttons["host.import"].tap()
+        openProjectDirectory(externalFixture)
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:95),app.debugDescription)
         XCTAssertFalse(app.staticTexts["folder.status"].exists)
     }
@@ -116,126 +145,13 @@ final class FolderPickerTests: XCTestCase {
         app.returnToProjectList()
     }
 
-    private struct VisiblePickerLabel {
-        let text: String
-        let point: CGPoint
-    }
-
-    private func pickerLabels() throws -> [VisiblePickerLabel] {
-        let image = try XCTUnwrap(XCUIScreen.main.screenshot().image.cgImage)
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-        request.recognitionLanguages = ["en-US","zh-Hans"]
-        try VNImageRequestHandler(cgImage:image,options:[:]).perform([request])
-        return (request.results ?? []).compactMap { line in
-            guard let candidate = line.topCandidates(1).first else { return nil }
-            let text = candidate.string.trimmingCharacters(in:.whitespacesAndNewlines.union(.punctuationCharacters)).lowercased()
-            let box = line.boundingBox
-            return VisiblePickerLabel(text:text,point:CGPoint(x:box.midX,y:1-box.midY))
-        }
-    }
-
-    private func coordinate(_ label: VisiblePickerLabel) -> XCUICoordinate {
-        app.coordinate(withNormalizedOffset:CGVector(dx:label.point.x,dy:label.point.y))
-    }
-
-    private func pickerCell(named name: String) -> XCUIElement {
-        app.cells.matching(NSPredicate(format: "label ==[c] %@ OR label BEGINSWITH[c] %@ OR identifier ==[c] %@",
-                                       name, name + ",", name)).firstMatch
-    }
-
-    // Files treats directoryURL as a hint. Navigate its visible folders and verify
-    // the app/ child before opening, even when the provider starts at another level.
-    private func pickLocalProjectInFiles() throws {
-        let started = Date()
-        let end = started.addingTimeInterval(105)
-        var lastScreen: [String] = []
-        var lastFolder: String?
-        var searched = false
-        repeat {
-            let labels = try pickerLabels()
-            let open = labels.first { ["open","打开"].contains($0.text) && $0.point.x > 0.6 && $0.point.y < 0.3 }
-            let searchY = labels.first { $0.point.y < 0.3 && ($0.text.contains("search") || $0.text.contains("搜索")) }?.point.y ?? 0.16
-            let entries = labels.filter { $0.point.y > searchY + 0.015 && $0.point.y < 0.9 }
-            let screen = labels.map(\.text)
-            if screen != lastScreen {
-                print("Files simulator screen",screen.prefix(40))
-                lastScreen = screen
-            }
-            let atFixture = !searched && labels.contains { $0.point.y < searchY && ($0.text.contains("void picker") || $0.text.contains(String(token.prefix(8)).lowercased())) }
-            let hasSourceFolder = entries.contains { $0.text == "app" }
-            let hasManifestSibling = entries.contains { ["runtime.json","runtime","assets","modules"].contains($0.text) }
-            if let open, hasSourceFolder || (atFixture && hasManifestSibling) {
-                coordinate(open).tap()
-                return
-            }
-            // A freshly launched provider initially draws Recents while resolving its start URL.
-            if atFixture || Date().timeIntervalSince(started) < 12 {
-                RunLoop.current.run(until:Date().addingTimeInterval(1))
-                continue
-            }
-            let fixtureRow = entries.first { $0.text.contains("void picker") || $0.text == String(token.prefix(8)).lowercased() }
-            let container = entries.first { $0.text == "void" }
-            let location = entries.first { ["on my iphone","我的 iphone","我的iphone"].contains($0.text) }
-            let browse = labels.first { ["browse","浏览"].contains($0.text) && ($0.point.x < 0.3 || $0.point.y > 0.9) }
-            if let folder = fixtureRow ?? container {
-                // On a fresh simulator the app's container tile can stay on screen after a tap.
-                // Search the current Files location for the exact seeded project in that case.
-                if folder.text == "void", lastFolder == folder.text, !searched {
-                    let field = app.searchFields.firstMatch
-                    if field.exists && field.isHittable {
-                        field.tap()
-                        field.typeText(fixture + "\n")
-                        searched = true
-                        lastFolder = nil
-                        continue
-                    }
-                }
-                let cell = pickerCell(named: fixtureRow == nil ? "void" : fixture)
-                if cell.exists && cell.isHittable {
-                    if fixtureRow != nil && cell.isSelected, let open { coordinate(open).tap(); return }
-                    if lastFolder == folder.text { cell.doubleTap() } else { cell.tap() }
-                    lastFolder = folder.text
-                    RunLoop.current.run(until: Date().addingTimeInterval(1))
-                    continue
-                }
-                // In Files' icon view the caption can receive taps for renaming. The
-                // separate item count below it identifies a tile; open its thumbnail.
-                let caption = entries.first {
-                    let delta = $0.point.y - folder.point.y
-                    return abs($0.point.x - folder.point.x) < 0.045 && delta > 0 && delta < 0.045
-                        && ($0.text.hasSuffix(" item") || $0.text.hasSuffix(" items") || $0.text.hasSuffix("项"))
-                }
-                var target = coordinate(folder)
-                if let caption {
-                    let lineHeight = (caption.point.y - folder.point.y) * app.frame.height
-                    target = target.withOffset(CGVector(dx: 0, dy: -min(54, max(30, 2.6 * lineHeight))))
-                }
-                if lastFolder == folder.text { target.doubleTap() } else { target.tap() }
-                lastFolder = folder.text
-            } else if let place = location ?? browse {
-                coordinate(place).tap()
-                lastFolder = nil
-            }
-            RunLoop.current.run(until:Date().addingTimeInterval(1))
-        } while Date() < end
-        let shot = XCTAttachment(screenshot:XCUIScreen.main.screenshot())
-        shot.name = "本机 Files 导航最后画面"; shot.lifetime = .keepAlways; add(shot)
-        XCTFail("Files 尚未在测试项目目录显示 app 和 Open")
-    }
-
     func testSystemOpenPreviewsProjectFromSelectedDocumentsDirectory() throws {
         if let existing = ProcessInfo.processInfo.environment["VOID_EXISTING_PICKER_PROJECT"] {
             token = try XCTUnwrap(UUID(uuidString:existing)).uuidString
         }
         openLibrary()
         app.buttons["host.import"].tap()
-        try pickLocalProjectInFiles()
-        let end = Date().addingTimeInterval(5)
-        repeat {
-            if let allow = try pickerLabels().first(where:{ ["allow","允许"].contains($0.text) }) { coordinate(allow).tap(); break }
-        } while Date() < end
+        openProjectDirectory(fixture, inAppDocuments: true)
         XCTAssertTrue(app.switches["显示问候"].firstMatch.waitForExistence(timeout:120),app.debugDescription)
         XCTAssertFalse(app.staticTexts["folder.status"].exists)
         app.returnToProjectList()

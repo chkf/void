@@ -153,7 +153,6 @@ manifest = target / "app/manifest.json"
 manifest.write_text(json.dumps({**json.loads(manifest.read_bytes()), "name": target.name}))
 print("已在模拟器本地 File Provider 准备外部 TSX 测试目录")
 PY
-  xcrun simctl terminate "$device" com.apple.DocumentsApp
 }
 
 verify_external_copy() {
@@ -173,6 +172,13 @@ assert record["declaredID"] == json.loads((copy / "runtime.json").read_bytes())[
 assert (copy / "app/src/main.tsx").read_bytes() == pathlib.Path("ios/TSXProject/app/src/main.tsx").read_bytes()
 print("已核对外部项目在 void 文稿中的副本、项目身份和登记位置。")
 PY
+}
+
+release_xcodebuild() {
+  local device="$1"
+  shift
+  xcodebuild "${args[@]}" -configuration Release ENABLE_TESTABILITY=YES \
+    -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO "$@"
 }
 
 # Prepare an unregistered TSX folder in this simulator's Documents. Consent and
@@ -271,19 +277,34 @@ case "${1:-device}" in
     xcodebuild "${args[@]}" -configuration Debug -destination 'generic/platform=iOS Simulator' build-for-testing
     ;;
   release-preview)
+    bash scripts/ios-build.sh build-release-tests
+    bash scripts/ios-build.sh external-import
+    bash scripts/ios-build.sh run-release-previews
+    ;;
+  build-release-tests)
     bash scripts/ios-build.sh start-simulator
     device=$(choose_simulator)
+    release_xcodebuild "$device" build-for-testing
     xcrun simctl bootstatus "$device" -b
-    preview_args=("${args[@]}" -configuration Release ENABLE_TESTABILITY=YES -destination "platform=iOS Simulator,id=$device" -parallel-testing-enabled NO)
-    xcodebuild "${preview_args[@]}" build-for-testing
+    ;;
+  external-import)
+    device=$(choose_simulator)
     install_picker_fixture "$device"
+    xcrun simctl install "$device" "$out/DerivedData/Build/Products/Release-iphonesimulator/VoidHost.app"
+    xcrun simctl launch "$device" app.chkf.void
+    release_xcodebuild "$device" \
+      -only-testing:VoidUITests/FolderPickerTests/testSystemOpenImportsExternalCopyAndReopensIt \
+      -resultBundlePath "$out/external-import.xcresult" test-without-building
+    verify_external_copy "$device"
+    ;;
+  run-release-previews)
+    device=$(choose_simulator)
     prepare_consent_test "$device" Release
     prepare_native_ui_test "$device" Release
     sample_slow_rebuild "$device" & sample_pid=$!
     trap 'kill "$sample_pid" 2>/dev/null || true' EXIT
-    with_simulator_actions "$device" xcodebuild "${preview_args[@]}" \
+    with_simulator_actions "$device" release_xcodebuild "$device" \
       -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidTests/NativeScrollViewportTests -only-testing:VoidUITests/SafeAreaTests \
-      -only-testing:VoidUITests/FolderPickerTests/testSystemOpenImportsExternalCopyAndReopensIt \
       -only-testing:VoidUITests/HostTests/testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch \
       -only-testing:VoidTests/NativeSDKTests/testClosingFirstConsentCancelsWithoutSavingADecision \
       -only-testing:VoidTests/DirectoryTests/testColdLaunchListsFilesProjectsBeforeAnyWatcherOrPreviewReadsSources \
@@ -298,7 +319,6 @@ case "${1:-device}" in
       -only-testing:VoidTests/PreviewRecoveryTests/testRecoveryUsesTheInterruptedRequestEvenAfterNewerFolderScan \
       -only-testing:VoidTests/PreviewRecoveryTests/testCreatingAProjectKeepsAnEarlierInterruptionUntilLaunchIsConfirmed \
       -resultBundlePath "$out/release-preview.xcresult" test-without-building
-    verify_external_copy "$device"
     ;;
   test)
     bash scripts/ios-build.sh build-tests
@@ -329,7 +349,6 @@ else:
 PY
     xcrun simctl terminate "$device" app.chkf.void
     xcrun simctl launch "$device" com.apple.DocumentsApp
-    xcrun simctl terminate "$device" com.apple.DocumentsApp
     local_test_status=0
     TEST_RUNNER_VOID_EXISTING_PICKER_PROJECT="$existing_project" xcodebuild "${args[@]}" -configuration Debug -destination "platform=iOS Simulator,id=$device" \
       -parallel-testing-enabled NO -test-timeouts-enabled YES -default-test-execution-time-allowance 240 \
@@ -423,5 +442,5 @@ PY
     verify_external_copy "$device"
     ditto -c -k --keepParent "$out/DerivedData/Build/Products/Debug-iphonesimulator/VoidHost.app" "$out/void-simulator.zip"
     ;;
-  *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests|release-preview|local-picker|native-layout" >&2; exit 2 ;;
+  *) echo "用法：bash scripts/ios-build.sh device|test|start-simulator|build-tests|run-tests|release-preview|build-release-tests|external-import|run-release-previews|local-picker|native-layout" >&2; exit 2 ;;
 esac
