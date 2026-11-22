@@ -223,6 +223,8 @@ jobs:
 
           在「从 GitHub 导入」中粘贴公开仓库的 HTTPS 地址，即可克隆并运行默认分支。仓库根目录需包含 app/manifest.json 和项目入口。之后长按项目，选「拉取并运行」即可更新。遇到文件冲突时会保留本地修改。[源码提交](https://github.com/$GITHUB_REPOSITORY/commit/$GITHUB_SHA)
 
+          修复了原生 React 输入框连续键入时可能只保留前几个字符的问题。
+
           沿用原签名团队和已安装版本的实际 Bundle ID 覆盖安装，然后从「所有项目」打开原登记。项目可锁定 @runtime/ui 1.1.0 配置系统标签栏和样式，原生 SDK 仍为 1.1.0。
 
           $simulator_note [原生组件、示例与版本规则](https://github.com/$GITHUB_REPOSITORY/blob/$tag/docs/NATIVE_UI.md)
