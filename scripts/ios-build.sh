@@ -264,7 +264,7 @@ case "${1:-device}" in
       -only-testing:VoidTests/NativeSafeAreaTests -only-testing:VoidTests/NativeScrollViewportTests -only-testing:VoidUITests/SafeAreaTests \
       -only-testing:VoidUITests/HostTests/testFirstPreviewPermissionChoicesAndSQLiteSurviveRelaunch \
       -only-testing:VoidTests/NativeSDKTests/testClosingFirstConsentCancelsWithoutSavingADecision \
-      -only-testing:VoidTests/DirectoryTests/testLocalRecognitionWaitsForExplicitPreviewToReadSources \
+      -only-testing:VoidTests/DirectoryTests/testColdLaunchListsFilesProjectsBeforeAnyWatcherOrPreviewReadsSources \
       -only-testing:VoidTests/DirectoryTests/testFingerprintMatchesFullContentsWithoutRetainingAssetsAndBoundsGrowingSources \
       -only-testing:VoidTests/DirectoryTests/testRecentTSXPreviewsExistingSQLiteThroughNativeFirstFrame \
       -only-testing:VoidTests/DirectoryTests/testRealImportPreviewRebuildFailureRecoveryAndColdReopen \
