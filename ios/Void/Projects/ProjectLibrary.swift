@@ -403,7 +403,7 @@ actor ProjectLibrary {
         }
         let (commit, observation) = try await Task.detached(priority: .userInitiated) {
             let commit = try transfer(source.address, copy)
-            let snapshot = try ProjectSourceReader().snapshot(copy, allowMissingEntry: false, retainingSources: false)
+            let snapshot = try ProjectSourceReader().snapshot(copy, allowMissingEntry: false, trace: nil, io: nil, retainingSources: false)
             return (commit, Observation(grant: grant, key: try Self.directoryKey(copy), snapshot: snapshot, sameLocations: []))
         }.value
         try Task.checkCancellation()
@@ -443,7 +443,7 @@ actor ProjectLibrary {
             let candidate = staging.directory.appendingPathComponent(root.lastPathComponent)
             try FileManager.default.copyItem(at: root, to: candidate)
             try ProjectGit.checkout(target, from: source.commit, database: database, at: candidate)
-            let snapshot = try ProjectSourceReader().snapshot(candidate, allowMissingEntry: false, retainingSources: false)
+            let snapshot = try ProjectSourceReader().snapshot(candidate, allowMissingEntry: false, trace: nil, io: nil, retainingSources: false)
             let info = snapshot.info
             if let expected = live.declaredID, expected != info.declaredID { throw DirectoryIssue(kind: .identity, item: "项目 id") }
             if let declared = info.declaredID, catalog.records.contains(where: { $0.id != id && $0.declaredID == declared }) {
