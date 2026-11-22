@@ -200,7 +200,7 @@ final class NativeNavigationTests: XCTestCase {
         app.launch()
         XCTAssertTrue(app.revealRecentProject(row))
         row.tap()
-        preview.tap()
+        app.confirmProjectLaunch()
         XCTAssertTrue(components.waitForExistence(timeout: 90), app.debugDescription)
         XCTAssertFalse(manage.exists)
         XCTAssertTrue(heading.waitForExistence(timeout: 12))
