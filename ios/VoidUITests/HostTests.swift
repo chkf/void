@@ -30,16 +30,17 @@ extension XCUIApplication {
     }
 
     func revealRecentProject(_ row: XCUIElement) -> Bool {
-        // A SwiftUI List can expose an offscreen row before a tap can reach it.
-        let recent = buttons.matching(NSPredicate(format: "identifier BEGINSWITH %@", "project.row.")).firstMatch
-        guard recent.waitForExistence(timeout: 45) else { return false }
+        // With large Dynamic Type, SwiftUI creates the first project row only after scrolling.
+        guard navigationBars["所有项目"].waitForExistence(timeout: 45) else { return false }
         _ = row.waitForExistence(timeout: 5)
         for _ in 0..<8 {
             if row.exists {
                 let bounds = row.frame
                 if !bounds.isEmpty && frame.contains(CGPoint(x: bounds.midX, y: bounds.midY)) && row.isHittable { return true }
             }
-            swipeUp()
+            let start = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.76))
+            let end = coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.38))
+            start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
         }
         return false
     }
